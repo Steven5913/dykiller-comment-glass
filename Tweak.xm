@@ -119,7 +119,25 @@ static id hook_vm_cellForRow(id self, SEL _cmd, id tv, id ip){
 // ===== 聊天消息气泡清透玻璃：逐字照搬长按倍速玻璃（LJ_MakeEffect + pill 配方）=====
 #import <objc/runtime.h>
 static char kDKBubbleGlassKey;
-// ===== 完全复刻长按倍速玻璃 LJ_MakeEffect：UIGlassEffect effectWithStyle:{1,0,2} → ultraThin → Light =====
+// ===== 气泡清透玻璃：彻底去背景 + 玻璃按气泡形状直接垫底（复刻长按倍速 LJ_MakeEffect 配方）=====
+// 彻底清掉气泡原有深色渐变/图片背景，露出下方壁纸让玻璃透出
+static void DKClearBubbleBackground(UIView *target){
+    @try {
+        target.backgroundColor = [UIColor clearColor];
+        target.layer.backgroundColor = [UIColor clearColor].CGColor;
+        target.layer.contents = nil;
+        if ([target.layer isKindOfClass:[CAGradientLayer class]]) {
+            CAGradientLayer *g = (CAGradientLayer*)target.layer;
+            g.colors = @[(id)[UIColor clearColor].CGColor, (id)[UIColor clearColor].CGColor];
+        }
+        NSArray *sls = [target.layer.sublayers copy];
+        for (CALayer *sl in sls) {
+            if ([sl isKindOfClass:[CAGradientLayer class]]) { sl.opacity = 0.0f; }
+            else if (sl.contents == nil && sl.backgroundColor && [sl.sublayers count]==0) { sl.opacity = 0.0f; }
+        }
+    } @catch(NSException *e){}
+}
+// 复刻长按倍速 LJ_MakeEffect：UIGlassEffect effectWithStyle:{1,0,2} → ultraThin → Light
 static UIVisualEffect *DKBubbleGlassEffect(void){
     UIVisualEffect *eff = nil;
     Class ge = NSClassFromString(@"UIGlassEffect");
@@ -134,60 +152,41 @@ static UIVisualEffect *DKBubbleGlassEffect(void){
             }
         }
     }
-    if (!eff) {
-        @try { eff = [UIBlurEffect effectWithStyle:UIBlurEffectStyleSystemUltraThinMaterial]; } @catch(...) { eff = nil; }
-    }
+    if (!eff) { @try { eff = [UIBlurEffect effectWithStyle:UIBlurEffectStyleSystemUltraThinMaterial]; } @catch(...){ eff=nil; } }
     if (!eff) eff = [UIBlurEffect effectWithStyle:UIBlurEffectStyleLight];
     return eff;
 }
-// 把气泡渐变背景透明化（气泡自带 CAGradientLayer 渐变，改成透明让玻璃透出）
-static void DKClearBubbleBackground(UIView *target){
-    @try {
-        target.backgroundColor = [UIColor clearColor];
-        if ([target.layer isKindOfClass:[CAGradientLayer class]]) {
-            ((CAGradientLayer*)target.layer).colors = @[(id)[UIColor clearColor].CGColor, (id)[UIColor clearColor].CGColor];
-        }
-        for (CALayer *sl in [target.layer.sublayers copy]) {
-            if ([sl isKindOfClass:[CAGradientLayer class]]) sl.opacity = 0.0f;
-            else if (sl.backgroundColor && !sl.hidden && [sl.sublayers count]==0) sl.opacity = 0.0f;
-        }
-    } @catch(NSException *e){}
-}
-// ===== 完全复刻长按倍速玻璃 LJ_ApplyGlassToLabel 的 pill 构造：模糊 + 白高光渐变 + 细边框 + 圆角 =====
+// 给气泡套玻璃：玻璃直接作为气泡背景（frame=bounds、clip到气泡形状），文字保持在上
 static void DKApplyGlassToView(UIView *target){
     if (!target || objc_getAssociatedObject(target, &kDKBubbleGlassKey)) return;
     if (target.bounds.size.width<10 || target.bounds.size.height<10) return;
-    DKClearBubbleBackground(target);
     UIVisualEffect *eff = DKBubbleGlassEffect();
     if (!eff) return;
-    CGFloat radius = target.layer.cornerRadius>0 ? target.layer.cornerRadius : target.bounds.size.height/2.0;
-    // 玻璃容器 pill
-    UIView *pill = [[UIView alloc] initWithFrame:target.bounds];
-    pill.userInteractionEnabled = NO;
-    pill.layer.cornerRadius = radius;
-    pill.clipsToBounds = YES;
-    // 模糊层（和长按倍速玻璃一致）
+    DKClearBubbleBackground(target);
+    // 让玻璃按气泡自身形状裁剪
+    target.clipsToBounds = YES;
+    // 模糊玻璃垫底
     UIVisualEffectView *vev = [[UIVisualEffectView alloc] initWithEffect:eff];
-    vev.frame = pill.bounds;
+    vev.frame = target.bounds;
     vev.autoresizingMask = UIViewAutoresizingFlexibleWidth|UIViewAutoresizingFlexibleHeight;
-    [pill addSubview:vev];
-    // 白高光渐变层（和长按倍速玻璃一致：白0.10→0.0，locations{0,0.20}，竖向）
+    vev.userInteractionEnabled = NO;
+    [target insertSubview:vev atIndex:0];
+    // 白高光渐变（液态玻璃高光）：白0.10→0.0，locations{0,0.20}，竖向
     CAGradientLayer *gl = [CAGradientLayer layer];
-    gl.frame = pill.bounds;
+    gl.frame = target.bounds;
     gl.colors = @[(id)[UIColor colorWithWhite:1.0 alpha:0.10].CGColor,
                   (id)[UIColor colorWithWhite:1.0 alpha:0.0].CGColor];
     gl.locations = @[@0.0f, @0.20f];
     gl.startPoint = CGPointMake(0, 0);
     gl.endPoint = CGPointMake(0, 1);
-    [pill.layer addSublayer:gl];
-    // 细边框（和长按倍速玻璃一致：白0.25/0.5pt）
-    pill.layer.borderColor = [UIColor colorWithWhite:1.0 alpha:0.25].CGColor;
-    pill.layer.borderWidth = 0.5;
-    // 把 pill 垫到气泡最底层（文字在上）
-    [target insertSubview:pill atIndex:0];
+    gl.zPosition = 0.1f;   // 垫在 vev 之上、文字之下
+    [target.layer addSublayer:gl];
+    // 细边框（液态玻璃描边）
+    target.layer.borderColor = [UIColor colorWithWhite:1.0 alpha:0.25].CGColor;
+    target.layer.borderWidth = 0.5;
     objc_setAssociatedObject(target, &kDKBubbleGlassKey, @(YES), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 }
-// 递归找 cell 内所有气泡视图（AWEIMMessageBubbleGradientView 或类名含 Bubble/Skylight），逐个套玻璃
+// 递归找 cell 内所有气泡视图并逐个套玻璃
 static void DKGlassifyCell(UIView *cell){
     if (!cell) return;
     NSMutableArray *stack = [NSMutableArray array];
@@ -207,11 +206,16 @@ static void DKGlassifyCell(UIView *cell){
         }
     }
 }
-// hook 气泡本体视图 layoutSubviews → 套清透玻璃
 static void (*orig_bubbleLayoutSubviews)(id,SEL);
 static void hook_bubbleLayoutSubviews(id self, SEL _cmd){
     orig_bubbleLayoutSubviews(self,_cmd);
     @try { DKApplyGlassToView(self); } @catch(NSException *e){}
+}
+// 兜底：hook 气泡 cell layoutSubviews，递归找气泡套玻璃
+static void (*orig_cellLayoutSubviews)(id,SEL);
+static void hook_cellLayoutSubviews(id self, SEL _cmd){
+    orig_cellLayoutSubviews(self,_cmd);
+    @try { DKGlassifyCell(self); } @catch(NSException *e){}
 }
 // hook 消息表格 cellForRowAtIndexPath → 覆盖所有 cell（对方+自己发的）
 static id (*orig_tableCellForRow)(id,SEL,id,id);
@@ -226,6 +230,16 @@ static void DKInstallBubbleHooks(void){
     if (bubble && !orig_bubbleLayoutSubviews) {
         MSHookMessageEx(bubble, sel_registerName("layoutSubviews"), (IMP)hook_bubbleLayoutSubviews, (IMP*)&orig_bubbleLayoutSubviews);
     }
+    Class cell = NSClassFromString(@"AWEIMReusableCommonCell");
+    if (cell && !orig_cellLayoutSubviews) {
+        MSHookMessageEx(cell, sel_registerName("layoutSubviews"), (IMP)hook_cellLayoutSubviews, (IMP*)&orig_cellLayoutSubviews);
+    }
+    Class vc = NSClassFromString(@"AWEIMMessageBaseViewController");
+    if (vc && !orig_tableCellForRow) {
+        MSHookMessageEx(vc, sel_registerName("tableView:cellForRowAtIndexPath:"), (IMP)hook_tableCellForRow, (IMP*)&orig_tableCellForRow);
+    }
+    g_bubbleHooksInstalled = (orig_bubbleLayoutSubviews || orig_cellLayoutSubviews || orig_tableCellForRow);
+}
     // 表格回调：dataSource 在 AWEIMMessageBaseViewController（图二聊天页 VC）
     Class vc = NSClassFromString(@"AWEIMMessageBaseViewController");
     if (vc && !orig_tableCellForRow) {
