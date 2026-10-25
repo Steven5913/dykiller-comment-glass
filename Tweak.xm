@@ -369,23 +369,38 @@ static void hook_cellLayoutSubviews(id self, SEL _cmd){
     @try { DKDebugOwnBubbles(self); } @catch(NSException *e){}
     @try { DKGlassifyCell(self); } @catch(NSException *e){}
 }
-// ===== 专项调试：打印所有 UIVisualEffectView(玻璃)的 frame + 父链，定位大的玻璃层 =====
+// ===== 专项调试：只打印"异常"cell——玻璃数>1 或 玻璃挂在宽>=300父视图(大的那层) =====
 static void DKDebugOwnBubbles(UIView *cell){
     if (!cell) return;
-    NSMutableString *s=[NSMutableString string];
+    // 收集该 cell 内所有玻璃
+    NSMutableArray *glasses=[NSMutableArray array];
     NSMutableArray *stack=[NSMutableArray array]; [stack addObject:cell];
     int guard=0;
-    while (stack.count && s.length<1100 && guard<400) {
+    while (stack.count && guard<500) {
         guard++; UIView *v=[stack lastObject]; [stack removeLastObject];
-        if ([v isKindOfClass:[UIVisualEffectView class]]) {
-            [s appendFormat:@"\nGLASS %.0fx%.0f r%.1f <- %@(r%.1f) <- %@(r%.1f)",
-             v.bounds.size.width, v.bounds.size.height, v.layer.cornerRadius,
-             v.superview?NSStringFromClass([v.superview class]):@"?",
-             v.superview?v.superview.layer.cornerRadius:0,
-             v.superview.superview?NSStringFromClass([v.superview.superview class]):@"?",
-             v.superview.superview?v.superview.superview.layer.cornerRadius:0];
-        }
+        if ([v isKindOfClass:[UIVisualEffectView class]]) [glasses addObject:v];
         for (UIView *sub in v.subviews) [stack addObject:sub];
+    }
+    // 只 dump 异常: 玻璃数>1(重叠) 或 有玻璃挂在宽>=300的父视图(大的那层)
+    BOOL abnormal = glasses.count > 1;
+    if (!abnormal) {
+        for (UIView *g in glasses) {
+            if (g.superview && g.superview.bounds.size.width >= 300) { abnormal=YES; break; }
+        }
+    }
+    if (!abnormal) return;
+    NSMutableString *s=[NSMutableString string];
+    [s appendFormat:@"\n== CELL %@ %.0fx%.0f glasses=%ld ==",
+     NSStringFromClass([cell class]), cell.bounds.size.width, cell.bounds.size.height, (long)glasses.count];
+    for (UIView *g in glasses) {
+        [s appendFormat:@"\n GLASS %.0fx%.0f r%.1f <- %@(r%.1f f%.0fx%.0f) <- %@(r%.1f)",
+         g.bounds.size.width, g.bounds.size.height, g.layer.cornerRadius,
+         g.superview?NSStringFromClass([g.superview class]):@"?",
+         g.superview?g.superview.layer.cornerRadius:0,
+         g.superview?g.superview.bounds.size.width:0,
+         g.superview?g.superview.bounds.size.height:0,
+         g.superview.superview?NSStringFromClass([g.superview.superview class]):@"?",
+         g.superview.superview?g.superview.superview.layer.cornerRadius:0];
     }
     @try {
         UIWindow *w = cell.window ?: [[[UIApplication sharedApplication] windows] lastObject];
@@ -400,10 +415,10 @@ static void DKDebugOwnBubbles(UIView *cell){
             g_dbgLabel.layer.borderColor = [UIColor redColor].CGColor;
             g_dbgLabel.userInteractionEnabled = NO;
         }
-        // 累积打印(保留最近 2500 字符), 不覆盖
+        // 累积打印(保留最近 2000 字符), 不覆盖
         NSString *old = g_dbgLabel.text ?: @"";
         NSString *combined = [old stringByAppendingString:s];
-        if (combined.length > 2500) combined = [combined substringFromIndex:combined.length-2500];
+        if (combined.length > 2000) combined = [combined substringFromIndex:combined.length-2000];
         g_dbgLabel.text = combined;
         CGRect f = g_dbgLabel.frame;
         CGFloat h = [combined boundingRectWithSize:CGSizeMake(380, CGFLOAT_MAX)
