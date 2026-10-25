@@ -118,18 +118,23 @@ static id hook_vm_cellForRow(id self, SEL _cmd, id tv, id ip){
 // ===== 聊天消息气泡清透玻璃：复用长按倍速玻璃手法（系统 UIVisualEffectView 清透）=====
 #import <objc/runtime.h>
 static char kDKBubbleGlassKey;
-// 创建清透玻璃效果：优先 UIGlassEffect(iOS26 液态玻璃)，回退 UIBlurEffect ultra-thin
+// 创建清透玻璃效果：优先 UIGlassEffect(iOS26 液态玻璃)，回退 UIBlurEffect ultra-thin + 亮白蒙层
 static UIVisualEffect *DKBubbleGlassEffect(void){
     Class GE = NSClassFromString(@"UIGlassEffect");
-    if (GE && [GE respondsToSelector:sel_registerName("effect")]) {
-        @try {
-            IMP imp = [GE methodForSelector:sel_registerName("effect")];
-            id e = ((id(*)(id,SEL))imp)(GE, sel_registerName("effect"));
-            if (e) return e;
-        } @catch(NSException *e){}
+    if (GE) {
+        // 尝试多种 UIGlassEffect 创建方式
+        SEL sels[] = {sel_registerName("effect"), sel_registerName("effectWithStyle:"), sel_registerName("effectWithTintColor:")};
+        for (int i=0;i<3;i++){
+            if ([GE respondsToSelector:sels[i]]) {
+                @try {
+                    IMP imp = [GE methodForSelector:sels[i]];
+                    id e = ((id(*)(id,SEL))imp)(GE, sels[i]);
+                    if (e) return e;
+                } @catch(NSException *e){}
+            }
+        }
     }
-    // 数字 12 = UIBlurEffectStyleSystemUltraThinMaterial(清透薄雾)，旧SDK无枚举名故用数字
-    return [UIBlurEffect effectWithStyle:(UIBlurEffectStyle)12];
+    return [UIBlurEffect effectWithStyle:(UIBlurEffectStyle)12]; // ultra-thin 清透薄雾
 }
 // 把气泡渐变背景透明化（气泡自带 CAGradientLayer 渐变，改成透明让玻璃透出）
 static void DKClearBubbleBackground(UIView *target){
@@ -144,10 +149,10 @@ static void DKClearBubbleBackground(UIView *target){
         }
     } @catch(NSException *e){}
 }
-// 给气泡视图套清透玻璃层（玻璃垫底、内容在上；先把气泡背景变透明让玻璃透出）
+// 给气泡视图套清透玻璃层（玻璃垫底、亮白蒙层、文字在上）
 static void DKApplyGlassToView(UIView *target){
     if (!target || objc_getAssociatedObject(target, &kDKBubbleGlassKey)) return;
-    if (target.frame.size.width<10 || target.frame.size.height<10) return;
+    if (target.bounds.size.width<10 || target.bounds.size.height<10) return;
     DKClearBubbleBackground(target);
     UIVisualEffectView *vev = [[UIVisualEffectView alloc] initWithEffect:DKBubbleGlassEffect()];
     vev.frame = target.bounds;
@@ -156,14 +161,34 @@ static void DKApplyGlassToView(UIView *target){
     vev.layer.cornerRadius = target.layer.cornerRadius>0 ? target.layer.cornerRadius : 16;
     vev.clipsToBounds = YES;
     [target insertSubview:vev atIndex:0];   // 垫底，让气泡文字显示在玻璃之上
-    // 白色半透明蒙层，营造清透玻璃质感（长按倍速玻璃手法）；alpha 0.3 保证可见
+    // 亮白半透明蒙层，营造清透玻璃质感（长按倍速玻璃手法）；alpha 0.5 保证明显玻璃感
     UIView *tint = [[UIView alloc] initWithFrame:target.bounds];
-    tint.backgroundColor = [[UIColor whiteColor] colorWithAlphaComponent:0.30f];
+    tint.backgroundColor = [[UIColor whiteColor] colorWithAlphaComponent:0.50f];
     tint.autoresizingMask = UIViewAutoresizingFlexibleWidth|UIViewAutoresizingFlexibleHeight;
     tint.userInteractionEnabled = NO;
     tint.layer.cornerRadius = vev.layer.cornerRadius;
     [target insertSubview:tint aboveSubview:vev];
     objc_setAssociatedObject(target, &kDKBubbleGlassKey, @(YES), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+}
+// 递归找 cell 内所有气泡视图（AWEIMMessageBubbleGradientView 或类名含 Bubble/Skylight），逐个套玻璃
+static void DKGlassifyCell(UIView *cell){
+    if (!cell) return;
+    NSMutableArray *stack = [NSMutableArray array];
+    [stack addObject:cell];
+    int guard=0;
+    while (stack.count>0 && guard<800) {
+        guard++;
+        UIView *v = [stack lastObject]; [stack removeLastObject];
+        NSString *cn = NSStringFromClass([v class]) ?: @"";
+        NSString *lo = cn.lowercaseString;
+        BOOL isBubble = [v isKindOfClass:NSClassFromString(@"AWEIMMessageBubbleGradientView")]
+                     || [lo containsString:@"bubble"] || [lo containsString:@"skylight"];
+        if (isBubble) {
+            DKApplyGlassToView(v);
+        } else {
+            for (UIView *s in v.subviews) [stack addObject:s];
+        }
+    }
 }
 // hook 气泡本体视图 layoutSubviews → 套清透玻璃
 static void (*orig_bubbleLayoutSubviews)(id,SEL);
@@ -171,18 +196,12 @@ static void hook_bubbleLayoutSubviews(id self, SEL _cmd){
     orig_bubbleLayoutSubviews(self,_cmd);
     @try { DKApplyGlassToView(self); } @catch(NSException *e){}
 }
-// 兜底：hook 气泡 cell layoutSubviews，找到气泡子视图套玻璃
-static void (*orig_cellLayoutSubviews)(id,SEL);
-static void hook_cellLayoutSubviews(id self, SEL _cmd){
-    orig_cellLayoutSubviews(self,_cmd);
-    @try {
-        for (UIView *s in ((UIView*)self).subviews) {
-            NSString *cn = NSStringFromClass([s class]) ?: @"";
-            if ([cn containsString:@"Bubble"] || [cn containsString:@"MsgBubble"] || [cn containsString:@"Skylight"]) {
-                DKApplyGlassToView(s);
-            }
-        }
-    } @catch(NSException *e){}
+// hook 消息表格 cellForRowAtIndexPath → 覆盖所有 cell（对方+自己发的）
+static id (*orig_tableCellForRow)(id,SEL,id,id);
+static id hook_tableCellForRow(id self, SEL _cmd, id tv, id ip){
+    id cell = orig_tableCellForRow(self,_cmd,tv,ip);
+    @try { DKGlassifyCell(cell); } @catch(NSException *e){}
+    return cell;
 }
 static BOOL g_bubbleHooksInstalled = NO;
 static void DKInstallBubbleHooks(void){
@@ -190,6 +209,13 @@ static void DKInstallBubbleHooks(void){
     if (bubble && !orig_bubbleLayoutSubviews) {
         MSHookMessageEx(bubble, sel_registerName("layoutSubviews"), (IMP)hook_bubbleLayoutSubviews, (IMP*)&orig_bubbleLayoutSubviews);
     }
+    // 表格回调：dataSource 在 AWEIMMessageBaseViewController（图二聊天页 VC）
+    Class vc = NSClassFromString(@"AWEIMMessageBaseViewController");
+    if (vc && !orig_tableCellForRow) {
+        MSHookMessageEx(vc, sel_registerName("tableView:cellForRowAtIndexPath:"), (IMP)hook_tableCellForRow, (IMP*)&orig_tableCellForRow);
+    }
+    g_bubbleHooksInstalled = (orig_bubbleLayoutSubviews || orig_tableCellForRow);
+}
     Class cell = NSClassFromString(@"AWEIMReusableCommonCell");
     if (cell && !orig_cellLayoutSubviews) {
         MSHookMessageEx(cell, sel_registerName("layoutSubviews"), (IMP)hook_cellLayoutSubviews, (IMP*)&orig_cellLayoutSubviews);
