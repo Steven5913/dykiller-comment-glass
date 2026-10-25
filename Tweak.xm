@@ -21,6 +21,9 @@ static BOOL hook_boolForKey(id self, SEL _cmd, NSString *key){
 }
 static NSInteger (*orig_integerForKey)(id,SEL,NSString*);
 static NSInteger hook_integerForKey(id self, SEL _cmd, NSString *key){
+    // 聊天玻璃走 display-mode：0=关 1=模糊 2=清透
+    if ([key isEqualToString:@"DYKillerChatInputGlass"]) return 2;   // 清透玻璃
+    if ([key isEqualToString:@"DYKillerCommentGlass"])   return 1;   // 评论区保持模糊
     if (DKShouldForceOff(key)) return 0;
     return orig_integerForKey(self,_cmd,key);
 }
@@ -36,6 +39,7 @@ static float hook_floatForKey(id self, SEL _cmd, NSString *key){
 }
 static id (*orig_objectForKey)(id,SEL,NSString*);
 static id hook_objectForKey(id self, SEL _cmd, NSString *key){
+    if ([key isEqualToString:@"DYKillerChatInputGlass"]) return @(2); // 清透
     if (DKIsGlass(key)) return @YES;
     if (DKShouldForceOff(key)) return nil;   // 关键：返回nil，非@NO
     return orig_objectForKey(self,_cmd,key);
@@ -135,9 +139,9 @@ static void DKInstallHooks(void){
 
 static void DKForceAllPrefs(void){
     NSUserDefaults *d = [NSUserDefaults standardUserDefaults];
-    // 评论玻璃 + 聊天玻璃 显式 YES
-    [d setBool:YES forKey:@"DYKillerCommentGlass"];
-    [d setBool:YES forKey:@"DYKillerChatInputGlass"];
+    // 评论玻璃(模糊,mode=1) + 聊天玻璃(清透,mode=2) 显式设置
+    [d setBool:YES forKey:@"DYKillerCommentGlass"];      // 评论: 模糊
+    [d setInteger:2 forKey:@"DYKillerChatInputGlass"];   // 聊天: 清透
     // 其余 DYKiller 功能：彻底删除key，保证 objectForKey 返回 nil / boolForKey 返回 NO
     [d removeObjectForKey:@"DYKillerAdjustRangeExtended"];
     [d removeObjectForKey:@"DYKillerAudioVizPosition"];
