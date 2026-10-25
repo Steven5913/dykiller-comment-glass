@@ -320,20 +320,18 @@ static void DKShowDebugTree(UIView *cell){
 static void DKDebugOwnBubbles(UIView *cell) __attribute__((unused));   // 前置声明
 static void hook_cellLayoutSubviews(id self, SEL _cmd){
     orig_cellLayoutSubviews(self,_cmd);
-    // @try { DKDebugOwnBubbles(self); } @catch(NSException *e){}   // 调试标签已关闭
+    @try { DKDebugOwnBubbles(self); } @catch(NSException *e){}
     @try { DKGlassifyCell(self); } @catch(NSException *e){}
 }
 // ===== 专项调试：打印"右侧(自己发的)"气泡类名+结构+背景来源 =====
 static void DKDebugOwnBubbles(UIView *cell){
     if (!cell) return;
-    // 只处理富媒体大 cell(高度>90, 如分享卡片/图文/长消息), 跳过普通56px文本
-    if (cell.bounds.size.height <= 90) return;
     NSMutableString *s=[NSMutableString string];
     [s appendFormat:@"\n== CELL[%@] %.0fx%.0f ==", NSStringFromClass([cell class]),
      cell.bounds.size.width, cell.bounds.size.height];
     NSMutableArray *stack=[NSMutableArray array]; [stack addObject:cell];
     int guard=0;
-    while (stack.count && s.length<1200 && guard<300) {
+    while (stack.count && s.length<900 && guard<300) {
         guard++; UIView *v=[stack lastObject]; [stack removeLastObject];
         NSString *cn=NSStringFromClass([v class])?:@"?";
         [s appendFormat:@"\n%@ f%.0f,%.0f %.0fx%.0f r%.1f %@ bg=%@ %@",
@@ -346,22 +344,26 @@ static void DKDebugOwnBubbles(UIView *cell){
         UIWindow *w = cell.window ?: [[[UIApplication sharedApplication] windows] lastObject];
         if (!w) return;
         if (!g_dbgLabel) {
-            g_dbgLabel = [[UILabel alloc] initWithFrame:CGRectMake(6, 100, 360, 200)];
+            g_dbgLabel = [[UILabel alloc] initWithFrame:CGRectMake(6, 60, 380, 240)];
             g_dbgLabel.numberOfLines = 0;
             g_dbgLabel.font = [UIFont systemFontOfSize:8];
             g_dbgLabel.textColor = [UIColor blackColor];
-            g_dbgLabel.backgroundColor = [[UIColor yellowColor] colorWithAlphaComponent:0.92];
+            g_dbgLabel.backgroundColor = [[UIColor yellowColor] colorWithAlphaComponent:0.95];
             g_dbgLabel.layer.borderWidth = 1;
             g_dbgLabel.layer.borderColor = [UIColor redColor].CGColor;
             g_dbgLabel.userInteractionEnabled = NO;
         }
-        g_dbgLabel.text = s;
+        // 累积打印(保留最近 2200 字符), 不覆盖
+        NSString *old = g_dbgLabel.text ?: @"";
+        NSString *combined = [old stringByAppendingString:s];
+        if (combined.length > 2200) combined = [combined substringFromIndex:combined.length-2200];
+        g_dbgLabel.text = combined;
         CGRect f = g_dbgLabel.frame;
-        CGFloat h = [s boundingRectWithSize:CGSizeMake(360, CGFLOAT_MAX)
+        CGFloat h = [combined boundingRectWithSize:CGSizeMake(380, CGFLOAT_MAX)
                    options:NSStringDrawingUsesLineFragmentOrigin
                    attributes:@{NSFontAttributeName:[UIFont systemFontOfSize:8]}
                    context:nil].size.height;
-        f.size.height = MIN(h+8, 700);
+        f.size.height = MIN(h+8, 780);
         g_dbgLabel.frame = f;
         [w addSubview:g_dbgLabel];
         [w bringSubviewToFront:g_dbgLabel];
