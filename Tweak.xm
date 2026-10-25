@@ -226,66 +226,6 @@ static void DKGlassifyCell(UIView *cell){
 }
 static void (*orig_bubbleLayoutSubviews)(id,SEL);
 static void DKShowDebugTree(UIView *cell) __attribute__((unused));   // 前置声明
-// ===== 精准调试：打印圆角父容器+内层渐变视图的图层内部(背景/子图层contents/子视图)=====
-static UILabel *g_dbg2 = nil;
-static void DKDebugBubbleContainer(UIView *gv) __attribute__((unused)){
-    if (!gv) return;
-    UIView *parent = gv.superview;
-    NSMutableString *s=[NSMutableString string];
-    if (parent) {
-        [s appendFormat:@"P[%@] r%.1f %.0fx%.0f clip%d bg=%@",
-         NSStringFromClass([parent class]), parent.layer.cornerRadius,
-         parent.bounds.size.width, parent.bounds.size.height, parent.clipsToBounds,
-         parent.backgroundColor];
-        for (CALayer *sl in parent.layer.sublayers) {
-            [s appendFormat:@"\nP.L[%@] bg=%@ contents=%d mask=%@ op%.2f",
-             NSStringFromClass([sl class]), sl.backgroundColor, sl.contents!=nil,
-             sl.mask?NSStringFromClass([sl.mask class]):@"-", sl.opacity];
-        }
-        for (UIView *sv in parent.subviews) {
-            [s appendFormat:@"\nP.V[%@] f=%.0f,%.0f %.0fx%.0f r%.1f hid=%d bg=%@ contents=%d",
-             NSStringFromClass([sv class]), sv.frame.origin.x, sv.frame.origin.y,
-             sv.bounds.size.width, sv.bounds.size.height, sv.layer.cornerRadius, sv.hidden,
-             sv.backgroundColor, sv.layer.contents!=nil];
-        }
-    }
-    [s appendFormat:@"\nGV[%@] bg=%@ r%.1f", NSStringFromClass([gv class]), gv.backgroundColor, gv.layer.cornerRadius];
-    for (CALayer *sl in gv.layer.sublayers) {
-        [s appendFormat:@"\nGV.L[%@] bg=%@ contents=%d mask=%@ op%.2f",
-         NSStringFromClass([sl class]), sl.backgroundColor, sl.contents!=nil,
-         sl.mask?NSStringFromClass([sl.mask class]):@"-", sl.opacity];
-    }
-    for (UIView *sv in gv.subviews) {
-        [s appendFormat:@"\nGV.V[%@] f=%.0f,%.0f %.0fx%.0f r%.1f hid=%d bg=%@",
-         NSStringFromClass([sv class]), sv.frame.origin.x, sv.frame.origin.y,
-         sv.bounds.size.width, sv.bounds.size.height, sv.layer.cornerRadius, sv.hidden,
-         sv.backgroundColor];
-    }
-    @try {
-        UIWindow *w = gv.window ?: [[[UIApplication sharedApplication] windows] lastObject];
-        if (!w) return;
-        if (!g_dbg2) {
-            g_dbg2 = [[UILabel alloc] initWithFrame:CGRectMake(6, 100, 360, 200)];
-            g_dbg2.numberOfLines = 0;
-            g_dbg2.font = [UIFont systemFontOfSize:8];
-            g_dbg2.textColor = [UIColor blackColor];
-            g_dbg2.backgroundColor = [[UIColor yellowColor] colorWithAlphaComponent:0.92];
-            g_dbg2.layer.borderWidth = 1;
-            g_dbg2.layer.borderColor = [UIColor redColor].CGColor;
-            g_dbg2.userInteractionEnabled = NO;
-        }
-        g_dbg2.text = s;
-        CGRect f = g_dbg2.frame;
-        CGFloat h = [s boundingRectWithSize:CGSizeMake(360, CGFLOAT_MAX)
-                   options:NSStringDrawingUsesLineFragmentOrigin
-                   attributes:@{NSFontAttributeName:[UIFont systemFontOfSize:8]}
-                   context:nil].size.height;
-        f.size.height = MIN(h+8, 700);
-        g_dbg2.frame = f;
-        [w addSubview:g_dbg2];
-        [w bringSubviewToFront:g_dbg2];
-    } @catch(NSException *e){}
-}
 static void hook_bubbleLayoutSubviews(id self, SEL _cmd){
     orig_bubbleLayoutSubviews(self,_cmd);
     // @try { DKDebugBubbleContainer(self); } @catch(NSException *e){}   // 调试标签已关闭
