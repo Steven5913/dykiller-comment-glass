@@ -132,11 +132,25 @@ static void DKShowDebugInfo(void){
             g_dbgLabel.layer.zPosition = 99999;
         }
         if (g_lastVC && g_lastVC.view.window) {
+            UIWindow *win = g_lastVC.view.window;
             NSMutableArray *lines = [NSMutableArray array];
-            [lines addObject:[NSString stringWithFormat:@"VC=%@", NSStringFromClass([g_lastVC class])]];
-            // 无过滤 dump 全部子视图（到深度7），跳过过小视图降低噪音
+            [lines addObject:[NSString stringWithFormat:@"WIN-VC=%@", NSStringFromClass([g_lastVC class])]];
+            // 列出 window 内所有 viewController
+            UIViewController *root = win.rootViewController;
+            if (root) {
+                __block int vcIdx=0;
+                void (^vcWalk)(UIViewController*,int) = ^(UIViewController *c,int d){
+                    if (d>3) return;
+                    NSString *ind = [@"  " stringByPaddingToLength:d*2 withString:@" " startingAtIndex:0];
+                    [lines addObject:[NSString stringWithFormat:@"%@VC#%d=%@", ind, vcIdx++, NSStringFromClass([c class])]];
+                    for (UIViewController *ch in c.childViewControllers) vcWalk(ch,d+1);
+                    if (c.presentedViewController) vcWalk(c.presentedViewController,d+1);
+                };
+                vcWalk(root,0);
+            }
+            // 遍历整个 window（含聊天页消息 collection 与气泡 cell），dump 全部子视图
             NSMutableArray *stack = [NSMutableArray array];
-            [stack addObject:@[g_lastVC.view, @(0)]];
+            [stack addObject:@[win, @(0)]];
             while (stack.count > 0) {
                 NSArray *top = [stack lastObject]; [stack removeLastObject];
                 UIView *v = top[0]; int d = [top[1] intValue];
@@ -151,7 +165,7 @@ static void DKShowDebugInfo(void){
                 }
             }
             g_dbgLabel.text = [lines componentsJoinedByString:@"\n"];
-            [g_lastVC.view.window addSubview:g_dbgLabel];
+            [win addSubview:g_dbgLabel];
             g_dbgLabel.frame = CGRectMake(0, 90, 480, 870);
         }
     } @catch(NSException *e){}
