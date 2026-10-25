@@ -139,7 +139,7 @@ static void DKShowDebugInfo(void){
             UIViewController *root = win.rootViewController;
             if (root) {
                 __block int vcIdx=0;
-                void (^vcWalk)(UIViewController*,int) = ^(UIViewController *c,int d){
+                __block void (^vcWalk)(UIViewController*,int) = ^(UIViewController *c,int d){
                     if (d>3) return;
                     NSString *ind = [@"  " stringByPaddingToLength:d*2 withString:@" " startingAtIndex:0];
                     [lines addObject:[NSString stringWithFormat:@"%@VC#%d=%@", ind, vcIdx++, NSStringFromClass([c class])]];
