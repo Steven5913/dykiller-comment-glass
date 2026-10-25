@@ -37,10 +37,17 @@ jobs:
 
       - name: 收集产物
         run: |
-          mkdir -p out
-          # 收集各架构 dylib
-          find .theos/obj -name "*.dylib" -exec cp {} out/ \; 2>/dev/null || true
-          ls -la out/
+          mkdir -p out/arm64e out/arm64
+          # 单独收集各架构切片
+          cp .theos/obj/debug/arm64e/DYKillerCommentGlass.dylib out/arm64e/ 2>/dev/null || true
+          cp .theos/obj/debug/arm64/DYKillerCommentGlass.dylib  out/arm64/  2>/dev/null || true
+          # lipo 合并成 fat（arm64 + arm64e）
+          lipo -create \
+              .theos/obj/debug/arm64/DYKillerCommentGlass.dylib \
+              .theos/obj/debug/arm64e/DYKillerCommentGlass.dylib \
+              -output out/DYKillerCommentGlass-fat.dylib 2>/dev/null || true
+          echo "===== 产物 ====="
+          find out -type f -exec file {} \;
 
       - name: 上传 dylib
         uses: actions/upload-artifact@v4
