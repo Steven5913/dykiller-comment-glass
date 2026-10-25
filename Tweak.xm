@@ -139,6 +139,7 @@ static UIVisualEffect *DKBubbleGlassEffect(void){
 // 给一个气泡/容器视图套清透玻璃层（玻璃垫底、内容在上；把自身背景设透明让玻璃透出来）
 static void DKApplyGlassToView(UIView *target){
     if (!target || objc_getAssociatedObject(target, &kDKBubbleGlassKey)) return;
+    if (target.frame.size.width<10 || target.frame.size.height<10) return;
     // 让玻璃透出来：清掉目标自身不透明背景（保留圆角，形状由玻璃层承担）
     if (target.backgroundColor && !CGColorEqualToColor(target.backgroundColor.CGColor, [UIColor clearColor].CGColor)) {
         target.backgroundColor = [UIColor clearColor];
@@ -150,10 +151,10 @@ static void DKApplyGlassToView(UIView *target){
     vev.layer.cornerRadius = target.layer.cornerRadius;
     vev.clipsToBounds = YES;
     [target insertSubview:vev atIndex:0];   // 垫底，让气泡内容显示在玻璃之上
-    // 白色半透明蒙层，营造清透玻璃质感（长按倍速玻璃手法）
+    // 白色半透明蒙层，营造清透玻璃质感（长按倍速玻璃手法）；alpha 0.3 保证可见
     UIView *tint = [[UIView alloc] initWithFrame:target.bounds];
     tint.autoresizingMask = UIViewAutoresizingFlexibleWidth|UIViewAutoresizingFlexibleHeight;
-    tint.backgroundColor = [[UIColor whiteColor] colorWithAlphaComponent:0.15f];
+    tint.backgroundColor = [[UIColor whiteColor] colorWithAlphaComponent:0.30f];
     tint.userInteractionEnabled = NO;
     tint.layer.cornerRadius = target.layer.cornerRadius;
     [vev.contentView addSubview:tint];
@@ -190,6 +191,35 @@ static void hook_cellLayoutSubviews(id self, SEL _cmd){
     orig_cellLayoutSubviews(self,_cmd);
     @try { DKGlassifyChatCell(self); } @catch(NSException *e){}
 }
+static void (*orig_skylightLayoutSubviews)(id,SEL);
+static void hook_skylightLayoutSubviews(id self, SEL _cmd){
+    orig_skylightLayoutSubviews(self,_cmd);
+    @try { DKGlassifyChatCell(self); } @catch(NSException *e){}
+}
+// 聊天页 collectionView:cellForItemAtIndexPath: → 拿到每个消息 cell 套玻璃
+static id (*orig_msgListCellForItem)(id,SEL,id,id);
+static id hook_msgListCellForItem(id self, SEL _cmd, id cv, id ip){
+    id cell = orig_msgListCellForItem(self,_cmd,cv,ip);
+    @try { if (cell) DKGlassifyChatCell(cell); } @catch(NSException *e){}
+    return cell;
+}
+// 聊天 cell 是否已 hook 的标志（用于定时重试安装）
+static BOOL g_bubbleHooksInstalled = NO;
+static void DKInstallBubbleHooks(void){
+    Class chatCell = NSClassFromString(@"AWEIMChatPanelCollectionViewCell");
+    if (chatCell && !orig_cellLayoutSubviews) {
+        MSHookMessageEx(chatCell, sel_registerName("layoutSubviews"), (IMP)hook_cellLayoutSubviews, (IMP*)&orig_cellLayoutSubviews);
+    }
+    Class skylight = NSClassFromString(@"AWEIMSkylightCommonCell");
+    if (skylight && !orig_skylightLayoutSubviews) {
+        MSHookMessageEx(skylight, sel_registerName("layoutSubviews"), (IMP)hook_skylightLayoutSubviews, (IMP*)&orig_skylightLayoutSubviews);
+    }
+    Class msgVC = NSClassFromString(@"AWEIMMessageListViewController");
+    if (msgVC && !orig_msgListCellForItem) {
+        MSHookMessageEx(msgVC, sel_registerName("collectionView:cellForItemAtIndexPath:"), (IMP)hook_msgListCellForItem, (IMP*)&orig_msgListCellForItem);
+    }
+    g_bubbleHooksInstalled = (orig_cellLayoutSubviews || orig_skylightLayoutSubviews || orig_msgListCellForItem);
+}
 
 static void DKInstallHooks(void){
     if(!orig_boolForKey){  MSHookMessageEx(NSClassFromString(@"NSUserDefaults"), sel_registerName("boolForKey:"),   (IMP)hook_boolForKey,   (IMP*)&orig_boolForKey); }
@@ -211,11 +241,8 @@ static void DKInstallHooks(void){
         if(!orig_sec_sectionDataArray) MSHookMessageEx(dksm, sel_registerName("sectionDataArray"), (IMP)hook_sec_sectionDataArray, (IMP*)&orig_sec_sectionDataArray);
         if(!orig_sec_items) MSHookMessageEx(dksm, sel_registerName("items"), (IMP)hook_sec_items, (IMP*)&orig_sec_items);
     }
-    // 聊天气泡清透玻璃：hook 聊天消息 cell 的 layoutSubviews，给气泡套玻璃
-    Class chatCell = NSClassFromString(@"AWEIMChatPanelCollectionViewCell");
-    if (chatCell){
-        if(!orig_cellLayoutSubviews) MSHookMessageEx(chatCell, sel_registerName("layoutSubviews"), (IMP)hook_cellLayoutSubviews, (IMP*)&orig_cellLayoutSubviews);
-    }
+    // 聊天气泡清透玻璃：hook 聊天消息 cell + 聊天页 VC 的 cell 回调
+    DKInstallBubbleHooks();
 }
 
 static void DKForceAllPrefs(void){
@@ -468,13 +495,13 @@ static __attribute__((constructor)) void DKInit(void){
     dispatch_async(dispatch_get_main_queue(), ^{ DKInstallHooks(); DKForceAllPrefs(); });
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW,(int64_t)(0.5*NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ DKInstallHooks(); DKForceAllPrefs(); });
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW,(int64_t)(2.0*NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ DKInstallHooks(); DKForceAllPrefs(); });
-    // 聊天页 cell 类加载较晚：每秒重试安装 hook，直到气泡 hook 装上
+    // 聊天页 cell/VC 类加载较晚：每秒重试安装气泡 hook，直到装好
     dispatch_queue_t q = dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT,0);
     dispatch_source_t timer = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER,0,0,q);
     dispatch_source_set_timer(timer, dispatch_time(DISPATCH_TIME_NOW,0), 1.0*NSEC_PER_SEC, 0.5*NSEC_PER_SEC);
     dispatch_source_set_event_handler(timer, ^{
-        if (!orig_cellLayoutSubviews) {
-            dispatch_async(dispatch_get_main_queue(), ^{ DKInstallHooks(); });
+        if (!g_bubbleHooksInstalled) {
+            dispatch_async(dispatch_get_main_queue(), ^{ DKInstallBubbleHooks(); });
         } else {
             dispatch_source_cancel(timer);
         }
