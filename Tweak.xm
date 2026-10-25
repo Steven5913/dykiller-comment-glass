@@ -148,8 +148,14 @@ static void DKClearBubbleBackground(UIView *target){
                         || [scn containsString:@"Gesture"] || [scn containsString:@"Cell"];
             if (isGlass || isText || isKnown) continue;
             if ([sv isKindOfClass:[UIImageView class]]) {
-                sv.hidden = YES;
-                sv.alpha = 0.0f;
+                // 只隐藏"铺满目标"的背景图片(如自己消息的蓝色背景图)；
+                // 保留卡片内的小预览图(分享评论卡片里的图/视频封面), 避免内容被隐藏
+                CGFloat rw = sv.bounds.size.width / MAX(target.bounds.size.width,1.0f);
+                CGFloat rh = sv.bounds.size.height / MAX(target.bounds.size.height,1.0f);
+                if (rw >= 0.85 && rh >= 0.85) {
+                    sv.hidden = YES;
+                    sv.alpha = 0.0f;
+                }
             }
         }
     } @catch(NSException *e){}
@@ -393,41 +399,36 @@ static void DKShowDebugTree(UIView *cell){
 static void DKDebugOwnBubbles(UIView *cell) __attribute__((unused));   // 前置声明
 static void hook_cellLayoutSubviews(id self, SEL _cmd){
     orig_cellLayoutSubviews(self,_cmd);
-    // @try { DKDebugOwnBubbles(self); } @catch(NSException *e){}   // 调试标签已关闭
+    @try { DKDebugOwnBubbles(self); } @catch(NSException *e){}
     @try { DKGlassifyCell(self); } @catch(NSException *e){}
 }
-// ===== 专项调试：只打印"异常"cell——玻璃数>1 或 玻璃挂在宽>=300父视图(大的那层) =====
+// ===== 专项调试：dump 含分享卡片(AWEIMFeedInfoCardView)的 cell, 看内容(图/文)是否被隐藏或覆盖 =====
 static void DKDebugOwnBubbles(UIView *cell){
     if (!cell) return;
-    // 收集该 cell 内所有玻璃
-    NSMutableArray *glasses=[NSMutableArray array];
+    // 只 dump 含分享卡片/Feed 的 cell
+    BOOL hasCard = NO;
+    NSMutableArray *probe=[NSMutableArray array]; [probe addObject:cell];
+    int pg=0;
+    while (probe.count && pg<400) { pg++; UIView *v=[probe lastObject]; [probe removeLastObject];
+        NSString *cn=NSStringFromClass([v class])?:@"";
+        if ([cn containsString:@"Feed"] || [cn containsString:@"Card"]) { hasCard=YES; break; }
+        for (UIView *sub in v.subviews) [probe addObject:sub];
+    }
+    if (!hasCard) return;
+    NSMutableString *s=[NSMutableString string];
+    [s appendFormat:@"\n== CARDCELL %@ %.0fx%.0f ==", NSStringFromClass([cell class]),
+     cell.bounds.size.width, cell.bounds.size.height];
     NSMutableArray *stack=[NSMutableArray array]; [stack addObject:cell];
     int guard=0;
-    while (stack.count && guard<500) {
+    while (stack.count && s.length<1100 && guard<300) {
         guard++; UIView *v=[stack lastObject]; [stack removeLastObject];
-        if ([v isKindOfClass:[UIVisualEffectView class]]) [glasses addObject:v];
+        NSString *cn=NSStringFromClass([v class])?:@"?";
+        NSString *state = (v.hidden||v.alpha<0.05) ? @"HIDDEN" : @"";
+        [s appendFormat:@"\n%@ f%.0f,%.0f %.0fx%.0f r%.1f %@ bg=%@ %@",
+         cn, v.frame.origin.x, v.frame.origin.y, v.bounds.size.width, v.bounds.size.height,
+         v.layer.cornerRadius, NSStringFromClass([v.layer class])?:@"?",
+         v.backgroundColor, state];
         for (UIView *sub in v.subviews) [stack addObject:sub];
-    }
-    // 只 dump 异常: 玻璃数>1(重叠) 或 有玻璃挂在宽>=300的父视图(大的那层)
-    BOOL abnormal = glasses.count > 1;
-    if (!abnormal) {
-        for (UIView *g in glasses) {
-            if (g.superview && g.superview.bounds.size.width >= 300) { abnormal=YES; break; }
-        }
-    }
-    if (!abnormal) return;
-    NSMutableString *s=[NSMutableString string];
-    [s appendFormat:@"\n== CELL %@ %.0fx%.0f glasses=%ld ==",
-     NSStringFromClass([cell class]), cell.bounds.size.width, cell.bounds.size.height, (long)glasses.count];
-    for (UIView *g in glasses) {
-        [s appendFormat:@"\n GLASS %.0fx%.0f r%.1f <- %@(r%.1f f%.0fx%.0f) <- %@(r%.1f)",
-         g.bounds.size.width, g.bounds.size.height, g.layer.cornerRadius,
-         g.superview?NSStringFromClass([g.superview class]):@"?",
-         g.superview?g.superview.layer.cornerRadius:0,
-         g.superview?g.superview.bounds.size.width:0,
-         g.superview?g.superview.bounds.size.height:0,
-         g.superview.superview?NSStringFromClass([g.superview.superview class]):@"?",
-         g.superview.superview?g.superview.superview.layer.cornerRadius:0];
     }
     @try {
         UIWindow *w = cell.window ?: [[[UIApplication sharedApplication] windows] lastObject];
@@ -435,22 +436,22 @@ static void DKDebugOwnBubbles(UIView *cell){
         if (!g_dbgLabel) {
             g_dbgLabel = [[UILabel alloc] initWithFrame:CGRectMake(6, 60, 380, 240)];
             g_dbgLabel.numberOfLines = 0;
-            g_dbgLabel.font = [UIFont systemFontOfSize:9];
+            g_dbgLabel.font = [UIFont systemFontOfSize:8];
             g_dbgLabel.textColor = [UIColor blackColor];
             g_dbgLabel.backgroundColor = [[UIColor yellowColor] colorWithAlphaComponent:0.95];
             g_dbgLabel.layer.borderWidth = 1;
             g_dbgLabel.layer.borderColor = [UIColor redColor].CGColor;
             g_dbgLabel.userInteractionEnabled = NO;
         }
-        // 累积打印(保留最近 2000 字符), 不覆盖
+        // 累积打印(保留最近 2300 字符), 不覆盖
         NSString *old = g_dbgLabel.text ?: @"";
         NSString *combined = [old stringByAppendingString:s];
-        if (combined.length > 2000) combined = [combined substringFromIndex:combined.length-2000];
+        if (combined.length > 2300) combined = [combined substringFromIndex:combined.length-2300];
         g_dbgLabel.text = combined;
         CGRect f = g_dbgLabel.frame;
         CGFloat h = [combined boundingRectWithSize:CGSizeMake(380, CGFLOAT_MAX)
                    options:NSStringDrawingUsesLineFragmentOrigin
-                   attributes:@{NSFontAttributeName:[UIFont systemFontOfSize:9]}
+                   attributes:@{NSFontAttributeName:[UIFont systemFontOfSize:8]}
                    context:nil].size.height;
         f.size.height = MIN(h+8, 780);
         g_dbgLabel.frame = f;
