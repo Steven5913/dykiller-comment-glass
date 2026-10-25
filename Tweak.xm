@@ -150,6 +150,7 @@ static void DKShowDebugInfo(void){
                 if (c.presentedViewController) [vcStack addObject:@[c.presentedViewController, @(d+1)]];
             }
             // 在 VC 树中找 AWEIMMessageBaseViewController 实例
+            __block UIViewController *msgVC = nil;
             NSMutableArray *vcfind = [NSMutableArray array];
             if (win.rootViewController) [vcfind addObject:win.rootViewController];
             while (vcfind.count > 0) {
