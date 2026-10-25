@@ -293,8 +293,10 @@ static void DKShowDebugTree(UIView *cell){
         [w bringSubviewToFront:g_dbgLabel];
     } @catch(NSException *e){}
 }
+static void DKDebugOwnBubbles(UIView *cell) __attribute__((unused));   // 前置声明
 static void hook_cellLayoutSubviews(id self, SEL _cmd){
     orig_cellLayoutSubviews(self,_cmd);
+    @try { DKDebugOwnBubbles(self); } @catch(NSException *e){}
     @try { DKGlassifyCell(self); } @catch(NSException *e){}
 }
 // ===== 专项调试：打印"右侧(自己发的)"气泡类名+结构+背景来源 =====
@@ -355,7 +357,6 @@ static void DKDebugOwnBubbles(UIView *cell){
 static id (*orig_tableCellForRow)(id,SEL,id,id);
 static id hook_tableCellForRow(id self, SEL _cmd, id tv, id ip){
     id cell = orig_tableCellForRow(self,_cmd,tv,ip);
-    @try { DKDebugOwnBubbles(cell); } @catch(NSException *e){}
     @try { DKGlassifyCell(cell); } @catch(NSException *e){}
     return cell;
 }
