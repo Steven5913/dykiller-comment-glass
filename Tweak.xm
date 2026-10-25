@@ -1,27 +1,61 @@
-// ForceDYKillerPrefs — 直接 hook DYKiller 的 4 个偏好读取函数(_DKPref*)
-// 强制：除 DYKillerCommentGlass(评论区液态玻璃·模糊)外，所有 DYKiller 功能一律返回“关/0”。
-// 这样 DYKiller 真身天生只有评论区玻璃生效，其他功能(藏导航/改头像/缩互动栏/藏音乐等)全部失效，
-// 且不影响抖音优化(siwenjiajia)任何功能。
+// ForceDYKillerPrefs v2 — hook NSUserDefaults 读取方法，强制只开评论区玻璃。
+// 原理：DYKiller 所有开关本质都是 NSUserDefaults 读(key=BOOL/Integer/Double)。
+// 我们 hook 读取方法，凡 DYKiller* 前缀的 key：除 DYKillerCommentGlass(评论液态玻璃·模糊)放行为 YES 外，
+// 一律返回 NO/0。抖音优化(siwenjiajia)自身 key 不以 DYKiller 开头，完全不受影响。
+// ObjC 层 hook，无 arm64e PAC 问题，且覆盖 DYKiller 可能使用的任意 defaults suite。
 #import <Foundation/Foundation.h>
 #import <UIKit/UIKit.h>
+#import <substrate.h>
 
-%hookf(BOOL, _DKPrefBool, NSString *key) {
-    if ([key isEqualToString:@"DYKillerCommentGlass"]) return YES; // 评论区液态玻璃·模糊 ON
-    if ([key hasPrefix:@"DYKiller"]) return NO;                    // 其余 DYKiller 功能 全关
-    return %orig(key);
+static inline BOOL DKShouldForceOff(NSString *key){
+    if (![key hasPrefix:@"DYKiller"]) return NO;          // 非 DYKiller key，放行(抖音优化等)
+    if ([key isEqualToString:@"DYKillerCommentGlass"]) return NO; // 评论区玻璃·模糊 放行(下面返回YES)
+    return YES;                                          // 其余 DYKiller 功能 一律关
+}
+static inline BOOL DKIsCommentGlass(NSString *key){
+    return [key isEqualToString:@"DYKillerCommentGlass"];
 }
 
-%hookf(NSInteger, _DKPrefInteger, NSString *key) {
-    if ([key hasPrefix:@"DYKiller"]) return 0;
-    return %orig(key);
+static BOOL (*orig_boolForKey)(id,SEL,NSString*);
+static BOOL hook_boolForKey(id self, SEL _cmd, NSString *key){
+    if (DKIsCommentGlass(key)) return YES;
+    if (DKShouldForceOff(key)) return NO;
+    return orig_boolForKey(self,_cmd,key);
 }
-%hookf(NSInteger, _DKPrefDisplayMode, NSString *key) {
-    if ([key hasPrefix:@"DYKiller"]) return 0;
-    return %orig(key);
+static NSInteger (*orig_integerForKey)(id,SEL,NSString*);
+static NSInteger hook_integerForKey(id self, SEL _cmd, NSString *key){
+    if (DKShouldForceOff(key)) return 0;
+    return orig_integerForKey(self,_cmd,key);
 }
-%hookf(CGFloat, _DKPrefFraction, NSString *key, CGFloat def) {
-    if ([key hasPrefix:@"DYKiller"]) return 0;
-    return %orig(key, def);
+static double (*orig_doubleForKey)(id,SEL,NSString*);
+static double hook_doubleForKey(id self, SEL _cmd, NSString *key){
+    if (DKShouldForceOff(key)) return 0.0;
+    return orig_doubleForKey(self,_cmd,key);
+}
+static float (*orig_floatForKey)(id,SEL,NSString*);
+static float hook_floatForKey(id self, SEL _cmd, NSString *key){
+    if (DKShouldForceOff(key)) return 0.0f;
+    return orig_floatForKey(self,_cmd,key);
+}
+static id (*orig_objectForKey)(id,SEL,NSString*);
+static id hook_objectForKey(id self, SEL _cmd, NSString *key){
+    if (DKIsCommentGlass(key)) return @YES;
+    if (DKShouldForceOff(key)) return @NO;
+    return orig_objectForKey(self,_cmd,key);
+}
+static NSString *(*orig_stringForKey)(id,SEL,NSString*);
+static NSString *hook_stringForKey(id self, SEL _cmd, NSString *key){
+    if (DKShouldForceOff(key)) return nil;
+    return orig_stringForKey(self,_cmd,key);
+}
+
+static void DKInstallHooks(void){
+    if(!orig_boolForKey){  MSHookMessageEx(NSClassFromString(@"NSUserDefaults"), sel_registerName("boolForKey:"),   (IMP)hook_boolForKey,   (IMP*)&orig_boolForKey); }
+    if(!orig_integerForKey){MSHookMessageEx(NSClassFromString(@"NSUserDefaults"), sel_registerName("integerForKey:"),(IMP)hook_integerForKey,(IMP*)&orig_integerForKey); }
+    if(!orig_doubleForKey){ MSHookMessageEx(NSClassFromString(@"NSUserDefaults"), sel_registerName("doubleForKey:"),  (IMP)hook_doubleForKey,  (IMP*)&orig_doubleForKey); }
+    if(!orig_floatForKey){  MSHookMessageEx(NSClassFromString(@"NSUserDefaults"), sel_registerName("floatForKey:"),   (IMP)hook_floatForKey,   (IMP*)&orig_floatForKey); }
+    if(!orig_objectForKey){ MSHookMessageEx(NSClassFromString(@"NSUserDefaults"), sel_registerName("objectForKey:"),  (IMP)hook_objectForKey,  (IMP*)&orig_objectForKey); }
+    if(!orig_stringForKey){ MSHookMessageEx(NSClassFromString(@"NSUserDefaults"), sel_registerName("stringForKey:"),  (IMP)hook_stringForKey,  (IMP*)&orig_stringForKey); }
 }
 
 static void DKForceAllPrefs(void){
@@ -248,9 +282,10 @@ static void DKForceAllPrefs(void){
     [d synchronize];
 }
 
-%ctor{
+static __attribute__((constructor)) void DKInit(void){
+    DKInstallHooks();
     DKForceAllPrefs();
-    dispatch_async(dispatch_get_main_queue(), ^{ DKForceAllPrefs(); });
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW,(int64_t)(0.5*NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ DKForceAllPrefs(); });
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW,(int64_t)(2.0*NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ DKForceAllPrefs(); });
+    dispatch_async(dispatch_get_main_queue(), ^{ DKInstallHooks(); DKForceAllPrefs(); });
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW,(int64_t)(0.5*NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ DKInstallHooks(); DKForceAllPrefs(); });
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW,(int64_t)(2.0*NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ DKInstallHooks(); DKForceAllPrefs(); });
 }
