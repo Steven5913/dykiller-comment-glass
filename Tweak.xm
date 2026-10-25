@@ -135,18 +135,19 @@ static void DKShowDebugInfo(void){
             UIWindow *win = g_lastVC.view.window;
             NSMutableArray *lines = [NSMutableArray array];
             [lines addObject:[NSString stringWithFormat:@"WIN-VC=%@", NSStringFromClass([g_lastVC class])]];
-            // 列出 window 内所有 viewController
+            // 列出 window 内所有 viewController（迭代）
+            __block int vcIdx=0;
             UIViewController *root = win.rootViewController;
-            if (root) {
-                __block int vcIdx=0;
-                __block void (^vcWalk)(UIViewController*,int) = ^(UIViewController *c,int d){
-                    if (d>3) return;
-                    NSString *ind = [@"  " stringByPaddingToLength:d*2 withString:@" " startingAtIndex:0];
-                    [lines addObject:[NSString stringWithFormat:@"%@VC#%d=%@", ind, vcIdx++, NSStringFromClass([c class])]];
-                    for (UIViewController *ch in c.childViewControllers) vcWalk(ch,d+1);
-                    if (c.presentedViewController) vcWalk(c.presentedViewController,d+1);
-                };
-                vcWalk(root,0);
+            NSMutableArray *vcStack = [NSMutableArray array];
+            if (root) [vcStack addObject:@[root, @(0)]];
+            while (vcStack.count > 0) {
+                NSArray *top = [vcStack lastObject]; [vcStack removeLastObject];
+                UIViewController *c = top[0]; int d = [top[1] intValue];
+                if (d>3) continue;
+                NSString *ind = [@"  " stringByPaddingToLength:d*2 withString:@" " startingAtIndex:0];
+                [lines addObject:[NSString stringWithFormat:@"%@VC#%d=%@", ind, vcIdx++, NSStringFromClass([c class])]];
+                for (UIViewController *ch in c.childViewControllers) [vcStack addObject:@[ch, @(d+1)]];
+                if (c.presentedViewController) [vcStack addObject:@[c.presentedViewController, @(d+1)]];
             }
             // 遍历整个 window（含聊天页消息 collection 与气泡 cell），dump 全部子视图
             NSMutableArray *stack = [NSMutableArray array];
