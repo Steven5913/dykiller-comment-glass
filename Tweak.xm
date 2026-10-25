@@ -122,8 +122,8 @@ static UIViewController *g_lastVC = nil;
 static void DKShowDebugInfo(void){
     @try {
         if (!g_dbgLabel) {
-            g_dbgLabel = [[UILabel alloc] initWithFrame:CGRectMake(0, 80, 430, 440)];
-            g_dbgLabel.backgroundColor = [[UIColor blackColor] colorWithAlphaComponent:0.85f];
+            g_dbgLabel = [[UILabel alloc] initWithFrame:CGRectMake(0, 90, 480, 870)];
+            g_dbgLabel.backgroundColor = [[UIColor blackColor] colorWithAlphaComponent:0.55f];
             g_dbgLabel.textColor = [UIColor yellowColor];
             g_dbgLabel.font = [UIFont boldSystemFontOfSize:9];
             g_dbgLabel.numberOfLines = 0;
@@ -134,31 +134,25 @@ static void DKShowDebugInfo(void){
         if (g_lastVC && g_lastVC.view.window) {
             NSMutableArray *lines = [NSMutableArray array];
             [lines addObject:[NSString stringWithFormat:@"VC=%@", NSStringFromClass([g_lastVC class])]];
-            // 迭代遍历（显式栈，避免 block 递归捕获导致的 retain cycle 警告）
+            // 无过滤 dump 全部子视图（到深度7），跳过过小视图降低噪音
             NSMutableArray *stack = [NSMutableArray array];
             [stack addObject:@[g_lastVC.view, @(0)]];
             while (stack.count > 0) {
                 NSArray *top = [stack lastObject]; [stack removeLastObject];
                 UIView *v = top[0]; int d = [top[1] intValue];
-                if (d>4) continue;
+                if (d>7) continue;
                 for (UIView *s in v.subviews) {
-                    NSString *cn = NSStringFromClass([s class]) ?: @"";
-                    NSString *lo = cn.lowercaseString;
-                    BOOL hit = d<=1 || [lo containsString:@"cell"] || [lo containsString:@"collection"]
-                             || [lo containsString:@"table"] || [lo containsString:@"bubble"]
-                             || [lo containsString:@"message"] || [lo containsString:@"msg"]
-                             || [lo containsString:@"skylight"];
-                    if (hit) {
-                        NSString *ind = [@"  " stringByPaddingToLength:d*2 withString:@" " startingAtIndex:0];
-                        [lines addObject:[NSString stringWithFormat:@"%@%@[%.0f,%.0f,%.0f,%.0f]", ind, cn,
-                                          s.frame.origin.x,s.frame.origin.y,s.frame.size.width,s.frame.size.height]];
-                        [stack addObject:@[s, @(d+1)]];
-                    }
+                    if (s.frame.size.width<15 || s.frame.size.height<15) continue;
+                    NSString *cn = NSStringFromClass([s class]) ?: @"?";
+                    NSString *ind = [@"  " stringByPaddingToLength:d*2 withString:@" " startingAtIndex:0];
+                    [lines addObject:[NSString stringWithFormat:@"%@%@[%.0f,%.0f,%.0f,%.0f]", ind, cn,
+                                      s.frame.origin.x,s.frame.origin.y,s.frame.size.width,s.frame.size.height]];
+                    [stack addObject:@[s, @(d+1)]];
                 }
             }
             g_dbgLabel.text = [lines componentsJoinedByString:@"\n"];
             [g_lastVC.view.window addSubview:g_dbgLabel];
-            g_dbgLabel.frame = CGRectMake(0, 80, 430, 440);
+            g_dbgLabel.frame = CGRectMake(0, 90, 480, 870);
         }
     } @catch(NSException *e){}
 }
