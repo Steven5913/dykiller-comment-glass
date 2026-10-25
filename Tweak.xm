@@ -311,7 +311,7 @@ static void DKShowDebugTree(UIView *cell){
 static void DKDebugOwnBubbles(UIView *cell) __attribute__((unused));   // 前置声明
 static void hook_cellLayoutSubviews(id self, SEL _cmd){
     orig_cellLayoutSubviews(self,_cmd);
-    // @try { DKDebugOwnBubbles(self); } @catch(NSException *e){}   // 调试标签已关闭
+    @try { DKDebugOwnBubbles(self); } @catch(NSException *e){}
     @try { DKGlassifyCell(self); } @catch(NSException *e){}
 }
 // ===== 专项调试：打印"右侧(自己发的)"气泡类名+结构+背景来源 =====
@@ -322,36 +322,32 @@ static void DKDebugOwnBubbles(UIView *cell){
     int guard=0;
     while (stack.count && s.length<1300 && guard<500) {
         guard++; UIView *v=[stack lastObject]; [stack removeLastObject];
-        if (v.bounds.size.width>=70 && v.bounds.size.height>=22) {
+        if (v.bounds.size.width>=80 && v.bounds.size.height>=24) {
             CGFloat x = v.frame.origin.x;
             NSString *cn=NSStringFromClass([v class])?:@"?";
-            NSString *lo=[cn lowercaseString];
-            BOOL hint = [lo containsString:@"bubble"]||[lo containsString:@"gradient"]||[lo containsString:@"skylight"]||[lo containsString:@"content"];
-            if (hint || x>=250) {
-                NSString *lc=NSStringFromClass([v.layer class])?:@"?";
-                [s appendFormat:@"\n[%@] f%.0f,%.0f %.0fx%.0f r%.1f %@ bg=%@ %@",
-                 cn, x, v.frame.origin.y, v.bounds.size.width, v.bounds.size.height,
-                 v.layer.cornerRadius, lc, v.backgroundColor,
-                 (v.hidden||v.alpha<0.01)?@"H":@""];
-                UIView *p=v.superview;
-                while (p && s.length<1600) {
-                    [s appendFormat:@" <- %@(r%.1f bg=%@)", NSStringFromClass([p class])?:@"?", p.layer.cornerRadius, p.backgroundColor];
-                    p=p.superview;
-                }
-                // 气泡内部图层：渐变/图片/子视图(找残留背景)
-                for (CALayer *sl in v.layer.sublayers) {
-                    [s appendFormat:@"\n   L[%@] bg=%@ c=%d m=%@ op%.2f",
-                     NSStringFromClass([sl class]), sl.backgroundColor, sl.contents!=nil,
-                     sl.mask?NSStringFromClass([sl.mask class]):@"-", sl.opacity];
-                }
-                for (UIView *sv in v.subviews) {
-                    [s appendFormat:@"\n   V[%@] f%.0f,%.0f %.0fx%.0f r%.1f hid=%d bg=%@",
-                     NSStringFromClass([sv class]), sv.frame.origin.x, sv.frame.origin.y,
-                     sv.bounds.size.width, sv.bounds.size.height, sv.layer.cornerRadius,
-                     sv.hidden, sv.backgroundColor];
-                }
-                [s appendString:@"\n"];
+            NSString *lc=NSStringFromClass([v.layer class])?:@"?";
+            [s appendFormat:@"\n[%@] f%.0f,%.0f %.0fx%.0f r%.1f %@ bg=%@ %@",
+             cn, x, v.frame.origin.y, v.bounds.size.width, v.bounds.size.height,
+             v.layer.cornerRadius, lc, v.backgroundColor,
+             (v.hidden||v.alpha<0.01)?@"H":@""];
+            UIView *p=v.superview;
+            while (p && s.length<1600) {
+                [s appendFormat:@" <- %@(r%.1f bg=%@)", NSStringFromClass([p class])?:@"?", p.layer.cornerRadius, p.backgroundColor];
+                p=p.superview;
             }
+            // 内部图层：渐变/图片/子视图(找背景/结构)
+            for (CALayer *sl in v.layer.sublayers) {
+                [s appendFormat:@"\n   L[%@] bg=%@ c=%d m=%@ op%.2f",
+                 NSStringFromClass([sl class]), sl.backgroundColor, sl.contents!=nil,
+                 sl.mask?NSStringFromClass([sl.mask class]):@"-", sl.opacity];
+            }
+            for (UIView *sv in v.subviews) {
+                [s appendFormat:@"\n   V[%@] f%.0f,%.0f %.0fx%.0f r%.1f hid=%d bg=%@",
+                 NSStringFromClass([sv class]), sv.frame.origin.x, sv.frame.origin.y,
+                 sv.bounds.size.width, sv.bounds.size.height, sv.layer.cornerRadius,
+                 sv.hidden, sv.backgroundColor];
+            }
+            [s appendString:@"\n"];
         }
         for (UIView *sub in v.subviews) [stack addObject:sub];
     }
