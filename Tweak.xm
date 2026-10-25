@@ -56,24 +56,24 @@ static BOOL DKIsDKObj(id o){
     }
     return NO;
 }
-// 过滤视图模型返回的区块数组(AWESettingsViewModel.sectionViewModelArray / sections)
-static id (*orig_vm_sectionArray)(id,SEL);
-static id hook_vm_sectionArray(id self, SEL _cmd){
-    id orig = orig_vm_sectionArray(self,_cmd);
-    if (!orig || ![orig isKindOfClass:[NSArray class]]) return orig;
-    NSMutableArray *out = [NSMutableArray arrayWithCapacity:[orig count]];
-    for (id s in (NSArray*)orig){ if(!DKIsDKObj(s)) [out addObject:s]; }
+static id DKFilterArray(id arr){
+    if (!arr || ![arr isKindOfClass:[NSArray class]]) return arr;
+    NSMutableArray *out = [NSMutableArray arrayWithCapacity:[arr count]];
+    for (id s in (NSArray*)arr){ if(!DKIsDKObj(s)) [out addObject:s]; }
     return out;
 }
-// 过滤区块模型返回的条目数组(AWESettingSectionModel.sectionDataArray)
-static id (*orig_sec_dataArray)(id,SEL);
-static id hook_sec_dataArray(id self, SEL _cmd){
-    id orig = orig_sec_dataArray(self,_cmd);
-    if (!orig || ![orig isKindOfClass:[NSArray class]]) return orig;
-    NSMutableArray *out = [NSMutableArray arrayWithCapacity:[orig count]];
-    for (id s in (NSArray*)orig){ if(!DKIsDKObj(s)) [out addObject:s]; }
-    return out;
-}
+// 视图模型区块数组 (AWESettingsViewModel)
+static id (*orig_vm_sectionViewModelArray)(id,SEL);
+static id hook_vm_sectionViewModelArray(id self, SEL _cmd){ return DKFilterArray(orig_vm_sectionViewModelArray(self,_cmd)); }
+static id (*orig_vm_sectionViewModelsArray)(id,SEL);
+static id hook_vm_sectionViewModelsArray(id self, SEL _cmd){ return DKFilterArray(orig_vm_sectionViewModelsArray(self,_cmd)); }
+static id (*orig_vm_sections)(id,SEL);
+static id hook_vm_sections(id self, SEL _cmd){ return DKFilterArray(orig_vm_sections(self,_cmd)); }
+// 区块模型条目数组 (AWESettingSectionModel)
+static id (*orig_sec_sectionDataArray)(id,SEL);
+static id hook_sec_sectionDataArray(id self, SEL _cmd){ return DKFilterArray(orig_sec_sectionDataArray(self,_cmd)); }
+static id (*orig_sec_items)(id,SEL);
+static id hook_sec_items(id self, SEL _cmd){ return DKFilterArray(orig_sec_items(self,_cmd)); }
 
 static void DKInstallHooks(void){
     if(!orig_boolForKey){  MSHookMessageEx(NSClassFromString(@"NSUserDefaults"), sel_registerName("boolForKey:"),   (IMP)hook_boolForKey,   (IMP*)&orig_boolForKey); }
@@ -83,12 +83,15 @@ static void DKInstallHooks(void){
     if(!orig_objectForKey){ MSHookMessageEx(NSClassFromString(@"NSUserDefaults"), sel_registerName("objectForKey:"),  (IMP)hook_objectForKey,  (IMP*)&orig_objectForKey); }
     if(!orig_stringForKey){ MSHookMessageEx(NSClassFromString(@"NSUserDefaults"), sel_registerName("stringForKey:"),  (IMP)hook_stringForKey,  (IMP*)&orig_stringForKey); }
     Class dkvm = NSClassFromString(@"AWESettingsViewModel");
-    if (dkvm && !orig_vm_sectionArray){
-        MSHookMessageEx(dkvm, sel_registerName("sectionViewModelArray"), (IMP)hook_vm_sectionArray, (IMP*)&orig_vm_sectionArray);
+    if (dkvm){
+        if(!orig_vm_sectionViewModelArray) MSHookMessageEx(dkvm, sel_registerName("sectionViewModelArray"), (IMP)hook_vm_sectionViewModelArray, (IMP*)&orig_vm_sectionViewModelArray);
+        if(!orig_vm_sectionViewModelsArray) MSHookMessageEx(dkvm, sel_registerName("sectionViewModelsArray"), (IMP)hook_vm_sectionViewModelsArray, (IMP*)&orig_vm_sectionViewModelsArray);
+        if(!orig_vm_sections) MSHookMessageEx(dkvm, sel_registerName("sections"), (IMP)hook_vm_sections, (IMP*)&orig_vm_sections);
     }
     Class dksm = NSClassFromString(@"AWESettingSectionModel");
-    if (dksm && !orig_sec_dataArray){
-        MSHookMessageEx(dksm, sel_registerName("sectionDataArray"), (IMP)hook_sec_dataArray, (IMP*)&orig_sec_dataArray);
+    if (dksm){
+        if(!orig_sec_sectionDataArray) MSHookMessageEx(dksm, sel_registerName("sectionDataArray"), (IMP)hook_sec_sectionDataArray, (IMP*)&orig_sec_sectionDataArray);
+        if(!orig_sec_items) MSHookMessageEx(dksm, sel_registerName("items"), (IMP)hook_sec_items, (IMP*)&orig_sec_items);
     }
 }
 
