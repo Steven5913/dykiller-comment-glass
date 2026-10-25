@@ -399,7 +399,7 @@ static void DKShowDebugTree(UIView *cell){
 static void DKDebugOwnBubbles(UIView *cell) __attribute__((unused));   // 前置声明
 static void hook_cellLayoutSubviews(id self, SEL _cmd){
     orig_cellLayoutSubviews(self,_cmd);
-    @try { DKDebugOwnBubbles(self); } @catch(NSException *e){}
+    // @try { DKDebugOwnBubbles(self); } @catch(NSException *e){}   // 调试标签已关闭
     @try { DKGlassifyCell(self); } @catch(NSException *e){}
 }
 // ===== 专项调试：dump 含分享卡片(AWEIMFeedInfoCardView)的 cell, 看内容(图/文)是否被隐藏或覆盖 =====
