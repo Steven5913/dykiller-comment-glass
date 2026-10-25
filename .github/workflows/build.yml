@@ -16,13 +16,14 @@ jobs:
 
       - name: 安装 Theos
         run: |
-          git clone --depth=1 https://github.com/theos/theos.git "$THEOS"
-          # iOS SDK（Theos 编译必需）
-          git clone --depth=1 --filter=blob:none https://github.com/theos/sdks.git "$THEOS/sdks" || true
-          ls "$THEOS/sdks" | head -50 || echo "sdks clone 跳过，尝试使用 Xcode SDK"
+          git clone --depth=1 https://github.com/theos/theos "$THEOS"
+          # 使用 macOS runner 自带 Xcode 的 iOS SDK，避免下载几 GB 的 theos/sdks
+          echo "SYSROOT=$(xcrun --sdk iphoneos --show-sdk-path)" >> "$GITHUB_ENV"
+          echo "SDKVERSION=$(xcrun --sdk iphoneos --show-sdk-version)" >> "$GITHUB_ENV"
 
       - name: 编译（生成 arm64e dylib）
         run: |
+          export PATH="$THEOS/bin:$PATH"
           make clean || true
           make package
           echo "===== 产物 ====="
