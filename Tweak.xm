@@ -119,6 +119,7 @@ static id hook_vm_cellForRow(id self, SEL _cmd, id tv, id ip){
 // ===== 聊天消息气泡清透玻璃：逐字照搬长按倍速玻璃（LJ_MakeEffect + pill 配方）=====
 #import <objc/runtime.h>
 static char kDKBubbleGlassKey;
+static char kDKGlassGradKey;
 // ===== 气泡清透玻璃：彻底去背景 + 玻璃按气泡形状直接垫底（复刻长按倍速 LJ_MakeEffect 配方）=====
 // 彻底清掉气泡原有深色渐变/图片背景，露出下方壁纸让玻璃透出
 static void DKClearBubbleBackground(UIView *target){
@@ -135,7 +136,8 @@ static void DKClearBubbleBackground(UIView *target){
             if ([sl isKindOfClass:[CAGradientLayer class]]) { sl.opacity = 0.0f; }
             else if (sl.contents == nil && sl.backgroundColor && [sl.sublayers count]==0) { sl.opacity = 0.0f; }
         }
-        // 隐藏气泡内的背景图片/背景视图子视图(如自己消息的蓝色 UIImageView 背景)，保留玻璃/文字/已知容器
+        // 隐藏气泡内的背景图片子视图(如自己消息的蓝色 UIImageView 背景)，保留玻璃/文字/已知容器
+        // 注意: 不隐藏普通 UIView(回复/引用框等可能是普通 UIView)，避免误伤
         NSArray *subs = [target.subviews copy];
         for (UIView *sv in subs) {
             if (sv.hidden) continue;
@@ -145,7 +147,7 @@ static void DKClearBubbleBackground(UIView *target){
             BOOL isKnown = [scn containsString:@"Bubble"] || [scn containsString:@"Gradient"]
                         || [scn containsString:@"Gesture"] || [scn containsString:@"Cell"];
             if (isGlass || isText || isKnown) continue;
-            if ([sv isKindOfClass:[UIImageView class]] || [sv class] == [UIView class]) {
+            if ([sv isKindOfClass:[UIImageView class]]) {
                 sv.hidden = YES;
                 sv.alpha = 0.0f;
             }
@@ -191,13 +193,31 @@ static void DKApplyGlassToView(UIView *target){
     } else {
         DKClearBubbleBackground(target);
     }
-    // 已插过玻璃就直接返回（背景已在上方清掉）
-    if (objc_getAssociatedObject(glassTarget, &kDKBubbleGlassKey)) return;
-    UIVisualEffect *eff = DKBubbleGlassEffect();
-    if (!eff) return;
     // 玻璃按气泡形状裁剪：胶囊圆角(高度/2，与长按倍速玻璃一致)
     CGFloat radius = glassTarget.bounds.size.height / 2.0;
     if (radius > 22) radius = 22;   // 多行长气泡限制圆角上限，避免过度胶囊
+    // 已有匹配玻璃就直接返回（背景已清），避免重复/叠加
+    for (UIView *sv in glassTarget.subviews) {
+        if ([sv isKindOfClass:[UIVisualEffectView class]] &&
+            CGRectEqualToRect(sv.frame, glassTarget.bounds) &&
+            fabs(sv.layer.cornerRadius - radius) < 0.5) {
+            return;
+        }
+    }
+    // 尺寸/圆角变化或位置不对 → 移除旧玻璃与旧高光(可能在 GV 或容器上)，保证只插一层
+    for (UIView *base in @[target, container]) {
+        if (!base) continue;
+        NSArray *subs2 = [base.subviews copy];
+        for (UIView *sv in subs2) {
+            if ([sv isKindOfClass:[UIVisualEffectView class]]) [sv removeFromSuperview];
+        }
+        NSArray *sls2 = [base.layer.sublayers copy];
+        for (CALayer *sl in sls2) {
+            if (objc_getAssociatedObject(sl, &kDKGlassGradKey)) [sl removeFromSuperlayer];
+        }
+    }
+    UIVisualEffect *eff = DKBubbleGlassEffect();
+    if (!eff) return;
     glassTarget.clipsToBounds = YES;
     glassTarget.layer.cornerRadius = radius;
     // 模糊玻璃垫底（自身带圆角+裁剪，让模糊按圆角显示）
@@ -218,6 +238,7 @@ static void DKApplyGlassToView(UIView *target){
     gl.startPoint = CGPointMake(0, 0);
     gl.endPoint = CGPointMake(0, 1);
     gl.zPosition = 0.1f;   // 垫在 vev 之上、文字之下
+    objc_setAssociatedObject(gl, &kDKGlassGradKey, @(YES), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     [glassTarget.layer addSublayer:gl];
     // 细边框（液态玻璃描边）
     glassTarget.layer.borderColor = [UIColor colorWithWhite:1.0 alpha:0.25].CGColor;
