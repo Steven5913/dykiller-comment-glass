@@ -134,8 +134,9 @@ static void DKShowDebugInfo(void){
         if (g_lastVC && g_lastVC.view.window) {
             NSMutableArray *lines = [NSMutableArray array];
             [lines addObject:[NSString stringWithFormat:@"VC=%@", NSStringFromClass([g_lastVC class])]];
-            __block void (^walk)(UIView*,int);
-            walk = ^(UIView *v,int d){
+            __block void (^walk)(UIView*,int) = nil;
+            __weak void (^ww)(UIView*,int) = nil;
+            ww = ^(UIView *v,int d){
                 if (d>4) return;
                 for (UIView *s in v.subviews) {
                     NSString *cn = NSStringFromClass([s class]) ?: @"";
@@ -148,10 +149,11 @@ static void DKShowDebugInfo(void){
                         NSString *ind = [@"  " stringByPaddingToLength:d*2 withString:@" " startingAtIndex:0];
                         [lines addObject:[NSString stringWithFormat:@"%@%@[%.0f,%.0f,%.0f,%.0f]", ind, cn,
                                           s.frame.origin.x,s.frame.origin.y,s.frame.size.width,s.frame.size.height]];
-                        walk(s,d+1);
+                        ww(s,d+1);
                     }
                 }
             };
+            walk = ww;
             walk(g_lastVC.view,0);
             g_dbgLabel.text = [lines componentsJoinedByString:@"\n"];
             [g_lastVC.view.window addSubview:g_dbgLabel];
