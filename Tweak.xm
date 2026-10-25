@@ -1,155 +1,236 @@
-//=============================================================================
-//  DYKiller Comment Liquid Glass — 评论面板「液态玻璃·模糊玻璃模式」
-//  移植自 DYKiller（液态玻璃）0.6.6.1
-//
-//  v1.2 修正（对照原版评论区）：
-//   - 目标 = 整个评论面板（CommentContainerInnerViewController 内层容器），
-//     玻璃作为最底层背景，评论列表浮在玻璃之上、清晰可读。
-//   - 绝不挂全屏容器（AWECommentContainerViewController /
-//     AWECommentFullScreenContainerViewController），避免盖住视频。
-//   - 材质通透（UIGlassEffect 优先；退化用超薄模糊），绝不是白色实心整块。
-//   - 默认开启、无开关。
-//=============================================================================
-
+// ForceDYKillerPrefs — 强制 DYKiller 仅开启「评论区液态玻璃(模糊模式)」，其余全部关闭
+// 原理：DYKiller 所有功能开关都经 _DKPref* 读取 NSUserDefaults；这里把全部 DYKiller* 设为关，
+// 仅开 DYKillerCommentGlass(模糊)。加载顺序保证本 dylib(0000前缀)先于 DYKiller 运行。
+#import <Foundation/Foundation.h>
 #import <UIKit/UIKit.h>
-#import <objc/runtime.h>
-#import <substrate.h>
 
-static Class clsGlassEffect;            // UIGlassEffect
-static Class clsGlassContainerEffect;   // UIGlassContainerEffect
-static Class clsBlurEffect;             // UIBlurEffect
-static Class clsVisualEffectView;       // UIVisualEffectView
-
-static CGFloat const kDKGBlurRadius   = 24.0;   // 液态玻璃模糊半径
-static CGFloat const kDKGCornerRadius = 0.0;    // 面板贴边，不圆角
-
-//-----------------------------------------------------------------------------
-// DKCommentBarGlassView —— 评论面板背景的液态玻璃视图
-// 插入到目标视图最底层，评论列表仍在上面。
-//-----------------------------------------------------------------------------
-@interface DKCommentBarGlassView : UIView
-@end
-
-@implementation DKCommentBarGlassView
-
-- (instancetype)initWithFrame:(CGRect)frame {
-    self = [super initWithFrame:frame];
-    if (self) {
-        self.userInteractionEnabled = NO;
-        self.backgroundColor = UIColor.clearColor;
-        [self _dk_applyGlassMaterial];
-    }
-    return self;
+static void DKForceAllPrefs(void){
+    NSUserDefaults *d = [NSUserDefaults standardUserDefaults];
+    [d setBool:NO forKey:@"DYKillerAdjustRangeExtended"];
+    [d setBool:NO forKey:@"DYKillerAudioVizPosition"];
+    [d setBool:NO forKey:@"DYKillerAudioVizStyle"];
+    [d setBool:NO forKey:@"DYKillerAvatarAlpha"];
+    [d setBool:NO forKey:@"DYKillerAvatarDisplay"];
+    [d setBool:NO forKey:@"DYKillerAvatarScale"];
+    [d setBool:NO forKey:@"DYKillerBackup"];
+    [d setBool:NO forKey:@"DYKillerBackupExport"];
+    [d setBool:NO forKey:@"DYKillerBackupLastExportDate"];
+    [d setBool:NO forKey:@"DYKillerBackupReset"];
+    [d setBool:NO forKey:@"DYKillerBackupRestore"];
+    [d setBool:NO forKey:@"DYKillerBackupUndo"];
+    [d setBool:NO forKey:@"DYKillerBlockSideBarSwipe"];
+    [d setBool:NO forKey:@"DYKillerBottomBar"];
+    [d setBool:NO forKey:@"DYKillerCommentAIParseMode"];
+    [d setBool:NO forKey:@"DYKillerCommentCopyWithoutName"];
+    [d setBool:NO forKey:@"DYKillerCommentDramaAnchorMode"];
+    [d setBool:NO forKey:@"DYKillerCommentDramaReviewMode"];
+    [d setBool:NO forKey:@"DYKillerCommentGameAnchorMode"];
+    [d setBool:NO forKey:@"DYKillerCommentImageNoWatermark"];
+    [d setBool:NO forKey:@"DYKillerCommentLivePhotoNoWatermark"];
+    [d setBool:NO forKey:@"DYKillerCommentLocationMode"];
+    [d setBool:NO forKey:@"DYKillerCommentLunaAnchorMode"];
+    [d setBool:NO forKey:@"DYKillerCommentMediaCleanBottomBar"];
+    [d setBool:NO forKey:@"DYKillerCommentMenu"];
+    [d setBool:NO forKey:@"DYKillerCommentMenuCatalog"];
+    [d setBool:NO forKey:@"DYKillerCommentMenuColumns"];
+    [d setBool:NO forKey:@"DYKillerCommentPlayerDiscussionMode"];
+    [d setBool:NO forKey:@"DYKillerCommentRemoveAllTabs"];
+    [d setBool:NO forKey:@"DYKillerCommentRemoveAllTopTags"];
+    [d setBool:NO forKey:@"DYKillerCommentReplyBottomBarMode"];
+    [d setBool:NO forKey:@"DYKillerCommentSearchAnchorMode"];
+    [d setBool:NO forKey:@"DYKillerCommentSeriesAnchorMode"];
+    [d setBool:NO forKey:@"DYKillerCommentStoreReviewMode"];
+    [d setBool:NO forKey:@"DYKillerDanmakuColorMode"];
+    [d setBool:NO forKey:@"DYKillerDanmakuFixedColor"];
+    [d setBool:NO forKey:@"DYKillerDanmakuGradientColors"];
+    [d setBool:NO forKey:@"DYKillerDanmakuHexColor"];
+    [d setBool:NO forKey:@"DYKillerDebugInspectorEnabled"];
+    [d setBool:NO forKey:@"DYKillerDescriptionAlpha"];
+    [d setBool:NO forKey:@"DYKillerDescriptionScale"];
+    [d setBool:NO forKey:@"DYKillerDetailReturnMode"];
+    [d setBool:NO forKey:@"DYKillerDetailSearchMode"];
+    [d setBool:NO forKey:@"DYKillerDoubleTapOpenComment"];
+    [d setBool:NO forKey:@"DYKillerEnableDanmakuColor"];
+    [d setBool:NO forKey:@"DYKillerFeedMenu"];
+    [d setBool:NO forKey:@"DYKillerFeedMenuCatalog"];
+    [d setBool:NO forKey:@"DYKillerFeedMenuColumns"];
+    [d setBool:NO forKey:@"DYKillerFeedMenuGlass"];
+    [d setBool:NO forKey:@"DYKillerFeedMenuGlassClear"];
+    [d setBool:NO forKey:@"DYKillerFilterAds"];
+    [d setBool:NO forKey:@"DYKillerFilterLowLikes"];
+    [d setBool:NO forKey:@"DYKillerFilterRecommendedArticle"];
+    [d setBool:NO forKey:@"DYKillerFilterRecommendedCreation"];
+    [d setBool:NO forKey:@"DYKillerFilterRecommendedEcommerce"];
+    [d setBool:NO forKey:@"DYKillerFilterRecommendedGame"];
+    [d setBool:NO forKey:@"DYKillerFilterRecommendedHotspot"];
+    [d setBool:NO forKey:@"DYKillerFilterRecommendedInterest"];
+    [d setBool:NO forKey:@"DYKillerFilterRecommendedMerchantNote"];
+    [d setBool:NO forKey:@"DYKillerFilterRecommendedMicroApp"];
+    [d setBool:NO forKey:@"DYKillerFilterRecommendedMusic"];
+    [d setBool:NO forKey:@"DYKillerFilterRecommendedSocial"];
+    [d setBool:NO forKey:@"DYKillerFilterRecommendedSpecialCard"];
+    [d setBool:NO forKey:@"DYKillerFollowButtonDisplayMode"];
+    [d setBool:NO forKey:@"DYKillerFriendAvatarEntryMode"];
+    [d setBool:NO forKey:@"DYKillerFriendButtonMode"];
+    [d setBool:NO forKey:@"DYKillerFriendDailyMode"];
+    [d setBool:NO forKey:@"DYKillerFriendFastReplyMode"];
+    [d setBool:NO forKey:@"DYKillerFriendFollowTagMode"];
+    [d setBool:NO forKey:@"DYKillerFriendRelationTagMode"];
+    [d setBool:NO forKey:@"DYKillerFriendRemoveRecommendCard"];
+    [d setBool:NO forKey:@"DYKillerFriendSendMessageMode"];
+    [d setBool:NO forKey:@"DYKillerFriendStoryTagMode"];
+    [d setBool:NO forKey:@"DYKillerGeoNamesRegister"];
+    [d setBool:NO forKey:@"DYKillerGeoNamesUsername"];
+    [d setBool:NO forKey:@"DYKillerGeoNamesWebServices"];
+    [d setBool:NO forKey:@"DYKillerGlassTabBar"];
+    [d setBool:NO forKey:@"DYKillerGlassTabBarClear"];
+    [d setBool:NO forKey:@"DYKillerGlassTabBarPadPosition"];
+    [d setBool:NO forKey:@"DYKillerHideChatVideoBottomBar"];
+    [d setBool:NO forKey:@"DYKillerHideCommentBottomBar"];
+    [d setBool:NO forKey:@"DYKillerHideFollowButton"];
+    [d setBool:NO forKey:@"DYKillerHideMusicInfo"];
+    [d setBool:NO forKey:@"DYKillerHideProfileUGCGuide"];
+    [d setBool:NO forKey:@"DYKillerInfoOffset"];
+    [d setBool:NO forKey:@"DYKillerInnerNotiCorner"];
+    [d setBool:NO forKey:@"DYKillerInnerNotiGlass"];
+    [d setBool:NO forKey:@"DYKillerInnerNotiGlassClear"];
+    [d setBool:NO forKey:@"DYKillerInteraction"];
+    [d setBool:NO forKey:@"DYKillerInteractionCommentIcon"];
+    [d setBool:NO forKey:@"DYKillerInteractionCommentStyle"];
+    [d setBool:NO forKey:@"DYKillerInteractionDisplay"];
+    [d setBool:NO forKey:@"DYKillerInteractionFavoriteAfterIcon"];
+    [d setBool:NO forKey:@"DYKillerInteractionFavoriteBeforeIcon"];
+    [d setBool:NO forKey:@"DYKillerInteractionFavoriteStyle"];
+    [d setBool:NO forKey:@"DYKillerInteractionIconAlpha"];
+    [d setBool:NO forKey:@"DYKillerInteractionLabelAlpha"];
+    [d setBool:NO forKey:@"DYKillerInteractionLikeAfterIcon"];
+    [d setBool:NO forKey:@"DYKillerInteractionLikeBeforeIcon"];
+    [d setBool:NO forKey:@"DYKillerInteractionLikeStyle"];
+    [d setBool:NO forKey:@"DYKillerInteractionOffset"];
+    [d setBool:NO forKey:@"DYKillerInteractionScale"];
+    [d setBool:NO forKey:@"DYKillerInteractionShareIcon"];
+    [d setBool:NO forKey:@"DYKillerInteractionShareStyle"];
+    [d setBool:NO forKey:@"DYKillerMediaSave"];
+    [d setBool:NO forKey:@"DYKillerMediaSaveAllImages"];
+    [d setBool:NO forKey:@"DYKillerMediaSaveChatSticker"];
+    [d setBool:NO forKey:@"DYKillerMediaSaveComment"];
+    [d setBool:NO forKey:@"DYKillerMediaSaveCommentSticker"];
+    [d setBool:NO forKey:@"DYKillerMediaSaveCover"];
+    [d setBool:NO forKey:@"DYKillerMediaSaveCurrentImage"];
+    [d setBool:NO forKey:@"DYKillerMediaSaveGlass"];
+    [d setBool:NO forKey:@"DYKillerMediaSaveGlassClear"];
+    [d setBool:NO forKey:@"DYKillerMediaSaveHaptic"];
+    [d setBool:NO forKey:@"DYKillerMediaSaveMusic"];
+    [d setBool:NO forKey:@"DYKillerMediaSaveVideo"];
+    [d setBool:NO forKey:@"DYKillerMessageDailyMode"];
+    [d setBool:NO forKey:@"DYKillerMessageFriendAvatarMode"];
+    [d setBool:NO forKey:@"DYKillerMessageInteractionMode"];
+    [d setBool:NO forKey:@"DYKillerMessagePlusMode"];
+    [d setBool:NO forKey:@"DYKillerMessageSearchMode"];
+    [d setBool:NO forKey:@"DYKillerMessageSideBarMode"];
+    [d setBool:NO forKey:@"DYKillerMessageSlotMode"];
+    [d setBool:NO forKey:@"DYKillerMinimumLikes"];
+    [d setBool:NO forKey:@"DYKillerMusicAlpha"];
+    [d setBool:NO forKey:@"DYKillerMusicDisplay"];
+    [d setBool:NO forKey:@"DYKillerMusicScale"];
+    [d setBool:NO forKey:@"DYKillerNicknameAlpha"];
+    [d setBool:NO forKey:@"DYKillerNicknameScale"];
+    [d setBool:NO forKey:@"DYKillerPageLiquidGlass"];
+    [d setBool:NO forKey:@"DYKillerPlayback"];
+    [d setBool:NO forKey:@"DYKillerPlaybackAppDownloadMode"];
+    [d setBool:NO forKey:@"DYKillerPlaybackChapterHighlightsMode"];
+    [d setBool:NO forKey:@"DYKillerPlaybackCoCreatorMode"];
+    [d setBool:NO forKey:@"DYKillerPlaybackDanmakuMode"];
+    [d setBool:NO forKey:@"DYKillerPlaybackFriendRecommendMode"];
+    [d setBool:NO forKey:@"DYKillerPlaybackFriendShareMode"];
+    [d setBool:NO forKey:@"DYKillerPlaybackFullscreenMode"];
+    [d setBool:NO forKey:@"DYKillerPlaybackGameTagMode"];
+    [d setBool:NO forKey:@"DYKillerPlaybackHotspotMode"];
+    [d setBool:NO forKey:@"DYKillerPlaybackJianyingMode"];
+    [d setBool:NO forKey:@"DYKillerPlaybackLocationMode"];
+    [d setBool:NO forKey:@"DYKillerPlaybackMusicAnchorMode"];
+    [d setBool:NO forKey:@"DYKillerPlaybackMusicInfoMode"];
+    [d setBool:NO forKey:@"DYKillerPlaybackOtherUserRecommendMode"];
+    [d setBool:NO forKey:@"DYKillerPlaybackPaidContentMode"];
+    [d setBool:NO forKey:@"DYKillerPlaybackPropEffectMode"];
+    [d setBool:NO forKey:@"DYKillerPlaybackQuickReplyMode"];
+    [d setBool:NO forKey:@"DYKillerPlaybackRelatedSearchMode"];
+    [d setBool:NO forKey:@"DYKillerPlaybackRelatedVideoMode"];
+    [d setBool:NO forKey:@"DYKillerPlaybackRemoveAllAnchors"];
+    [d setBool:NO forKey:@"DYKillerPlaybackRemoveAllBottomBars"];
+    [d setBool:NO forKey:@"DYKillerPlaybackRiskNoticeMode"];
+    [d setBool:NO forKey:@"DYKillerPlaybackSelectedMode"];
+    [d setBool:NO forKey:@"DYKillerPlaybackSlidesTagMode"];
+    [d setBool:NO forKey:@"DYKillerPlaybackStoreMode"];
+    [d setBool:NO forKey:@"DYKillerPlaybackVideoCollectionMode"];
+    [d setBool:NO forKey:@"DYKillerPlusIcon"];
+    [d setBool:NO forKey:@"DYKillerPlusStyle"];
+    [d setBool:NO forKey:@"DYKillerProfileAddFriendMode"];
+    [d setBool:NO forKey:@"DYKillerProfileAvatarPlusMode"];
+    [d setBool:NO forKey:@"DYKillerProfileCapsuleMode"];
+    [d setBool:NO forKey:@"DYKillerProfileEditMode"];
+    [d setBool:NO forKey:@"DYKillerProfileGuideBannerMode"];
+    [d setBool:NO forKey:@"DYKillerProfileRemoveDailyTab"];
+    [d setBool:NO forKey:@"DYKillerProfileRemoveFavoriteTab"];
+    [d setBool:NO forKey:@"DYKillerProfileRemoveFootprintTab"];
+    [d setBool:NO forKey:@"DYKillerProfileRemoveLikeTab"];
+    [d setBool:NO forKey:@"DYKillerProfileRemovePostTab"];
+    [d setBool:NO forKey:@"DYKillerProfileRemoveServiceArea"];
+    [d setBool:NO forKey:@"DYKillerProfileSearchMode"];
+    [d setBool:NO forKey:@"DYKillerProfileSettingsEntry"];
+    [d setBool:NO forKey:@"DYKillerProfileSettingsEntryName"];
+    [d setBool:NO forKey:@"DYKillerProfileShowPublishLocation"];
+    [d setBool:NO forKey:@"DYKillerProfileShowPublishTime"];
+    [d setBool:NO forKey:@"DYKillerProfileSideBarMode"];
+    [d setBool:NO forKey:@"DYKillerProfileStatsMode"];
+    [d setBool:NO forKey:@"DYKillerProfileSwitchAccountMode"];
+    [d setBool:NO forKey:@"DYKillerProfileVisitorMode"];
+    [d setBool:NO forKey:@"DYKillerProgressAlwaysVisible"];
+    [d setBool:NO forKey:@"DYKillerProgressTimeStyle"];
+    [d setBool:NO forKey:@"DYKillerPublishLocationColor"];
+    [d setBool:NO forKey:@"DYKillerPublishLocationColorMode"];
+    [d setBool:NO forKey:@"DYKillerPublishLocationFixedColor"];
+    [d setBool:NO forKey:@"DYKillerPublishLocationGradientColors"];
+    [d setBool:NO forKey:@"DYKillerPublishLocationHexColor"];
+    [d setBool:NO forKey:@"DYKillerPublishTextColors"];
+    [d setBool:NO forKey:@"DYKillerPublishTimeColor"];
+    [d setBool:NO forKey:@"DYKillerPublishTimeColorMode"];
+    [d setBool:NO forKey:@"DYKillerPublishTimeFixedColor"];
+    [d setBool:NO forKey:@"DYKillerPublishTimeGradientColors"];
+    [d setBool:NO forKey:@"DYKillerPublishTimeHexColor"];
+    [d setBool:NO forKey:@"DYKillerRemoveCommentSurvey"];
+    [d setBool:NO forKey:@"DYKillerRemoveRecommendedLive"];
+    [d setBool:NO forKey:@"DYKillerSearchCameraMode"];
+    [d setBool:NO forKey:@"DYKillerSearchRankCatalog"];
+    [d setBool:NO forKey:@"DYKillerSearchRanks"];
+    [d setBool:NO forKey:@"DYKillerSearchRemoveAllRanks"];
+    [d setBool:NO forKey:@"DYKillerSearchRemoveGuess"];
+    [d setBool:NO forKey:@"DYKillerSearchRemoveHistory"];
+    [d setBool:NO forKey:@"DYKillerSearchRemoveRankFooter"];
+    [d setBool:NO forKey:@"DYKillerSearchRemoveVoice"];
+    [d setBool:NO forKey:@"DYKillerShareMenu"];
+    [d setBool:NO forKey:@"DYKillerShareMenuCatalog"];
+    [d setBool:NO forKey:@"DYKillerSharePanelGlass"];
+    [d setBool:NO forKey:@"DYKillerSharePanelGlassClear"];
+    [d setBool:NO forKey:@"DYKillerShowPublishLocation"];
+    [d setBool:NO forKey:@"DYKillerShowPublishTime"];
+    [d setBool:NO forKey:@"DYKillerTabBarStyle"];
+    [d setBool:NO forKey:@"DYKillerTipsGlass"];
+    [d setBool:NO forKey:@"DYKillerTipsGlassClear"];
+    [d setBool:NO forKey:@"DYKillerTopBarAlpha"];
+    [d setBool:NO forKey:@"DYKillerTopBarSearchMode"];
+    [d setBool:NO forKey:@"DYKillerTopBarSideBarMode"];
+    [d setBool:NO forKey:@"DYKillerTopChannelCatalog"];
+    [d setBool:NO forKey:@"DYKillerTopChannels"];
+    [d setBool:NO forKey:@"DYKillerVideoFullscreen"];
+    [d setBool:YES forKey:@"DYKillerCommentGlass"];   // 评论区液态玻璃·模糊模式 ON
+    [d setBool:NO  forKey:@"DYKillerCommentGlassClear"]; // 清晰模式 OFF
+    [d synchronize];
 }
 
-- (void)_dk_applyGlassMaterial {
-    if (![self _dk_applyLiquidGlass]) {
-        // 液态玻璃 API 不可用（非 iOS26 等）才退化为轻量模糊
-        [self _dk_applyLightBlur];
-    }
-    self.layer.cornerRadius = kDKGCornerRadius;
-    self.layer.masksToBounds = YES;
-}
-
-// iOS26 液态玻璃：UIGlassContainerEffect + UIGlassEffect（通透、非白色）
-- (BOOL)_dk_applyLiquidGlass {
-    clsGlassEffect          = NSClassFromString(@"UIGlassEffect");
-    clsGlassContainerEffect = NSClassFromString(@"UIGlassContainerEffect");
-    if (!clsGlassEffect || !clsGlassContainerEffect) return NO;
-
-    id glassEffect = [[clsGlassEffect alloc] init];
-    if (!glassEffect) return NO;
-
-    @try {
-        [glassEffect setValue:@(kDKGBlurRadius) forKey:@"blurRadius"];
-        [glassEffect setValue:UIColor.clearColor forKey:@"tintColor"];   // 通透，不遮评论
-    } @catch (NSException *e) {}
-
-    id container = nil;
-    SEL selEWG = NSSelectorFromString(@"effectWithGlassEffect:insideView:");
-    if ([clsGlassContainerEffect respondsToSelector:selEWG]) {
-        container = ((id (*)(id, SEL, id, id))objc_msgSend)(
-            clsGlassContainerEffect, selEWG, glassEffect, self);
-    } else {
-        SEL selEW = NSSelectorFromString(@"effectWithGlassEffect:");
-        if ([clsGlassContainerEffect respondsToSelector:selEW]) {
-            container = ((id (*)(id, SEL, id))objc_msgSend)(
-                clsGlassContainerEffect, selEW, glassEffect);
-        }
-    }
-    if (!container) return NO;
-
-    UIView *containerView = [container valueForKey:@"containerView"];
-    if ([containerView isKindOfClass:UIView.class]) {
-        containerView.frame = self.bounds;
-        containerView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
-        [self addSubview:containerView];
-        return YES;
-    }
-    return NO;
-}
-
-// 轻量模糊退化（超薄材质，通透）
-- (void)_dk_applyLightBlur {
-    clsBlurEffect       = NSClassFromString(@"UIBlurEffect");
-    clsVisualEffectView = NSClassFromString(@"UIVisualEffectView");
-    if (!clsBlurEffect || !clsVisualEffectView) return;
-
-    id blurEffect = [clsBlurEffect effectWithStyle:UIBlurEffectStyleSystemUltraThinMaterial];
-    UIVisualEffectView *blur = [[clsVisualEffectView alloc] initWithEffect:blurEffect];
-    blur.frame = self.bounds;
-    blur.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
-    [self addSubview:blur];
-}
-
-- (void)layoutSubviews {
-    [super layoutSubviews];
-    for (UIView *sub in self.subviews) {
-        sub.frame = self.bounds;
-    }
-}
-
-@end
-
-//-----------------------------------------------------------------------------
-// 工具：把液态玻璃作为最底层插入目标视图
-//-----------------------------------------------------------------------------
-static void DKGApplyGlassToPanel(id target) {
-    if (!target || ![target isKindOfClass:UIView.class]) return;
-    UIView *view = (UIView *)target;
-    for (UIView *sub in view.subviews) {
-        if ([sub isKindOfClass:DKCommentBarGlassView.class]) return;
-    }
-    DKCommentBarGlassView *glass =
-        [[DKCommentBarGlassView alloc] initWithFrame:view.bounds];
-    glass.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
-    // 最底层：玻璃只做面板背景，评论列表仍在其上
-    [view insertSubview:glass atIndex:0];
-}
-
-//-----------------------------------------------------------------------------
-// Hook —— 评论面板内层容器（整个评论面板的玻璃背景）
-//-----------------------------------------------------------------------------
-static void (*origPanelLoad)(id, SEL);
-static void hookPanelLoad(id self, SEL _cmd) {
-    origPanelLoad(self, _cmd);
-    id v = ((id(*)(id,SEL))objc_msgSend)(self, @selector(view));
-    if (v) DKGApplyGlassToPanel(v);
-}
-
-static void (*origPanelLayout)(id, SEL);
-static void hookPanelLayout(id self, SEL _cmd) {
-    origPanelLayout(self, _cmd);
-    id v = ((id(*)(id,SEL))objc_msgSend)(self, @selector(view));
-    if (v) DKGApplyGlassToPanel(v);
-}
-
-%ctor {
-    Class panel = NSClassFromString(@"AWECommentPanelContainerSwiftImpl.CommentContainerInnerViewController");
-    if (panel) {
-        MSHookMessageEx(panel, @selector(viewDidLoad),
-            (IMP)&hookPanelLoad, (IMP *)&origPanelLoad);
-        MSHookMessageEx(panel, @selector(viewDidLayoutSubviews),
-            (IMP)&hookPanelLayout, (IMP *)&origPanelLayout);
-    }
+__attribute__((constructor)) static void DKBoot(void){
+    DKForceAllPrefs();
+    dispatch_async(dispatch_get_main_queue(), ^{ DKForceAllPrefs(); });
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW,(int64_t)(0.5*NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ DKForceAllPrefs(); });
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW,(int64_t)(2.0*NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ DKForceAllPrefs(); });
 }

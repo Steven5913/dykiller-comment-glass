@@ -1,4 +1,4 @@
-name: Build DYKillerCommentGlass (arm64e)
+name: Build ForceDYKillerPrefs (arm64e)
 
 # 手动触发：在 GitHub 仓库 Actions 页点 Run workflow
 on:
@@ -39,18 +39,18 @@ jobs:
         run: |
           mkdir -p out/arm64e out/arm64
           # 单独收集各架构切片
-          cp .theos/obj/debug/arm64e/DYKillerCommentGlass.dylib out/arm64e/ 2>/dev/null || true
-          cp .theos/obj/debug/arm64/DYKillerCommentGlass.dylib  out/arm64/  2>/dev/null || true
+          cp .theos/obj/debug/arm64e/ForceDYKillerPrefs.dylib out/arm64e/ 2>/dev/null || true
+          cp .theos/obj/debug/arm64/ForceDYKillerPrefs.dylib  out/arm64/  2>/dev/null || true
           # lipo 合并成 fat（arm64 + arm64e）
           lipo -create \
-              .theos/obj/debug/arm64/DYKillerCommentGlass.dylib \
-              .theos/obj/debug/arm64e/DYKillerCommentGlass.dylib \
-              -output out/DYKillerCommentGlass-fat.dylib 2>/dev/null || true
+              .theos/obj/debug/arm64/ForceDYKillerPrefs.dylib \
+              .theos/obj/debug/arm64e/ForceDYKillerPrefs.dylib \
+              -output out/ForceDYKillerPrefs-fat.dylib 2>/dev/null || true
           echo "===== 产物 ====="
           find out -type f -exec file {} \;
 
       - name: 上传 dylib
         uses: actions/upload-artifact@v4
         with:
-          name: DYKillerCommentGlass-dylib
+          name: ForceDYKillerPrefs-dylib
           path: out/

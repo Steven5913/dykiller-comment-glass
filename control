@@ -1,9 +1,8 @@
-Package: com.doubao.dykiller.commentglass
-Name: DYKiller Comment Liquid Glass (Blur)
-Version: 1.0.0
-Architecture: iphoneos-arm
-Description: 评论区液态玻璃——模糊玻璃模式（移植自 DYKiller，默认开启，无开关）
-Maintainer: Doubao
-Author: Doubao
+Package: com.dykiller.forceprefs
+Name: ForceDYKillerPrefs
+Version: 0.0.1
+Architecture: iphoneos-arm64
+Description: Force DYKiller to enable comment liquid glass only
+Maintainer: dykiller
+Author: dykiller
 Section: Tweaks
-Depends: mobilesubstrate (>= 0.9.5000) | ellekit
