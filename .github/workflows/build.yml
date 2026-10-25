@@ -25,16 +25,15 @@ jobs:
         run: |
           export PATH="$THEOS/bin:$PATH"
           make clean || true
-          make package
+          make
           echo "===== 产物 ====="
-          find .theos -name "*.dylib" -o -name "*.deb" | sort
+          find .theos -name "*.dylib" | sort
 
       - name: 收集产物
         run: |
           mkdir -p out
-          # 打包所有架构的 dylib
+          # 收集各架构 dylib
           find .theos/obj -name "*.dylib" -exec cp {} out/ \; 2>/dev/null || true
-          find .theos -name "*.deb" -exec cp {} out/ \; 2>/dev/null || true
           ls -la out/
 
       - name: 上传 dylib
