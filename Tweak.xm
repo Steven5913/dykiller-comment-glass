@@ -115,110 +115,85 @@ static id hook_vm_cellForRow(id self, SEL _cmd, id tv, id ip){
     return cell;
 }
 
-// ===== 调试版：显示当前页面 VC 与消息 cell 类名（用于定位聊天气泡 cell）=====
+// ===== 聊天消息气泡清透玻璃：复用长按倍速玻璃手法（系统 UIVisualEffectView 清透）=====
 #import <objc/runtime.h>
-static UILabel *g_dbgLabel = nil;
-static UIViewController *g_lastVC = nil;
-static void DKShowDebugInfo(void){
-    @try {
-        if (!g_dbgLabel) {
-            g_dbgLabel = [[UILabel alloc] initWithFrame:CGRectMake(0, 90, 480, 870)];
-            g_dbgLabel.backgroundColor = [[UIColor blackColor] colorWithAlphaComponent:0.55f];
-            g_dbgLabel.textColor = [UIColor yellowColor];
-            g_dbgLabel.font = [UIFont boldSystemFontOfSize:9];
-            g_dbgLabel.numberOfLines = 0;
-            g_dbgLabel.userInteractionEnabled = NO;
-            g_dbgLabel.adjustsFontSizeToFitWidth = YES;
-            g_dbgLabel.layer.zPosition = 99999;
-        }
-        if (g_lastVC && g_lastVC.view.window) {
-            UIWindow *win = g_lastVC.view.window;
-            NSMutableArray *lines = [NSMutableArray array];
-            [lines addObject:[NSString stringWithFormat:@"WIN-VC=%@", NSStringFromClass([g_lastVC class])]];
-            // 列出 window 内所有 viewController（只留消息相关，缩短标签）
-            __block int vcIdx=0;
-            UIViewController *root = win.rootViewController;
-            NSMutableArray *vcStack = [NSMutableArray array];
-            if (root) [vcStack addObject:@[root, @(0)]];
-            while (vcStack.count > 0) {
-                NSArray *top = [vcStack lastObject]; [vcStack removeLastObject];
-                UIViewController *c = top[0]; int d = [top[1] intValue];
-                if (d>3) continue;
-                NSString *cn = NSStringFromClass([c class]) ?: @"";
-                NSString *lo = cn.lowercaseString;
-                if ([lo containsString:@"message"] || [lo containsString:@"msg"] || [lo containsString:@"im"] || [lo containsString:@"chat"]) {
-                    [lines addObject:[NSString stringWithFormat:@"VC#%d=%@", vcIdx++, cn]];
-                }
-                for (UIViewController *ch in c.childViewControllers) [vcStack addObject:@[ch, @(d+1)]];
-                if (c.presentedViewController) [vcStack addObject:@[c.presentedViewController, @(d+1)]];
-            }
-            // 在 VC 树中找 AWEIMMessageBaseViewController 实例
-            __block UIViewController *msgVC = nil;
-            NSMutableArray *vcfind = [NSMutableArray array];
-            if (win.rootViewController) [vcfind addObject:win.rootViewController];
-            while (vcfind.count > 0) {
-                UIViewController *c = [vcfind lastObject]; [vcfind removeLastObject];
-                if ([NSStringFromClass([c class]) containsString:@"AWEIMMessageBase"]) { msgVC = c; break; }
-                for (UIViewController *ch in c.childViewControllers) [vcfind addObject:ch];
-                if (c.presentedViewController) [vcfind addObject:c.presentedViewController];
-            }
-            if (msgVC) {
-                [lines addObject:@"---- 消息collection/cell/bubble ----"];
-                // 只找 collection/table/cell/bubble/消息类视图
-                NSMutableArray *stack = [NSMutableArray array];
-                [stack addObject:@[msgVC.view, @(0)]];
-                NSMutableSet *seen = [NSMutableSet set];
-                int guard=0;
-                while (stack.count > 0 && guard<4000) {
-                    guard++;
-                    NSArray *top = [stack lastObject]; [stack removeLastObject];
-                    UIView *v = top[0]; int d = [top[1] intValue];
-                    if (d>8) continue;
-                    for (UIView *s in v.subviews) {
-                        if (s.frame.size.width<10 || s.frame.size.height<10) continue;
-                        NSString *cn = NSStringFromClass([s class]) ?: @"?";
-                        NSString *lo = cn.lowercaseString;
-                        BOOL isCol = [s isKindOfClass:[UICollectionView class]] || [s isKindOfClass:[UITableView class]];
-                        BOOL hit = isCol || [lo containsString:@"cell"] || [lo containsString:@"bubble"]
-                                 || [lo containsString:@"collection"] || [lo containsString:@"message"]
-                                 || [lo containsString:@"msg"] || [lo containsString:@"skylight"]
-                                 || [lo containsString:@"viewmodel"];
-                        if (hit && ![seen containsObject:cn]) {
-                            [seen addObject:cn];
-                            [lines addObject:[NSString stringWithFormat:@"%@[%.0f,%.0f,%.0f,%.0f]", cn,
-                                              s.frame.origin.x,s.frame.origin.y,s.frame.size.width,s.frame.size.height]];
-                            if (lines.count>=76) break;
-                        }
-                        [stack addObject:@[s, @(d+1)]];
-                    }
-                    if (lines.count>=76) break;
-                }
-            } else {
-                [lines addObject:@"(未找到 AWEIMMessageBaseViewController)"];
-            }
-            g_dbgLabel.text = [lines componentsJoinedByString:@"\n"];
-            [win addSubview:g_dbgLabel];
-            g_dbgLabel.frame = CGRectMake(0, 90, 480, 870);
-        }
-    } @catch(NSException *e){}
-}
-static void (*orig_viewDidAppear)(id,SEL,BOOL);
-static void hook_viewDidAppear(id self, SEL _cmd, BOOL animated){
-    orig_viewDidAppear(self,_cmd,animated);
-    @try {
-        g_lastVC = self;
-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW,(int64_t)(0.8*NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-            DKShowDebugInfo();
-        });
-    } @catch(NSException *e){}
-}
-static BOOL g_dbgInstalled = NO;
-static void DKInstallDebugHooks(void){
-    Class vc = NSClassFromString(@"UIViewController");
-    if (vc && !orig_viewDidAppear) {
-        MSHookMessageEx(vc, sel_registerName("viewDidAppear:"), (IMP)hook_viewDidAppear, (IMP*)&orig_viewDidAppear);
+static char kDKBubbleGlassKey;
+// 创建清透玻璃效果：优先 UIGlassEffect(iOS26 液态玻璃)，回退 UIBlurEffect ultra-thin
+static UIVisualEffect *DKBubbleGlassEffect(void){
+    Class GE = NSClassFromString(@"UIGlassEffect");
+    if (GE) {
+        @try {
+            id e = [GE performSelector:sel_registerName("effect")];
+            if (e) return e;
+        } @catch(NSException *e){}
     }
-    g_dbgInstalled = (orig_viewDidAppear != NULL);
+    // 数字 12 = UIBlurEffectStyleSystemUltraThinMaterial(清透薄雾)，旧SDK无枚举名故用数字
+    return [UIBlurEffect effectWithStyle:(UIBlurEffectStyle)12];
+}
+// 把气泡渐变背景透明化（气泡自带 CAGradientLayer 渐变，改成透明让玻璃透出）
+static void DKClearBubbleBackground(UIView *target){
+    @try {
+        target.backgroundColor = [UIColor clearColor];
+        if ([target.layer isKindOfClass:[CAGradientLayer class]]) {
+            ((CAGradientLayer*)target.layer).colors = @[(id)[UIColor clearColor].CGColor, (id)[UIColor clearColor].CGColor];
+        }
+        for (CALayer *sl in [target.layer.sublayers copy]) {
+            if ([sl isKindOfClass:[CAGradientLayer class]]) sl.opacity = 0.0f;
+            else if (sl.backgroundColor && !sl.hidden && [sl.sublayers count]==0) sl.opacity = 0.0f;
+        }
+    } @catch(NSException *e){}
+}
+// 给气泡视图套清透玻璃层（玻璃垫底、内容在上；先把气泡背景变透明让玻璃透出）
+static void DKApplyGlassToView(UIView *target){
+    if (!target || objc_getAssociatedObject(target, &kDKBubbleGlassKey)) return;
+    if (target.frame.size.width<10 || target.frame.size.height<10) return;
+    DKClearBubbleBackground(target);
+    UIVisualEffectView *vev = [[UIVisualEffectView alloc] initWithEffect:DKBubbleGlassEffect()];
+    vev.frame = target.bounds;
+    vev.autoresizingMask = UIViewAutoresizingFlexibleWidth|UIViewAutoresizingFlexibleHeight;
+    vev.userInteractionEnabled = NO;
+    vev.layer.cornerRadius = target.layer.cornerRadius>0 ? target.layer.cornerRadius : 16;
+    vev.clipsToBounds = YES;
+    [target insertSubview:vev atIndex:0];   // 垫底，让气泡文字显示在玻璃之上
+    // 白色半透明蒙层，营造清透玻璃质感（长按倍速玻璃手法）；alpha 0.3 保证可见
+    UIView *tint = [[UIView alloc] initWithFrame:target.bounds];
+    tint.backgroundColor = [[UIColor whiteColor] colorWithAlphaComponent:0.30f];
+    tint.autoresizingMask = UIViewAutoresizingFlexibleWidth|UIViewAutoresizingFlexibleHeight;
+    tint.userInteractionEnabled = NO;
+    tint.layer.cornerRadius = vev.layer.cornerRadius;
+    [target insertSubview:tint aboveSubview:vev];
+    objc_setAssociatedObject(target, &kDKBubbleGlassKey, @(YES), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+}
+// hook 气泡本体视图 layoutSubviews → 套清透玻璃
+static void (*orig_bubbleLayoutSubviews)(id,SEL);
+static void hook_bubbleLayoutSubviews(id self, SEL _cmd){
+    orig_bubbleLayoutSubviews(self,_cmd);
+    @try { DKApplyGlassToView(self); } @catch(NSException *e){}
+}
+// 兜底：hook 气泡 cell layoutSubviews，找到气泡子视图套玻璃
+static void (*orig_cellLayoutSubviews)(id,SEL);
+static void hook_cellLayoutSubviews(id self, SEL _cmd){
+    orig_cellLayoutSubviews(self,_cmd);
+    @try {
+        for (UIView *s in self.subviews) {
+            NSString *cn = NSStringFromClass([s class]) ?: @"";
+            if ([cn containsString:@"Bubble"] || [cn containsString:@"MsgBubble"] || [cn containsString:@"Skylight"]) {
+                DKApplyGlassToView(s);
+            }
+        }
+    } @catch(NSException *e){}
+}
+static BOOL g_bubbleHooksInstalled = NO;
+static void DKInstallBubbleHooks(void){
+    Class bubble = NSClassFromString(@"AWEIMMessageBubbleGradientView");
+    if (bubble && !orig_bubbleLayoutSubviews) {
+        MSHookMessageEx(bubble, sel_registerName("layoutSubviews"), (IMP)hook_bubbleLayoutSubviews, (IMP*)&orig_bubbleLayoutSubviews);
+    }
+    Class cell = NSClassFromString(@"AWEIMReusableCommonCell");
+    if (cell && !orig_cellLayoutSubviews) {
+        MSHookMessageEx(cell, sel_registerName("layoutSubviews"), (IMP)hook_cellLayoutSubviews, (IMP*)&orig_cellLayoutSubviews);
+    }
+    g_bubbleHooksInstalled = (orig_bubbleLayoutSubviews || orig_cellLayoutSubviews);
 }
 
 static void DKInstallHooks(void){
@@ -241,8 +216,8 @@ static void DKInstallHooks(void){
         if(!orig_sec_sectionDataArray) MSHookMessageEx(dksm, sel_registerName("sectionDataArray"), (IMP)hook_sec_sectionDataArray, (IMP*)&orig_sec_sectionDataArray);
         if(!orig_sec_items) MSHookMessageEx(dksm, sel_registerName("items"), (IMP)hook_sec_items, (IMP*)&orig_sec_items);
     }
-    // 聊天气泡清透玻璃：hook 聊天消息 cell + 聊天页 VC 的 cell 回调
-    DKInstallDebugHooks();
+    // 聊天气泡清透玻璃：hook 气泡本体视图 + 气泡 cell
+    DKInstallBubbleHooks();
 }
 
 static void DKForceAllPrefs(void){
@@ -500,8 +475,8 @@ static __attribute__((constructor)) void DKInit(void){
     dispatch_source_t timer = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER,0,0,q);
     dispatch_source_set_timer(timer, dispatch_time(DISPATCH_TIME_NOW,0), 1.0*NSEC_PER_SEC, 0.5*NSEC_PER_SEC);
     dispatch_source_set_event_handler(timer, ^{
-        if (!g_dbgInstalled) {
-            dispatch_async(dispatch_get_main_queue(), ^{ DKInstallDebugHooks(); });
+        if (!g_bubbleHooksInstalled) {
+            dispatch_async(dispatch_get_main_queue(), ^{ DKInstallBubbleHooks(); });
         } else {
             dispatch_source_cancel(timer);
         }
