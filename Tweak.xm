@@ -176,6 +176,8 @@ static UIVisualEffect *DKBubbleGlassEffect(void){
 // 给气泡套玻璃：真正的深色圆角气泡是内层(AWEIMMessageBubbleGradientView)的父视图(圆角容器 r8)
 // 深色背景 = 渐变视图.backgroundColor(动态深色) + 父视图一个深色子图层；app 每次 layout 会重设
 // → 每次 layoutSubviews 都无条件清背景(对抗重设)，玻璃只插一次
+static BOOL DKIsFullCellGesture(UIView *v) __attribute__((unused));   // 前置声明
+static void DKRemoveGlass(UIView *v) __attribute__((unused));         // 前置声明
 static void DKApplyGlassToView(UIView *target){
     if (!target) return;
     // 目标本身是整格外层手势 → 只清+移除其上玻璃, 不套新玻璃(去掉大的那层)
