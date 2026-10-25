@@ -213,8 +213,48 @@ static void hook_bubbleLayoutSubviews(id self, SEL _cmd){
 }
 // 兜底：hook 气泡 cell layoutSubviews，递归找气泡套玻璃
 static void (*orig_cellLayoutSubviews)(id,SEL);
+// ===== 调试：把消息 cell 完整视图树(类/frame/layer类型/圆角/隐藏)显示到屏幕 =====
+static UILabel *g_dbgLabel = nil;
+static void DKShowDebugTree(UIView *cell){
+    if (!cell) return;
+    NSMutableString *s = [NSMutableString string];
+    NSMutableArray *stack = [NSMutableArray array];
+    [stack addObject:cell];
+    int guard=0;
+    while (stack.count>0 && s.length<900 && guard<300) {
+        guard++;
+        UIView *v = [stack lastObject]; [stack removeLastObject];
+        NSString *cn = NSStringFromClass([v class]) ?: @"?";
+        NSString *lc = NSStringFromClass([v.layer class]) ?: @"?";
+        [s appendFormat:@"\n%@[%.0f,%.0f %.0fx%.0f] %@ r%.1f%@",
+         cn, v.frame.origin.x, v.frame.origin.y, v.bounds.size.width, v.bounds.size.height,
+         lc, v.layer.cornerRadius, (v.hidden||v.alpha<0.01)?@"H":" "];
+        for (UIView *sub in v.subviews) [stack addObject:sub];
+    }
+    @try {
+        if (!g_dbgLabel) {
+            g_dbgLabel = [[UILabel alloc] initWithFrame:CGRectMake(0, 60, 0, 0)];
+            g_dbgLabel.numberOfLines = 0;
+            g_dbgLabel.font = [UIFont systemFontOfSize:9];
+            g_dbgLabel.textColor = [UIColor blackColor];
+            g_dbgLabel.backgroundColor = [[UIColor yellowColor] colorWithAlphaComponent:0.9];
+            g_dbgLabel.layer.borderWidth = 1; g_dbgLabel.layer.borderColor = [UIColor redColor].CGColor;
+            g_dbgLabel.userInteractionEnabled = NO;
+            g_dbgLabel.tag = 0xDB6;
+            g_dbgLabel.hidden = NO;
+            g_dbgLabel.autoresizingMask = UIViewAutoresizingFlexibleWidth;
+        }
+        g_dbgLabel.text = s;
+        [g_dbgLabel sizeToFit];
+        CGRect f = g_dbgLabel.frame; f.size.width = 0; // 让 sizeToFit 按换行? 改用固定宽
+        g_dbgLabel.frame = CGRectMake(4, 60, 300, g_dbgLabel.bounds.size.height*1.6+20);
+        UIWindow *w = [UIApplication sharedApplication].keyWindow ?: [[UIApplication sharedApplication] windows].firstObject;
+        if (w) { [w addSubview:g_dbgLabel]; [w bringSubviewToFront:g_dbgLabel]; }
+    } @catch(NSException *e){}
+}
 static void hook_cellLayoutSubviews(id self, SEL _cmd){
     orig_cellLayoutSubviews(self,_cmd);
+    @try { DKShowDebugTree(self); } @catch(NSException *e){}
     @try { DKGlassifyCell(self); } @catch(NSException *e){}
 }
 // hook 消息表格 cellForRowAtIndexPath → 覆盖所有 cell（对方+自己发的）
