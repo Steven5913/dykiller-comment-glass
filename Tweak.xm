@@ -228,7 +228,7 @@ static void DKShowDebugTree(UIView *cell){
         NSString *lc = NSStringFromClass([v.layer class]) ?: @"?";
         [s appendFormat:@"\n%@[%.0f,%.0f %.0fx%.0f] %@ r%.1f%@",
          cn, v.frame.origin.x, v.frame.origin.y, v.bounds.size.width, v.bounds.size.height,
-         lc, v.layer.cornerRadius, (v.hidden||v.alpha<0.01)?@"H":" "];
+         lc, v.layer.cornerRadius, (v.hidden||v.alpha<0.01)?@"H":@" "];
         for (UIView *sub in v.subviews) [stack addObject:sub];
     }
     @try {
@@ -248,7 +248,7 @@ static void DKShowDebugTree(UIView *cell){
         [g_dbgLabel sizeToFit];
         CGRect f = g_dbgLabel.frame; f.size.width = 0; // 让 sizeToFit 按换行? 改用固定宽
         g_dbgLabel.frame = CGRectMake(4, 60, 300, g_dbgLabel.bounds.size.height*1.6+20);
-        UIWindow *w = [UIApplication sharedApplication].keyWindow ?: [[UIApplication sharedApplication] windows].firstObject;
+        UIWindow *w = [[[UIApplication sharedApplication] windows] firstObject];
         if (w) { [w addSubview:g_dbgLabel]; [w bringSubviewToFront:g_dbgLabel]; }
     } @catch(NSException *e){}
 }
