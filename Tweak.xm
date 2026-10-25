@@ -196,15 +196,24 @@ static void DKApplyGlassToView(UIView *target){
     // 玻璃按气泡形状裁剪：胶囊圆角(高度/2，与长按倍速玻璃一致)
     CGFloat radius = glassTarget.bounds.size.height / 2.0;
     if (radius > 22) radius = 22;   // 多行长气泡限制圆角上限，避免过度胶囊
-    // 已有匹配玻璃就直接返回（背景已清），避免重复/叠加
+    // 已有一层匹配玻璃且无残留 → 直接返回(背景已清)，避免重复/叠加
+    BOOL hasMatch = NO;
     for (UIView *sv in glassTarget.subviews) {
         if ([sv isKindOfClass:[UIVisualEffectView class]] &&
             CGRectEqualToRect(sv.frame, glassTarget.bounds) &&
-            fabs(sv.layer.cornerRadius - radius) < 0.5) {
-            return;
-        }
+            fabs(sv.layer.cornerRadius - radius) < 0.5) { hasMatch = YES; break; }
     }
-    // 尺寸/圆角变化或位置不对 → 移除旧玻璃与旧高光(可能在 GV 或容器上)，保证只插一层
+    if (hasMatch) {
+        // 检查 GV/容器 另一处是否有残留旧玻璃(useContainer 翻转残留)
+        BOOL hasStale = NO;
+        for (UIView *base in @[target, container]) {
+            if (!base || base == glassTarget) continue;
+            for (UIView *sv in base.subviews)
+                if ([sv isKindOfClass:[UIVisualEffectView class]]) { hasStale = YES; break; }
+        }
+        if (!hasStale) return;
+    }
+    // 存在残留/不匹配 → 移除 GV 与容器上所有旧玻璃与旧高光，保证只插一层
     for (UIView *base in @[target, container]) {
         if (!base) continue;
         NSArray *subs2 = [base.subviews copy];
@@ -357,7 +366,7 @@ static void DKShowDebugTree(UIView *cell){
 static void DKDebugOwnBubbles(UIView *cell) __attribute__((unused));   // 前置声明
 static void hook_cellLayoutSubviews(id self, SEL _cmd){
     orig_cellLayoutSubviews(self,_cmd);
-    @try { DKDebugOwnBubbles(self); } @catch(NSException *e){}
+    // @try { DKDebugOwnBubbles(self); } @catch(NSException *e){}   // 调试标签已关闭
     @try { DKGlassifyCell(self); } @catch(NSException *e){}
 }
 // ===== 专项调试：打印"右侧(自己发的)"气泡类名+结构+背景来源 =====
