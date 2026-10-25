@@ -196,11 +196,18 @@ static void hook_skylightLayoutSubviews(id self, SEL _cmd){
     orig_skylightLayoutSubviews(self,_cmd);
     @try { DKGlassifyChatCell(self); } @catch(NSException *e){}
 }
-// 聊天页 collectionView:cellForItemAtIndexPath: → 拿到每个消息 cell 套玻璃
+// 聊天页 collectionView:cellForItemAtIndexPath: → 拿到消息 cell，只对聊天气泡cell套玻璃
 static id (*orig_msgListCellForItem)(id,SEL,id,id);
 static id hook_msgListCellForItem(id self, SEL _cmd, id cv, id ip){
     id cell = orig_msgListCellForItem(self,_cmd,cv,ip);
-    @try { if (cell) DKGlassifyChatCell(cell); } @catch(NSException *e){}
+    @try {
+        if (cell) {
+            NSString *cn = NSStringFromClass([cell class]) ?: @"";
+            BOOL isBubble = [cn containsString:@"ChatPanel"] || [cn containsString:@"ChatCell"]
+                         || (NSClassFromString(@"AWEIMChatPanelCollectionViewCell") && [cell isKindOfClass:NSClassFromString(@"AWEIMChatPanelCollectionViewCell")]);
+            if (isBubble) DKGlassifyChatCell(cell);
+        }
+    } @catch(NSException *e){}
     return cell;
 }
 // 聊天 cell 是否已 hook 的标志（用于定时重试安装）
@@ -214,7 +221,7 @@ static void DKInstallBubbleHooks(void){
     if (skylight && !orig_skylightLayoutSubviews) {
         MSHookMessageEx(skylight, sel_registerName("layoutSubviews"), (IMP)hook_skylightLayoutSubviews, (IMP*)&orig_skylightLayoutSubviews);
     }
-    Class msgVC = NSClassFromString(@"AWEIMMessageListViewController");
+    Class msgVC = NSClassFromString(@"AWEIMMessageBaseViewController");
     if (msgVC && !orig_msgListCellForItem) {
         MSHookMessageEx(msgVC, sel_registerName("collectionView:cellForItemAtIndexPath:"), (IMP)hook_msgListCellForItem, (IMP*)&orig_msgListCellForItem);
     }
