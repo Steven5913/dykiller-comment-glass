@@ -156,35 +156,53 @@ static UIVisualEffect *DKBubbleGlassEffect(void){
     if (!eff) eff = [UIBlurEffect effectWithStyle:UIBlurEffectStyleLight];
     return eff;
 }
-// 给气泡套玻璃：玻璃直接作为气泡背景（frame=bounds、clip到气泡形状），文字保持在上
+// 给气泡套玻璃：真正的深色圆角气泡是内层(AWEIMMessageBubbleGradientView r0)的父视图(圆角容器 r8)
+// 因此玻璃套到"圆角父容器"上，并清掉容器+内层背景，让壁纸透出
 static void DKApplyGlassToView(UIView *target){
-    if (!target || objc_getAssociatedObject(target, &kDKBubbleGlassKey)) return;
-    if (target.bounds.size.width<10 || target.bounds.size.height<10) return;
+    if (!target) return;
+    // 找到带圆角的父容器作为真正的气泡背景（内层气泡是文字容器 r0）
+    UIView *container = target.superview;
+    BOOL useContainer = NO;
+    if (container && container.layer.cornerRadius > 0 &&
+        container.bounds.size.width >= 10 && container.bounds.size.height >= 10 &&
+        !objc_getAssociatedObject(container, &kDKBubbleGlassKey)) {
+        useContainer = YES;
+    }
+    UIView *glassTarget = useContainer ? container : target;
+    if (objc_getAssociatedObject(glassTarget, &kDKBubbleGlassKey)) return;
+    if (glassTarget.bounds.size.width<10 || glassTarget.bounds.size.height<10) return;
     UIVisualEffect *eff = DKBubbleGlassEffect();
     if (!eff) return;
-    DKClearBubbleBackground(target);
-    // 让玻璃按气泡自身形状裁剪
-    target.clipsToBounds = YES;
+    // 清掉容器 + 内层 的深色背景，露出壁纸让玻璃透出
+    if (useContainer) {
+        DKClearBubbleBackground(container);
+        DKClearBubbleBackground(target);
+    } else {
+        DKClearBubbleBackground(target);
+    }
+    // 玻璃按容器圆角裁剪
+    glassTarget.clipsToBounds = YES;
+    if (glassTarget.layer.cornerRadius <= 0) glassTarget.layer.cornerRadius = 8;
     // 模糊玻璃垫底
     UIVisualEffectView *vev = [[UIVisualEffectView alloc] initWithEffect:eff];
-    vev.frame = target.bounds;
+    vev.frame = glassTarget.bounds;
     vev.autoresizingMask = UIViewAutoresizingFlexibleWidth|UIViewAutoresizingFlexibleHeight;
     vev.userInteractionEnabled = NO;
-    [target insertSubview:vev atIndex:0];
+    [glassTarget insertSubview:vev atIndex:0];
     // 白高光渐变（液态玻璃高光）：白0.10→0.0，locations{0,0.20}，竖向
     CAGradientLayer *gl = [CAGradientLayer layer];
-    gl.frame = target.bounds;
+    gl.frame = glassTarget.bounds;
     gl.colors = @[(id)[UIColor colorWithWhite:1.0 alpha:0.10].CGColor,
                   (id)[UIColor colorWithWhite:1.0 alpha:0.0].CGColor];
     gl.locations = @[@0.0f, @0.20f];
     gl.startPoint = CGPointMake(0, 0);
     gl.endPoint = CGPointMake(0, 1);
     gl.zPosition = 0.1f;   // 垫在 vev 之上、文字之下
-    [target.layer addSublayer:gl];
+    [glassTarget.layer addSublayer:gl];
     // 细边框（液态玻璃描边）
-    target.layer.borderColor = [UIColor colorWithWhite:1.0 alpha:0.25].CGColor;
-    target.layer.borderWidth = 0.5;
-    objc_setAssociatedObject(target, &kDKBubbleGlassKey, @(YES), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    glassTarget.layer.borderColor = [UIColor colorWithWhite:1.0 alpha:0.25].CGColor;
+    glassTarget.layer.borderWidth = 0.5;
+    objc_setAssociatedObject(glassTarget, &kDKBubbleGlassKey, @(YES), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 }
 // 递归找 cell 内所有气泡视图并逐个套玻璃
 static void DKGlassifyCell(UIView *cell){
@@ -210,7 +228,7 @@ static void (*orig_bubbleLayoutSubviews)(id,SEL);
 static void DKShowDebugTree(UIView *cell);   // 前置声明
 static void hook_bubbleLayoutSubviews(id self, SEL _cmd){
     orig_bubbleLayoutSubviews(self,_cmd);
-    @try { DKShowDebugTree(self); } @catch(NSException *e){}
+    // @try { DKShowDebugTree(self); } @catch(NSException *e){}   // 调试标签已关闭
     @try { DKApplyGlassToView(self); } @catch(NSException *e){}
 }
 // 兜底：hook 气泡 cell layoutSubviews，递归找气泡套玻璃
