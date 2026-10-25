@@ -1,18 +1,21 @@
-// ForceDYKillerPrefs v3 — 修复关键bug：功能key必须返回nil/removeObjectForKey，不能返回@NO(非空会被真身当作“开”)
+// ForceDYKillerPrefs v5 — 只开 评论区玻璃 + 聊天页玻璃，其余 DYKiller 全关
 #import <Foundation/Foundation.h>
 #import <UIKit/UIKit.h>
 #import <substrate.h>
 
-static inline BOOL DKIsCommentGlass(NSString *key){ return [key isEqualToString:@"DYKillerCommentGlass"]; }
+static inline BOOL DKIsGlass(NSString *key){
+    return [key isEqualToString:@"DYKillerCommentGlass"]   // 评论区液态玻璃(模糊)
+        || [key isEqualToString:@"DYKillerChatInputGlass"]; // 聊天页输入框液态玻璃(模糊)
+}
 static inline BOOL DKShouldForceOff(NSString *key){
     if (![key hasPrefix:@"DYKiller"]) return NO;
-    if (DKIsCommentGlass(key)) return NO;
+    if (DKIsGlass(key)) return NO;
     return YES;
 }
 
 static BOOL (*orig_boolForKey)(id,SEL,NSString*);
 static BOOL hook_boolForKey(id self, SEL _cmd, NSString *key){
-    if (DKIsCommentGlass(key)) return YES;
+    if (DKIsGlass(key)) return YES;
     if (DKShouldForceOff(key)) return NO;
     return orig_boolForKey(self,_cmd,key);
 }
@@ -33,7 +36,7 @@ static float hook_floatForKey(id self, SEL _cmd, NSString *key){
 }
 static id (*orig_objectForKey)(id,SEL,NSString*);
 static id hook_objectForKey(id self, SEL _cmd, NSString *key){
-    if (DKIsCommentGlass(key)) return @YES;
+    if (DKIsGlass(key)) return @YES;
     if (DKShouldForceOff(key)) return nil;   // 关键：返回nil，非@NO
     return orig_objectForKey(self,_cmd,key);
 }
@@ -132,8 +135,9 @@ static void DKInstallHooks(void){
 
 static void DKForceAllPrefs(void){
     NSUserDefaults *d = [NSUserDefaults standardUserDefaults];
-    // 评论玻璃 显式 YES
+    // 评论玻璃 + 聊天玻璃 显式 YES
     [d setBool:YES forKey:@"DYKillerCommentGlass"];
+    [d setBool:YES forKey:@"DYKillerChatInputGlass"];
     // 其余 DYKiller 功能：彻底删除key，保证 objectForKey 返回 nil / boolForKey 返回 NO
     [d removeObjectForKey:@"DYKillerAdjustRangeExtended"];
     [d removeObjectForKey:@"DYKillerAudioVizPosition"];
@@ -352,6 +356,23 @@ static void DKForceAllPrefs(void){
     [d removeObjectForKey:@"DYKillerTopChannelCatalog"];
     [d removeObjectForKey:@"DYKillerTopChannels"];
     [d removeObjectForKey:@"DYKillerVideoFullscreen"];
+    // ===== 新版新增的聊天相关功能：全部关闭 =====
+    [d removeObjectForKey:@"DYKillerChatInputGlassClear"];
+    [d removeObjectForKey:@"DYKillerChatRemoveEmojiSuggestions"];
+    [d removeObjectForKey:@"DYKillerChatPlayEntryMode"];
+    [d removeObjectForKey:@"DYKillerChatRemovePlusPhotos"];
+    [d removeObjectForKey:@"DYKillerChatRemoveBack"];
+    [d removeObjectForKey:@"DYKillerChatRemoveUnread"];
+    [d removeObjectForKey:@"DYKillerChatRemoveMenu"];
+    [d removeObjectForKey:@"DYKillerChatTopBlur"];
+    [d removeObjectForKey:@"DYKillerChatTopCenter"];
+    [d removeObjectForKey:@"DYKillerChatTopStreakPosition"];
+    [d removeObjectForKey:@"DYKillerChatTopOnlinePosition"];
+    [d removeObjectForKey:@"DYKillerChatRemoveOnline"];
+    [d removeObjectForKey:@"DYKillerChatRemoveCall"];
+    [d removeObjectForKey:@"DYKillerChatGroupZoneNoAutoExpand"];
+    [d removeObjectForKey:@"DYKillerChatTopCustomPage"];
+    [d removeObjectForKey:@"DYKillerMediaSaveChatSticker"];
     [d synchronize];
 }
 
