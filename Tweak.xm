@@ -1,6 +1,7 @@
 // ForceDYKillerPrefs v5 — 只开 评论区玻璃 + 聊天页玻璃，其余 DYKiller 全关
 #import <Foundation/Foundation.h>
 #import <UIKit/UIKit.h>
+#import <objc/message.h>
 #import <substrate.h>
 
 static inline BOOL DKIsGlass(NSString *key){
@@ -115,26 +116,29 @@ static id hook_vm_cellForRow(id self, SEL _cmd, id tv, id ip){
     return cell;
 }
 
-// ===== 聊天消息气泡清透玻璃：复用长按倍速玻璃手法（系统 UIVisualEffectView 清透）=====
+// ===== 聊天消息气泡清透玻璃：逐字照搬长按倍速玻璃（LJ_MakeEffect + pill 配方）=====
 #import <objc/runtime.h>
 static char kDKBubbleGlassKey;
-// 创建清透玻璃效果：优先 UIGlassEffect(iOS26 液态玻璃)，回退 UIBlurEffect ultra-thin + 亮白蒙层
+// ===== 完全复刻长按倍速玻璃 LJ_MakeEffect：UIGlassEffect effectWithStyle:{1,0,2} → ultraThin → Light =====
 static UIVisualEffect *DKBubbleGlassEffect(void){
-    Class GE = NSClassFromString(@"UIGlassEffect");
-    if (GE) {
-        // 尝试多种 UIGlassEffect 创建方式
-        SEL sels[] = {sel_registerName("effect"), sel_registerName("effectWithStyle:"), sel_registerName("effectWithTintColor:")};
-        for (int i=0;i<3;i++){
-            if ([GE respondsToSelector:sels[i]]) {
-                @try {
-                    IMP imp = [GE methodForSelector:sels[i]];
-                    id e = ((id(*)(id,SEL))imp)(GE, sels[i]);
-                    if (e) return e;
-                } @catch(NSException *e){}
+    UIVisualEffect *eff = nil;
+    Class ge = NSClassFromString(@"UIGlassEffect");
+    if (ge) {
+        SEL s = NSSelectorFromString(@"effectWithStyle:");
+        if (s) {
+            id (*msg)(id, SEL, NSInteger) = (id (*)(id, SEL, NSInteger))objc_msgSend;
+            NSInteger styles[] = {1, 0, 2};
+            for (int i = 0; i < 3; i++) {
+                @try { eff = msg(ge, s, styles[i]); } @catch(...) { eff = nil; }
+                if (eff) break;
             }
         }
     }
-    return [UIBlurEffect effectWithStyle:(UIBlurEffectStyle)12]; // ultra-thin 清透薄雾
+    if (!eff) {
+        @try { eff = [UIBlurEffect effectWithStyle:UIBlurEffectStyleSystemUltraThinMaterial]; } @catch(...) { eff = nil; }
+    }
+    if (!eff) eff = [UIBlurEffect effectWithStyle:UIBlurEffectStyleLight];
+    return eff;
 }
 // 把气泡渐变背景透明化（气泡自带 CAGradientLayer 渐变，改成透明让玻璃透出）
 static void DKClearBubbleBackground(UIView *target){
@@ -149,25 +153,38 @@ static void DKClearBubbleBackground(UIView *target){
         }
     } @catch(NSException *e){}
 }
-// 给气泡视图套清透玻璃层（玻璃垫底、亮白蒙层、文字在上）
+// ===== 完全复刻长按倍速玻璃 LJ_ApplyGlassToLabel 的 pill 构造：模糊 + 白高光渐变 + 细边框 + 圆角 =====
 static void DKApplyGlassToView(UIView *target){
     if (!target || objc_getAssociatedObject(target, &kDKBubbleGlassKey)) return;
     if (target.bounds.size.width<10 || target.bounds.size.height<10) return;
     DKClearBubbleBackground(target);
-    UIVisualEffectView *vev = [[UIVisualEffectView alloc] initWithEffect:DKBubbleGlassEffect()];
-    vev.frame = target.bounds;
+    UIVisualEffect *eff = DKBubbleGlassEffect();
+    if (!eff) return;
+    CGFloat radius = target.layer.cornerRadius>0 ? target.layer.cornerRadius : target.bounds.size.height/2.0;
+    // 玻璃容器 pill
+    UIView *pill = [[UIView alloc] initWithFrame:target.bounds];
+    pill.userInteractionEnabled = NO;
+    pill.layer.cornerRadius = radius;
+    pill.clipsToBounds = YES;
+    // 模糊层（和长按倍速玻璃一致）
+    UIVisualEffectView *vev = [[UIVisualEffectView alloc] initWithEffect:eff];
+    vev.frame = pill.bounds;
     vev.autoresizingMask = UIViewAutoresizingFlexibleWidth|UIViewAutoresizingFlexibleHeight;
-    vev.userInteractionEnabled = NO;
-    vev.layer.cornerRadius = target.layer.cornerRadius>0 ? target.layer.cornerRadius : 16;
-    vev.clipsToBounds = YES;
-    [target insertSubview:vev atIndex:0];   // 垫底，让气泡文字显示在玻璃之上
-    // 亮白半透明蒙层，营造清透玻璃质感（长按倍速玻璃手法）；alpha 0.5 保证明显玻璃感
-    UIView *tint = [[UIView alloc] initWithFrame:target.bounds];
-    tint.backgroundColor = [[UIColor whiteColor] colorWithAlphaComponent:0.50f];
-    tint.autoresizingMask = UIViewAutoresizingFlexibleWidth|UIViewAutoresizingFlexibleHeight;
-    tint.userInteractionEnabled = NO;
-    tint.layer.cornerRadius = vev.layer.cornerRadius;
-    [target insertSubview:tint aboveSubview:vev];
+    [pill addSubview:vev];
+    // 白高光渐变层（和长按倍速玻璃一致：白0.10→0.0，locations{0,0.20}，竖向）
+    CAGradientLayer *gl = [CAGradientLayer layer];
+    gl.frame = pill.bounds;
+    gl.colors = @[(id)[UIColor colorWithWhite:1.0 alpha:0.10].CGColor,
+                  (id)[UIColor colorWithWhite:1.0 alpha:0.0].CGColor];
+    gl.locations = @[@0.0f, @0.20f];
+    gl.startPoint = CGPointMake(0, 0);
+    gl.endPoint = CGPointMake(0, 1);
+    [pill.layer addSublayer:gl];
+    // 细边框（和长按倍速玻璃一致：白0.25/0.5pt）
+    pill.layer.borderColor = [UIColor colorWithWhite:1.0 alpha:0.25].CGColor;
+    pill.layer.borderWidth = 0.5;
+    // 把 pill 垫到气泡最底层（文字在上）
+    [target insertSubview:pill atIndex:0];
     objc_setAssociatedObject(target, &kDKBubbleGlassKey, @(YES), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 }
 // 递归找 cell 内所有气泡视图（AWEIMMessageBubbleGradientView 或类名含 Bubble/Skylight），逐个套玻璃
