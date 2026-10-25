@@ -122,19 +122,37 @@ static char kDKBubbleGlassKey;
 static char kDKGlassGradKey;
 // ===== 气泡清透玻璃：彻底去背景 + 玻璃按气泡形状直接垫底（复刻长按倍速 LJ_MakeEffect 配方）=====
 // 彻底清掉气泡原有深色渐变/图片背景，露出下方壁纸让玻璃透出
+// 判断颜色是否"深色"(亮度低且不透明)——用于只清深色背衬, 不动浅色内容层
+static BOOL DKIsDarkColor(CGColorRef c){
+    if (!c) return NO;
+    if (CGColorGetAlpha(c) < 0.05) return NO;
+    const CGFloat *cp = CGColorGetComponents(c);
+    size_t n = CGColorGetNumberOfComponents(c);
+    if (n >= 3) {
+        CGFloat lum = 0.299*cp[0] + 0.587*cp[1] + 0.114*cp[2];
+        return lum < 0.45;
+    }
+    return NO;
+}
 static void DKClearBubbleBackground(UIView *target){
     @try {
         target.backgroundColor = [UIColor clearColor];
         target.layer.backgroundColor = [UIColor clearColor].CGColor;
-        target.layer.contents = nil;
+        // 注意: 不再清 target.layer.contents —— 分享评论卡片的大图(图文预览)是放在
+        // 手势视图 layer.contents 里的, 清了会把卡片图片整个擦掉
         if ([target.layer isKindOfClass:[CAGradientLayer class]]) {
             CAGradientLayer *g = (CAGradientLayer*)target.layer;
             g.colors = @[(id)[UIColor clearColor].CGColor, (id)[UIColor clearColor].CGColor];
         }
         NSArray *sls = [target.layer.sublayers copy];
         for (CALayer *sl in sls) {
-            if ([sl isKindOfClass:[CAGradientLayer class]]) { sl.opacity = 0.0f; }
-            else if (sl.contents == nil && sl.backgroundColor && [sl.sublayers count]==0) { sl.opacity = 0.0f; }
+            // 只清"深色"背衬子图层(气泡深色底), 不清浅色/内容图层, 避免误伤卡片内容
+            if ([sl isKindOfClass:[CAGradientLayer class]]) {
+                CAGradientLayer *g = (CAGradientLayer*)sl;
+                if (g.colors.count && DKIsDarkColor((__bridge CGColorRef)g.colors[0])) sl.opacity = 0.0f;
+            } else if (sl.contents == nil && sl.backgroundColor && [sl.sublayers count]==0) {
+                if (DKIsDarkColor(sl.backgroundColor)) sl.opacity = 0.0f;
+            }
         }
         // 隐藏气泡内的背景图片子视图(如自己消息的蓝色 UIImageView 背景)，保留玻璃/文字/已知容器
         // 注意: 不隐藏普通 UIView(回复/引用框等可能是普通 UIView)，避免误伤
