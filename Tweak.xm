@@ -317,38 +317,20 @@ static void hook_cellLayoutSubviews(id self, SEL _cmd){
 // ===== 专项调试：打印"右侧(自己发的)"气泡类名+结构+背景来源 =====
 static void DKDebugOwnBubbles(UIView *cell){
     if (!cell) return;
+    // 只处理富媒体大 cell(高度>90, 如分享卡片/图文/长消息), 跳过普通56px文本
+    if (cell.bounds.size.height <= 90) return;
     NSMutableString *s=[NSMutableString string];
+    [s appendFormat:@"\n== CELL[%@] %.0fx%.0f ==", NSStringFromClass([cell class]),
+     cell.bounds.size.width, cell.bounds.size.height];
     NSMutableArray *stack=[NSMutableArray array]; [stack addObject:cell];
     int guard=0;
-    while (stack.count && s.length<1300 && guard<500) {
+    while (stack.count && s.length<1200 && guard<300) {
         guard++; UIView *v=[stack lastObject]; [stack removeLastObject];
-        if (v.bounds.size.width>=80 && v.bounds.size.height>=24) {
-            CGFloat x = v.frame.origin.x;
-            NSString *cn=NSStringFromClass([v class])?:@"?";
-            NSString *lc=NSStringFromClass([v.layer class])?:@"?";
-            [s appendFormat:@"\n[%@] f%.0f,%.0f %.0fx%.0f r%.1f %@ bg=%@ %@",
-             cn, x, v.frame.origin.y, v.bounds.size.width, v.bounds.size.height,
-             v.layer.cornerRadius, lc, v.backgroundColor,
-             (v.hidden||v.alpha<0.01)?@"H":@""];
-            UIView *p=v.superview;
-            while (p && s.length<1600) {
-                [s appendFormat:@" <- %@(r%.1f bg=%@)", NSStringFromClass([p class])?:@"?", p.layer.cornerRadius, p.backgroundColor];
-                p=p.superview;
-            }
-            // 内部图层：渐变/图片/子视图(找背景/结构)
-            for (CALayer *sl in v.layer.sublayers) {
-                [s appendFormat:@"\n   L[%@] bg=%@ c=%d m=%@ op%.2f",
-                 NSStringFromClass([sl class]), sl.backgroundColor, sl.contents!=nil,
-                 sl.mask?NSStringFromClass([sl.mask class]):@"-", sl.opacity];
-            }
-            for (UIView *sv in v.subviews) {
-                [s appendFormat:@"\n   V[%@] f%.0f,%.0f %.0fx%.0f r%.1f hid=%d bg=%@",
-                 NSStringFromClass([sv class]), sv.frame.origin.x, sv.frame.origin.y,
-                 sv.bounds.size.width, sv.bounds.size.height, sv.layer.cornerRadius,
-                 sv.hidden, sv.backgroundColor];
-            }
-            [s appendString:@"\n"];
-        }
+        NSString *cn=NSStringFromClass([v class])?:@"?";
+        [s appendFormat:@"\n%@ f%.0f,%.0f %.0fx%.0f r%.1f %@ bg=%@ %@",
+         cn, v.frame.origin.x, v.frame.origin.y, v.bounds.size.width, v.bounds.size.height,
+         v.layer.cornerRadius, NSStringFromClass([v.layer class])?:@"?",
+         v.backgroundColor, (v.hidden||v.alpha<0.01)?@"H":@""];
         for (UIView *sub in v.subviews) [stack addObject:sub];
     }
     @try {
