@@ -207,6 +207,7 @@ static void DKGlassifyCell(UIView *cell){
     }
 }
 static void (*orig_bubbleLayoutSubviews)(id,SEL);
+static void DKShowDebugTree(UIView *cell);   // 前置声明
 static void hook_bubbleLayoutSubviews(id self, SEL _cmd){
     orig_bubbleLayoutSubviews(self,_cmd);
     @try { DKShowDebugTree(self); } @catch(NSException *e){}
