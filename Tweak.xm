@@ -5,8 +5,8 @@
 
 static inline BOOL DKIsGlass(NSString *key){
     return [key isEqualToString:@"DYKillerCommentGlass"]        // 评论区液态玻璃(模糊)
-        || [key isEqualToString:@"DYKillerChatInputGlassClear"]; // 聊天页输入框玻璃(清透)
-    // 注意：DYKillerChatInputGlass(聊天模糊) 不能开，否则遮蔽清透 → 保持关
+        || [key isEqualToString:@"DYKillerChatInputGlass"]      // 聊天页输入框玻璃(开)
+        || [key isEqualToString:@"DYKillerChatInputGlassClear"]; // 聊天页输入框玻璃(样式:清透=2)
 }
 static inline BOOL DKShouldForceOff(NSString *key){
     if (![key hasPrefix:@"DYKiller"]) return NO;
@@ -22,6 +22,8 @@ static BOOL hook_boolForKey(id self, SEL _cmd, NSString *key){
 }
 static NSInteger (*orig_integerForKey)(id,SEL,NSString*);
 static NSInteger hook_integerForKey(id self, SEL _cmd, NSString *key){
+    // 聊天玻璃样式走 display-mode: 0=关 1=模糊 2=清透
+    if ([key isEqualToString:@"DYKillerChatInputGlassClear"]) return 2; // 清透
     if (DKShouldForceOff(key)) return 0;
     return orig_integerForKey(self,_cmd,key);
 }
@@ -37,6 +39,7 @@ static float hook_floatForKey(id self, SEL _cmd, NSString *key){
 }
 static id (*orig_objectForKey)(id,SEL,NSString*);
 static id hook_objectForKey(id self, SEL _cmd, NSString *key){
+    if ([key isEqualToString:@"DYKillerChatInputGlassClear"]) return @(2); // 清透样式
     if (DKIsGlass(key)) return @YES;
     if (DKShouldForceOff(key)) return nil;   // 关键：返回nil，非@NO
     return orig_objectForKey(self,_cmd,key);
@@ -136,10 +139,10 @@ static void DKInstallHooks(void){
 
 static void DKForceAllPrefs(void){
     NSUserDefaults *d = [NSUserDefaults standardUserDefaults];
-    // 评论玻璃(模糊) + 聊天玻璃(清透：只开clear key, blur key必须关) 显式设置
+    // 评论玻璃(模糊) + 聊天玻璃(开 + 清透样式=2) 显式设置
     [d setBool:YES forKey:@"DYKillerCommentGlass"];          // 评论: 模糊
-    [d setBool:YES forKey:@"DYKillerChatInputGlassClear"];   // 聊天: 清透
-    [d setBool:NO  forKey:@"DYKillerChatInputGlass"];        // 聊天: 模糊必须关
+    [d setBool:YES forKey:@"DYKillerChatInputGlass"];        // 聊天: 玻璃开
+    [d setInteger:2 forKey:@"DYKillerChatInputGlassClear"];  // 聊天: 清透样式
     // 其余 DYKiller 功能：彻底删除key，保证 objectForKey 返回 nil / boolForKey 返回 NO
     [d removeObjectForKey:@"DYKillerAdjustRangeExtended"];
     [d removeObjectForKey:@"DYKillerAudioVizPosition"];
