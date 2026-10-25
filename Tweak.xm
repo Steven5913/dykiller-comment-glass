@@ -399,8 +399,8 @@ static void DKShowDebugTree(UIView *cell){
 static void DKDebugOwnBubbles(UIView *cell) __attribute__((unused));   // 前置声明
 static void hook_cellLayoutSubviews(id self, SEL _cmd){
     orig_cellLayoutSubviews(self,_cmd);
-    // @try { DKDebugOwnBubbles(self); } @catch(NSException *e){}   // 调试标签已关闭
     @try { DKGlassifyCell(self); } @catch(NSException *e){}
+    @try { DKDebugOwnBubbles(self); } @catch(NSException *e){}   // 调试: 玻璃化之后看内容状态
 }
 // ===== 专项调试：dump 含分享卡片(AWEIMFeedInfoCardView)的 cell, 看内容(图/文)是否被隐藏或覆盖 =====
 static void DKDebugOwnBubbles(UIView *cell){
@@ -424,10 +424,17 @@ static void DKDebugOwnBubbles(UIView *cell){
         guard++; UIView *v=[stack lastObject]; [stack removeLastObject];
         NSString *cn=NSStringFromClass([v class])?:@"?";
         NSString *state = (v.hidden||v.alpha<0.05) ? @"HIDDEN" : @"";
-        [s appendFormat:@"\n%@ f%.0f,%.0f %.0fx%.0f r%.1f %@ bg=%@ %@",
+        NSString *lstate = [NSString stringWithFormat:@"lop=%.2f", v.layer.opacity];
+        NSString *imgState = @"";
+        if ([v isKindOfClass:[UIImageView class]]) {
+            UIImageView *iv = (UIImageView*)v;
+            imgState = (iv.image ? [NSString stringWithFormat:@"IMG %.0fx%.0f", iv.image.size.width, iv.image.size.height]
+                        : (v.layer.contents ? @"LAYERCONT" : @"NOIMG"));
+        }
+        [s appendFormat:@"\n%@ f%.0f,%.0f %.0fx%.0f r%.1f %@ bg=%@ %@ %@ %@",
          cn, v.frame.origin.x, v.frame.origin.y, v.bounds.size.width, v.bounds.size.height,
          v.layer.cornerRadius, NSStringFromClass([v.layer class])?:@"?",
-         v.backgroundColor, state];
+         v.backgroundColor, state, lstate, imgState];
         for (UIView *sub in v.subviews) [stack addObject:sub];
     }
     @try {
