@@ -237,8 +237,17 @@ static void DKGlassifyCell(UIView *cell){
         NSString *lo = cn.lowercaseString;
         BOOL isBubble = [v isKindOfClass:NSClassFromString(@"AWEIMMessageBubbleGradientView")]
                      || [lo containsString:@"bubble"] || [lo containsString:@"skylight"];
+        // 富媒体卡片气泡(分享/图文): 内部 AWEIMGestureView 带深色背景 → 也是气泡背景
+        BOOL isDarkGesture = [cn isEqualToString:@"AWEIMGestureView"]
+                          && v.backgroundColor
+                          && ![v.backgroundColor isEqual:[UIColor clearColor]]
+                          && v.bounds.size.width>=80 && v.bounds.size.height>=30;
         if (isBubble) {
             DKApplyGlassToView(v);
+        } else if (isDarkGesture) {
+            // 清掉深色手势背景，玻璃套到它的父视图(圆角容器)
+            DKClearBubbleBackground(v);
+            if (v.superview) DKApplyGlassToView(v.superview);
         } else {
             for (UIView *s in v.subviews) [stack addObject:s];
         }
@@ -311,7 +320,7 @@ static void DKShowDebugTree(UIView *cell){
 static void DKDebugOwnBubbles(UIView *cell) __attribute__((unused));   // 前置声明
 static void hook_cellLayoutSubviews(id self, SEL _cmd){
     orig_cellLayoutSubviews(self,_cmd);
-    @try { DKDebugOwnBubbles(self); } @catch(NSException *e){}
+    // @try { DKDebugOwnBubbles(self); } @catch(NSException *e){}   // 调试标签已关闭
     @try { DKGlassifyCell(self); } @catch(NSException *e){}
 }
 // ===== 专项调试：打印"右侧(自己发的)"气泡类名+结构+背景来源 =====
