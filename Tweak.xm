@@ -180,18 +180,23 @@ static void DKApplyGlassToView(UIView *target){
     if (objc_getAssociatedObject(glassTarget, &kDKBubbleGlassKey)) return;
     UIVisualEffect *eff = DKBubbleGlassEffect();
     if (!eff) return;
-    // 玻璃按容器圆角裁剪
+    // 玻璃按气泡形状裁剪：胶囊圆角(高度/2，与长按倍速玻璃一致)
+    CGFloat radius = glassTarget.bounds.size.height / 2.0;
+    if (radius > 22) radius = 22;   // 多行长气泡限制圆角上限，避免过度胶囊
     glassTarget.clipsToBounds = YES;
-    if (glassTarget.layer.cornerRadius <= 0) glassTarget.layer.cornerRadius = 8;
-    // 模糊玻璃垫底
+    glassTarget.layer.cornerRadius = radius;
+    // 模糊玻璃垫底（自身带圆角+裁剪，让模糊按圆角显示）
     UIVisualEffectView *vev = [[UIVisualEffectView alloc] initWithEffect:eff];
     vev.frame = glassTarget.bounds;
     vev.autoresizingMask = UIViewAutoresizingFlexibleWidth|UIViewAutoresizingFlexibleHeight;
     vev.userInteractionEnabled = NO;
+    vev.layer.cornerRadius = radius;
+    vev.clipsToBounds = YES;
     [glassTarget insertSubview:vev atIndex:0];
     // 白高光渐变（液态玻璃高光）：白0.10→0.0，locations{0,0.20}，竖向
     CAGradientLayer *gl = [CAGradientLayer layer];
     gl.frame = glassTarget.bounds;
+    gl.cornerRadius = radius;
     gl.colors = @[(id)[UIColor colorWithWhite:1.0 alpha:0.10].CGColor,
                   (id)[UIColor colorWithWhite:1.0 alpha:0.0].CGColor];
     gl.locations = @[@0.0f, @0.20f];
