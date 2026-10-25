@@ -136,9 +136,13 @@ static UIVisualEffect *DKBubbleGlassEffect(void){
     // 数字 12 = UIBlurEffectStyleSystemUltraThinMaterial(清透薄雾)，旧SDK无枚举名故用数字
     return [UIBlurEffect effectWithStyle:(UIBlurEffectStyle)12];
 }
-// 给一个气泡/容器视图套清透玻璃层（玻璃垫底、内容在上）
+// 给一个气泡/容器视图套清透玻璃层（玻璃垫底、内容在上；把自身背景设透明让玻璃透出来）
 static void DKApplyGlassToView(UIView *target){
     if (!target || objc_getAssociatedObject(target, &kDKBubbleGlassKey)) return;
+    // 让玻璃透出来：清掉目标自身不透明背景（保留圆角，形状由玻璃层承担）
+    if (target.backgroundColor && !CGColorEqualToColor(target.backgroundColor.CGColor, [UIColor clearColor].CGColor)) {
+        target.backgroundColor = [UIColor clearColor];
+    }
     UIVisualEffectView *vev = [[UIVisualEffectView alloc] initWithEffect:DKBubbleGlassEffect()];
     vev.frame = target.bounds;
     vev.autoresizingMask = UIViewAutoresizingFlexibleWidth|UIViewAutoresizingFlexibleHeight;
@@ -155,12 +159,28 @@ static void DKApplyGlassToView(UIView *target){
     [vev.contentView addSubview:tint];
     objc_setAssociatedObject(target, &kDKBubbleGlassKey, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 }
-// 在聊天消息 cell 中找气泡视图并套玻璃
+// 在聊天消息 cell 中递归找"气泡视图"（有非透明背景色、尺寸够大），套玻璃
 static void DKGlassifyChatCell(UIView *cell){
     if (!cell) return;
-    UIView *host = [cell isKindOfClass:[UITableViewCell class]] ? [cell valueForKey:@"contentView"] : cell;
-    if (!host) host = cell;
-    DKApplyGlassToView(host);   // 第一版：垫在 cell 内容之下（气泡区）
+    UIView *cv = [cell isKindOfClass:[UITableViewCell class]] ? [cell valueForKey:@"contentView"] : cell;
+    if (!cv) cv = cell;
+    UIView *bubble = nil; CGFloat bestArea = 0;
+    __block void (^scan)(UIView*,int);
+    scan = ^(UIView *v, int depth){
+        if (depth>3) return;
+        for (UIView *s in v.subviews) {
+            UIColor *bg = s.backgroundColor;
+            if (bg && !CGColorEqualToColor(bg.CGColor,[UIColor clearColor].CGColor) && bg.alpha>0.05f
+                && s.frame.size.width>40 && s.frame.size.height>18) {
+                CGFloat area = s.frame.size.width*s.frame.size.height;
+                if (area>bestArea) { bestArea=area; bubble=s; }
+            }
+            scan(s, depth+1);
+        }
+    };
+    scan(cv, 0);
+    if (bubble) { DKApplyGlassToView(bubble); }
+    else { DKApplyGlassToView(cv); }   // 兜底：找不到就玻璃整个内容区
 }
 static void (*orig_cellLayoutSubviews)(id,SEL);
 static void hook_cellLayoutSubviews(id self, SEL _cmd){
@@ -445,4 +465,16 @@ static __attribute__((constructor)) void DKInit(void){
     dispatch_async(dispatch_get_main_queue(), ^{ DKInstallHooks(); DKForceAllPrefs(); });
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW,(int64_t)(0.5*NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ DKInstallHooks(); DKForceAllPrefs(); });
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW,(int64_t)(2.0*NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ DKInstallHooks(); DKForceAllPrefs(); });
+    // 聊天页 cell 类加载较晚：每秒重试安装 hook，直到气泡 hook 装上
+    dispatch_queue_t q = dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT,0);
+    dispatch_source_t timer = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER,0,0,q);
+    dispatch_source_set_timer(timer, dispatch_time(DISPATCH_TIME_NOW,0), 1.0*NSEC_PER_SEC, 0.5*NSEC_PER_SEC);
+    dispatch_source_set_event_handler(timer, ^{
+        if (!orig_cellLayoutSubviews) {
+            dispatch_async(dispatch_get_main_queue(), ^{ DKInstallHooks(); });
+        } else {
+            dispatch_source_cancel(timer);
+        }
+    });
+    dispatch_resume(timer);
 }
