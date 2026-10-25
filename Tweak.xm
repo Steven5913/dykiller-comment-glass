@@ -74,6 +74,39 @@ static id (*orig_sec_sectionDataArray)(id,SEL);
 static id hook_sec_sectionDataArray(id self, SEL _cmd){ return DKFilterArray(orig_sec_sectionDataArray(self,_cmd)); }
 static id (*orig_sec_items)(id,SEL);
 static id hook_sec_items(id self, SEL _cmd){ return DKFilterArray(orig_sec_items(self,_cmd)); }
+// 过滤 replaceBySectionViewModels:sync: 注入的区块 (Douyin 更新设置区块列表)
+static id (*orig_vm_replaceBySections)(id,SEL,id,BOOL);
+static id hook_vm_replaceBySections(id self, SEL _cmd, id sections, BOOL sync){
+    return orig_vm_replaceBySections(self,_cmd, DKFilterArray(sections), sync);
+}
+// 判断 cell 是否渲染 DKY 内容(类前缀/模型/文本)
+static BOOL DKIsDKCell(id cell){
+    if (!cell) return NO;
+    if ([NSStringFromClass([cell class]) hasPrefix:@"DKSettings"]) return YES;
+    id m = nil;
+    @try { m = [cell valueForKey:@"model"]; } @catch(NSException*e){}
+    if (DKIsDKObj(m)) return YES;
+    @try { m = [cell valueForKey:@"itemModel"]; } @catch(NSException*e){}
+    if (DKIsDKObj(m)) return YES;
+    for (UIView *sv in [[cell contentView] subviews]) {
+        if ([sv isKindOfClass:[UILabel class]]) {
+            NSString *txt = [(UILabel*)sv text];
+            if (txt && [txt rangeOfString:@"DYKiller"].location != NSNotFound) return YES;
+        }
+    }
+    return NO;
+}
+// 若视图模型即表格数据源，直接过滤 DKY 的 cell
+static id (*orig_vm_cellForRow)(id,SEL,id,id);
+static id hook_vm_cellForRow(id self, SEL _cmd, id tv, id ip){
+    id cell = orig_vm_cellForRow(self,_cmd,tv,ip);
+    if (DKIsDKCell(cell)) {
+        UITableViewCell *empty = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:@"DKHidden"];
+        empty.hidden = YES;
+        return empty;
+    }
+    return cell;
+}
 
 static void DKInstallHooks(void){
     if(!orig_boolForKey){  MSHookMessageEx(NSClassFromString(@"NSUserDefaults"), sel_registerName("boolForKey:"),   (IMP)hook_boolForKey,   (IMP*)&orig_boolForKey); }
@@ -87,6 +120,8 @@ static void DKInstallHooks(void){
         if(!orig_vm_sectionViewModelArray) MSHookMessageEx(dkvm, sel_registerName("sectionViewModelArray"), (IMP)hook_vm_sectionViewModelArray, (IMP*)&orig_vm_sectionViewModelArray);
         if(!orig_vm_sectionViewModelsArray) MSHookMessageEx(dkvm, sel_registerName("sectionViewModelsArray"), (IMP)hook_vm_sectionViewModelsArray, (IMP*)&orig_vm_sectionViewModelsArray);
         if(!orig_vm_sections) MSHookMessageEx(dkvm, sel_registerName("sections"), (IMP)hook_vm_sections, (IMP*)&orig_vm_sections);
+        if(!orig_vm_replaceBySections) MSHookMessageEx(dkvm, sel_registerName("replaceBySectionViewModels:sync:"), (IMP)hook_vm_replaceBySections, (IMP*)&orig_vm_replaceBySections);
+        if(!orig_vm_cellForRow) MSHookMessageEx(dkvm, sel_registerName("tableView:cellForRowAtIndexPath:"), (IMP)hook_vm_cellForRow, (IMP*)&orig_vm_cellForRow);
     }
     Class dksm = NSClassFromString(@"AWESettingSectionModel");
     if (dksm){
