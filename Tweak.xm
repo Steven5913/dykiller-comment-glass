@@ -43,6 +43,38 @@ static NSString *hook_stringForKey(id self, SEL _cmd, NSString *key){
     return orig_stringForKey(self,_cmd,key);
 }
 
+// ===== 设置入口过滤：把抖音设置里 DYKiller 的区块/条目去掉 =====
+static BOOL DKIsDKObj(id o){
+    if (!o) return NO;
+    NSString *cls = NSStringFromClass([o class]);
+    if ([cls hasPrefix:@"DKSettings"]) return YES;      // DKY 自己的设置模型类
+    for (NSString *k in @[@"title",@"sectionHeaderTitle",@"sectionHeader",@"name",@"identifier"]) {
+        @try {
+            id v = [o valueForKey:k];
+            if ([v isKindOfClass:[NSString class]] && [v rangeOfString:@"DYKiller"].location != NSNotFound) return YES;
+        } @catch(NSException *e){}
+    }
+    return NO;
+}
+// 过滤视图模型返回的区块数组(AWESettingsViewModel.sectionViewModelArray / sections)
+static id (*orig_vm_sectionArray)(id,SEL);
+static id hook_vm_sectionArray(id self, SEL _cmd){
+    id orig = orig_vm_sectionArray(self,_cmd);
+    if (!orig || ![orig isKindOfClass:[NSArray class]]) return orig;
+    NSMutableArray *out = [NSMutableArray arrayWithCapacity:[orig count]];
+    for (id s in (NSArray*)orig){ if(!DKIsDKObj(s)) [out addObject:s]; }
+    return out;
+}
+// 过滤区块模型返回的条目数组(AWESettingSectionModel.sectionDataArray)
+static id (*orig_sec_dataArray)(id,SEL);
+static id hook_sec_dataArray(id self, SEL _cmd){
+    id orig = orig_sec_dataArray(self,_cmd);
+    if (!orig || ![orig isKindOfClass:[NSArray class]]) return orig;
+    NSMutableArray *out = [NSMutableArray arrayWithCapacity:[orig count]];
+    for (id s in (NSArray*)orig){ if(!DKIsDKObj(s)) [out addObject:s]; }
+    return out;
+}
+
 static void DKInstallHooks(void){
     if(!orig_boolForKey){  MSHookMessageEx(NSClassFromString(@"NSUserDefaults"), sel_registerName("boolForKey:"),   (IMP)hook_boolForKey,   (IMP*)&orig_boolForKey); }
     if(!orig_integerForKey){MSHookMessageEx(NSClassFromString(@"NSUserDefaults"), sel_registerName("integerForKey:"),(IMP)hook_integerForKey,(IMP*)&orig_integerForKey); }
@@ -50,6 +82,14 @@ static void DKInstallHooks(void){
     if(!orig_floatForKey){  MSHookMessageEx(NSClassFromString(@"NSUserDefaults"), sel_registerName("floatForKey:"),   (IMP)hook_floatForKey,   (IMP*)&orig_floatForKey); }
     if(!orig_objectForKey){ MSHookMessageEx(NSClassFromString(@"NSUserDefaults"), sel_registerName("objectForKey:"),  (IMP)hook_objectForKey,  (IMP*)&orig_objectForKey); }
     if(!orig_stringForKey){ MSHookMessageEx(NSClassFromString(@"NSUserDefaults"), sel_registerName("stringForKey:"),  (IMP)hook_stringForKey,  (IMP*)&orig_stringForKey); }
+    Class dkvm = NSClassFromString(@"AWESettingsViewModel");
+    if (dkvm && !orig_vm_sectionArray){
+        MSHookMessageEx(dkvm, sel_registerName("sectionViewModelArray"), (IMP)hook_vm_sectionArray, (IMP*)&orig_vm_sectionArray);
+    }
+    Class dksm = NSClassFromString(@"AWESettingSectionModel");
+    if (dksm && !orig_sec_dataArray){
+        MSHookMessageEx(dksm, sel_registerName("sectionDataArray"), (IMP)hook_sec_dataArray, (IMP*)&orig_sec_dataArray);
+    }
 }
 
 static void DKForceAllPrefs(void){
