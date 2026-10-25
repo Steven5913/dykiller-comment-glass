@@ -159,26 +159,29 @@ static void DKApplyGlassToView(UIView *target){
     [vev.contentView addSubview:tint];
     objc_setAssociatedObject(target, &kDKBubbleGlassKey, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 }
-// 在聊天消息 cell 中递归找"气泡视图"（有非透明背景色、尺寸够大），套玻璃
+// 在聊天消息 cell 中迭代找"气泡视图"（有非透明背景色、尺寸够大），套玻璃
 static void DKGlassifyChatCell(UIView *cell){
     if (!cell) return;
     UIView *cv = [cell isKindOfClass:[UITableViewCell class]] ? [cell valueForKey:@"contentView"] : cell;
     if (!cv) cv = cell;
     UIView *bubble = nil; CGFloat bestArea = 0;
-    __block void (^scan)(UIView*,int);
-    scan = ^(UIView *v, int depth){
-        if (depth>3) return;
+    NSMutableArray *stack = [NSMutableArray arrayWithObject:cv];
+    int depth = 0, seen = 0;
+    while (stack.count && depth<4) {
+        UIView *v = stack.lastObject; [stack removeLastObject];
+        if (v!=cv && ++seen>400) break;
         for (UIView *s in v.subviews) {
             UIColor *bg = s.backgroundColor;
-            if (bg && !CGColorEqualToColor(bg.CGColor,[UIColor clearColor].CGColor) && bg.alpha>0.05f
+            if (bg && !CGColorEqualToColor(bg.CGColor,[UIColor clearColor].CGColor)
+                && CGColorGetAlpha(bg.CGColor)>0.05f
                 && s.frame.size.width>40 && s.frame.size.height>18) {
                 CGFloat area = s.frame.size.width*s.frame.size.height;
                 if (area>bestArea) { bestArea=area; bubble=s; }
             }
-            scan(s, depth+1);
+            [stack addObject:s];
         }
-    };
-    scan(cv, 0);
+        depth++;
+    }
     if (bubble) { DKApplyGlassToView(bubble); }
     else { DKApplyGlassToView(cv); }   // 兜底：找不到就玻璃整个内容区
 }
