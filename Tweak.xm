@@ -121,9 +121,10 @@ static char kDKBubbleGlassKey;
 // 创建清透玻璃效果：优先 UIGlassEffect(iOS26 液态玻璃)，回退 UIBlurEffect ultra-thin
 static UIVisualEffect *DKBubbleGlassEffect(void){
     Class GE = NSClassFromString(@"UIGlassEffect");
-    if (GE) {
+    if (GE && [GE respondsToSelector:sel_registerName("effect")]) {
         @try {
-            id e = [GE performSelector:sel_registerName("effect")];
+            IMP imp = [GE methodForSelector:sel_registerName("effect")];
+            id e = ((id(*)(id,SEL))imp)(GE, sel_registerName("effect"));
             if (e) return e;
         } @catch(NSException *e){}
     }
@@ -175,7 +176,7 @@ static void (*orig_cellLayoutSubviews)(id,SEL);
 static void hook_cellLayoutSubviews(id self, SEL _cmd){
     orig_cellLayoutSubviews(self,_cmd);
     @try {
-        for (UIView *s in self.subviews) {
+        for (UIView *s in ((UIView*)self).subviews) {
             NSString *cn = NSStringFromClass([s class]) ?: @"";
             if ([cn containsString:@"Bubble"] || [cn containsString:@"MsgBubble"] || [cn containsString:@"Skylight"]) {
                 DKApplyGlassToView(s);
