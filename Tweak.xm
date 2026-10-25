@@ -245,6 +245,20 @@ static void DKApplyGlassToView(UIView *target){
     glassTarget.layer.borderWidth = 0.5;
     objc_setAssociatedObject(glassTarget, &kDKBubbleGlassKey, @(YES), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 }
+// 媒体消息识别: 气泡子树含大图(>=80x80)或 AVPlayerLayer → 视频/图片消息, 不套玻璃避免遮住封面
+static BOOL DKIsMediaBubble(UIView *root){
+    if (!root) return NO;
+    NSMutableArray *stack=[NSMutableArray array]; [stack addObject:root];
+    int guard=0;
+    while (stack.count && guard<600) {
+        guard++; UIView *v=[stack lastObject]; [stack removeLastObject];
+        if ([NSStringFromClass([v.layer class]) isEqualToString:@"AVPlayerLayer"]) return YES;
+        if ([v isKindOfClass:[UIImageView class]] &&
+            v.bounds.size.width>=80 && v.bounds.size.height>=80) return YES;
+        for (UIView *sub in v.subviews) [stack addObject:sub];
+    }
+    return NO;
+}
 // 递归找 cell 内所有气泡视图并逐个套玻璃
 static void DKGlassifyCell(UIView *cell){
     if (!cell) return;
@@ -264,11 +278,13 @@ static void DKGlassifyCell(UIView *cell){
                           && ![v.backgroundColor isEqual:[UIColor clearColor]]
                           && v.bounds.size.width>=80 && v.bounds.size.height>=30;
         if (isBubble) {
-            DKApplyGlassToView(v);
+            if (!DKIsMediaBubble(v)) DKApplyGlassToView(v);   // 视频/图片消息跳过玻璃
         } else if (isDarkGesture) {
-            // 清掉深色手势背景，玻璃套到它的父视图(圆角容器)
-            DKClearBubbleBackground(v);
-            if (v.superview) DKApplyGlassToView(v.superview);
+            UIView *bubbleView = v.superview ?: v;
+            if (!DKIsMediaBubble(bubbleView)) {               // 媒体消息跳过，避免遮住封面
+                DKClearBubbleBackground(v);
+                if (v.superview) DKApplyGlassToView(v.superview);
+            }
         } else {
             for (UIView *s in v.subviews) [stack addObject:s];
         }
@@ -341,7 +357,7 @@ static void DKShowDebugTree(UIView *cell){
 static void DKDebugOwnBubbles(UIView *cell) __attribute__((unused));   // 前置声明
 static void hook_cellLayoutSubviews(id self, SEL _cmd){
     orig_cellLayoutSubviews(self,_cmd);
-    @try { DKDebugOwnBubbles(self); } @catch(NSException *e){}
+    // @try { DKDebugOwnBubbles(self); } @catch(NSException *e){}   // 调试标签已关闭
     @try { DKGlassifyCell(self); } @catch(NSException *e){}
 }
 // ===== 专项调试：打印"右侧(自己发的)"气泡类名+结构+背景来源 =====
