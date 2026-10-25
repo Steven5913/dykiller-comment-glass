@@ -347,12 +347,23 @@ static void hook_cellLayoutSubviews(id self, SEL _cmd){
 // ===== 专项调试：打印"右侧(自己发的)"气泡类名+结构+背景来源 =====
 static void DKDebugOwnBubbles(UIView *cell){
     if (!cell) return;
+    // 只 dump"媒体/大内容"cell：子树含 AVPlayerLayer 或 大 UIImageView(>=90) 或 高度>90
+    BOOL isMedia = cell.bounds.size.height > 90;
+    NSMutableArray *probe=[NSMutableArray array]; [probe addObject:cell];
+    int pg=0;
+    while (probe.count && pg<400) { pg++; UIView *v=[probe lastObject]; [probe removeLastObject];
+        if ([NSStringFromClass([v.layer class]) isEqualToString:@"AVPlayerLayer"]) { isMedia=YES; break; }
+        if ([v isKindOfClass:[UIImageView class]] &&
+            (v.bounds.size.width>=90 || v.bounds.size.height>=90)) { isMedia=YES; break; }
+        for (UIView *sub in v.subviews) [probe addObject:sub];
+    }
+    if (!isMedia) return;
     NSMutableString *s=[NSMutableString string];
-    [s appendFormat:@"\n== CELL[%@] %.0fx%.0f ==", NSStringFromClass([cell class]),
+    [s appendFormat:@"\n== MEDIA[%@] %.0fx%.0f ==", NSStringFromClass([cell class]),
      cell.bounds.size.width, cell.bounds.size.height];
     NSMutableArray *stack=[NSMutableArray array]; [stack addObject:cell];
     int guard=0;
-    while (stack.count && s.length<900 && guard<300) {
+    while (stack.count && s.length<1000 && guard<300) {
         guard++; UIView *v=[stack lastObject]; [stack removeLastObject];
         NSString *cn=NSStringFromClass([v class])?:@"?";
         [s appendFormat:@"\n%@ f%.0f,%.0f %.0fx%.0f r%.1f %@ bg=%@ %@",
