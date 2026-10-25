@@ -134,10 +134,13 @@ static void DKShowDebugInfo(void){
         if (g_lastVC && g_lastVC.view.window) {
             NSMutableArray *lines = [NSMutableArray array];
             [lines addObject:[NSString stringWithFormat:@"VC=%@", NSStringFromClass([g_lastVC class])]];
-            __block void (^walk)(UIView*,int) = nil;
-            __weak void (^ww)(UIView*,int) = nil;
-            ww = ^(UIView *v,int d){
-                if (d>4) return;
+            // 迭代遍历（显式栈，避免 block 递归捕获导致的 retain cycle 警告）
+            NSMutableArray *stack = [NSMutableArray array];
+            [stack addObject:@[g_lastVC.view, @(0)]];
+            while (stack.count > 0) {
+                NSArray *top = [stack lastObject]; [stack removeLastObject];
+                UIView *v = top[0]; int d = [top[1] intValue];
+                if (d>4) continue;
                 for (UIView *s in v.subviews) {
                     NSString *cn = NSStringFromClass([s class]) ?: @"";
                     NSString *lo = cn.lowercaseString;
@@ -149,12 +152,10 @@ static void DKShowDebugInfo(void){
                         NSString *ind = [@"  " stringByPaddingToLength:d*2 withString:@" " startingAtIndex:0];
                         [lines addObject:[NSString stringWithFormat:@"%@%@[%.0f,%.0f,%.0f,%.0f]", ind, cn,
                                           s.frame.origin.x,s.frame.origin.y,s.frame.size.width,s.frame.size.height]];
-                        ww(s,d+1);
+                        [stack addObject:@[s, @(d+1)]];
                     }
                 }
-            };
-            walk = ww;
-            walk(g_lastVC.view,0);
+            }
             g_dbgLabel.text = [lines componentsJoinedByString:@"\n"];
             [g_lastVC.view.window addSubview:g_dbgLabel];
             g_dbgLabel.frame = CGRectMake(0, 80, 430, 440);
