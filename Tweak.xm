@@ -135,7 +135,7 @@ static void DKShowDebugInfo(void){
             UIWindow *win = g_lastVC.view.window;
             NSMutableArray *lines = [NSMutableArray array];
             [lines addObject:[NSString stringWithFormat:@"WIN-VC=%@", NSStringFromClass([g_lastVC class])]];
-            // 列出 window 内所有 viewController（迭代）
+            // 列出 window 内所有 viewController（只留消息相关，缩短标签）
             __block int vcIdx=0;
             UIViewController *root = win.rootViewController;
             NSMutableArray *vcStack = [NSMutableArray array];
@@ -144,8 +144,11 @@ static void DKShowDebugInfo(void){
                 NSArray *top = [vcStack lastObject]; [vcStack removeLastObject];
                 UIViewController *c = top[0]; int d = [top[1] intValue];
                 if (d>3) continue;
-                NSString *ind = [@"  " stringByPaddingToLength:d*2 withString:@" " startingAtIndex:0];
-                [lines addObject:[NSString stringWithFormat:@"%@VC#%d=%@", ind, vcIdx++, NSStringFromClass([c class])]];
+                NSString *cn = NSStringFromClass([c class]) ?: @"";
+                NSString *lo = cn.lowercaseString;
+                if ([lo containsString:@"message"] || [lo containsString:@"msg"] || [lo containsString:@"im"] || [lo containsString:@"chat"]) {
+                    [lines addObject:[NSString stringWithFormat:@"VC#%d=%@", vcIdx++, cn]];
+                }
                 for (UIViewController *ch in c.childViewControllers) [vcStack addObject:@[ch, @(d+1)]];
                 if (c.presentedViewController) [vcStack addObject:@[c.presentedViewController, @(d+1)]];
             }
@@ -160,23 +163,35 @@ static void DKShowDebugInfo(void){
                 if (c.presentedViewController) [vcfind addObject:c.presentedViewController];
             }
             if (msgVC) {
-                [lines addObject:@"---- 消息页子树 ----"];
+                [lines addObject:@"---- 消息collection/cell/bubble ----"];
+                // 只找 collection/table/cell/bubble/消息类视图
                 NSMutableArray *stack = [NSMutableArray array];
                 [stack addObject:@[msgVC.view, @(0)]];
-                while (stack.count > 0) {
+                NSMutableSet *seen = [NSMutableSet set];
+                int guard=0;
+                while (stack.count > 0 && guard<4000) {
+                    guard++;
                     NSArray *top = [stack lastObject]; [stack removeLastObject];
                     UIView *v = top[0]; int d = [top[1] intValue];
-                    if (d>5) continue;
+                    if (d>8) continue;
                     for (UIView *s in v.subviews) {
                         if (s.frame.size.width<10 || s.frame.size.height<10) continue;
                         NSString *cn = NSStringFromClass([s class]) ?: @"?";
-                        NSString *ind = [@"  " stringByPaddingToLength:d*2 withString:@" " startingAtIndex:0];
-                        [lines addObject:[NSString stringWithFormat:@"%@%@[%.0f,%.0f,%.0f,%.0f]", ind, cn,
-                                          s.frame.origin.x,s.frame.origin.y,s.frame.size.width,s.frame.size.height]];
+                        NSString *lo = cn.lowercaseString;
+                        BOOL isCol = [s isKindOfClass:[UICollectionView class]] || [s isKindOfClass:[UITableView class]];
+                        BOOL hit = isCol || [lo containsString:@"cell"] || [lo containsString:@"bubble"]
+                                 || [lo containsString:@"collection"] || [lo containsString:@"message"]
+                                 || [lo containsString:@"msg"] || [lo containsString:@"skylight"]
+                                 || [lo containsString:@"viewmodel"];
+                        if (hit && ![seen containsObject:cn]) {
+                            [seen addObject:cn];
+                            [lines addObject:[NSString stringWithFormat:@"%@[%.0f,%.0f,%.0f,%.0f]", cn,
+                                              s.frame.origin.x,s.frame.origin.y,s.frame.size.width,s.frame.size.height]];
+                            if (lines.count>=76) break;
+                        }
                         [stack addObject:@[s, @(d+1)]];
-                        if (lines.count>=78) break;
                     }
-                    if (lines.count>=78) break;
+                    if (lines.count>=76) break;
                 }
             } else {
                 [lines addObject:@"(未找到 AWEIMMessageBaseViewController)"];
