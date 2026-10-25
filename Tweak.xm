@@ -123,9 +123,10 @@ static CGFloat const kDKGCornerRadius = 16.0;   // 评论区输入条圆角
 
 //-----------------------------------------------------------------------------
 // 工具：确保视图被液态玻璃覆盖（已加过则不重复）
+// 参数用 id，避免 forward class 类型转换问题
 //-----------------------------------------------------------------------------
-static void DKGApplyGlassToView(UIView *target) {
-    if (!target) return;
+static void DKGApplyGlassToView(id target) {
+    if (!target || ![target isKindOfClass:UIView.class]) return;
     for (UIView *sub in target.subviews) {
         if ([sub isKindOfClass:DKCommentBarGlassView.class]) return;
     }
@@ -151,12 +152,12 @@ static void DKGApplyGlassToView(UIView *target) {
 
 - (void)viewDidLoad {
     %orig;
-    DKGApplyGlassToView(self.view);
+    DKGApplyGlassToView(((id(*)(id,SEL))objc_msgSend)(self, @selector(view)));
 }
 
 - (void)viewDidLayoutSubviews {
     %orig;
-    DKGApplyGlassToView(self.view);
+    DKGApplyGlassToView(((id(*)(id,SEL))objc_msgSend)(self, @selector(view)));
 }
 
 %end
@@ -165,12 +166,12 @@ static void DKGApplyGlassToView(UIView *target) {
 
 - (void)viewDidLoad {
     %orig;
-    DKGApplyGlassToView(self.view);
+    DKGApplyGlassToView(((id(*)(id,SEL))objc_msgSend)(self, @selector(view)));
 }
 
 - (void)viewDidLayoutSubviews {
     %orig;
-    DKGApplyGlassToView(self.view);
+    DKGApplyGlassToView(((id(*)(id,SEL))objc_msgSend)(self, @selector(view)));
 }
 
 %end
