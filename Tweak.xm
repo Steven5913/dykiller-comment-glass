@@ -240,13 +240,6 @@ static void DKInstallBubbleHooks(void){
     }
     g_bubbleHooksInstalled = (orig_bubbleLayoutSubviews || orig_cellLayoutSubviews || orig_tableCellForRow);
 }
-    // 表格回调：dataSource 在 AWEIMMessageBaseViewController（图二聊天页 VC）
-    Class vc = NSClassFromString(@"AWEIMMessageBaseViewController");
-    if (vc && !orig_tableCellForRow) {
-        MSHookMessageEx(vc, sel_registerName("tableView:cellForRowAtIndexPath:"), (IMP)hook_tableCellForRow, (IMP*)&orig_tableCellForRow);
-    }
-    g_bubbleHooksInstalled = (orig_bubbleLayoutSubviews || orig_tableCellForRow);
-}
 
 static void DKInstallHooks(void){
     if(!orig_boolForKey){  MSHookMessageEx(NSClassFromString(@"NSUserDefaults"), sel_registerName("boolForKey:"),   (IMP)hook_boolForKey,   (IMP*)&orig_boolForKey); }
