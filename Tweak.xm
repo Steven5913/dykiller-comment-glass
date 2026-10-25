@@ -156,30 +156,30 @@ static UIVisualEffect *DKBubbleGlassEffect(void){
     if (!eff) eff = [UIBlurEffect effectWithStyle:UIBlurEffectStyleLight];
     return eff;
 }
-// 给气泡套玻璃：真正的深色圆角气泡是内层(AWEIMMessageBubbleGradientView r0)的父视图(圆角容器 r8)
-// 因此玻璃套到"圆角父容器"上，并清掉容器+内层背景，让壁纸透出
+// 给气泡套玻璃：真正的深色圆角气泡是内层(AWEIMMessageBubbleGradientView)的父视图(圆角容器 r8)
+// 深色背景 = 渐变视图.backgroundColor(动态深色) + 父视图一个深色子图层；app 每次 layout 会重设
+// → 每次 layoutSubviews 都无条件清背景(对抗重设)，玻璃只插一次
 static void DKApplyGlassToView(UIView *target){
     if (!target) return;
-    // 找到带圆角的父容器作为真正的气泡背景（内层气泡是文字容器 r0）
     UIView *container = target.superview;
     BOOL useContainer = NO;
     if (container && container.layer.cornerRadius > 0 &&
-        container.bounds.size.width >= 10 && container.bounds.size.height >= 10 &&
-        !objc_getAssociatedObject(container, &kDKBubbleGlassKey)) {
+        container.bounds.size.width >= 10 && container.bounds.size.height >= 10) {
         useContainer = YES;
     }
     UIView *glassTarget = useContainer ? container : target;
-    if (objc_getAssociatedObject(glassTarget, &kDKBubbleGlassKey)) return;
     if (glassTarget.bounds.size.width<10 || glassTarget.bounds.size.height<10) return;
-    UIVisualEffect *eff = DKBubbleGlassEffect();
-    if (!eff) return;
-    // 清掉容器 + 内层 的深色背景，露出壁纸让玻璃透出
+    // ★ 每次都清背景：对抗 app 在 layoutSubviews 里重设深色背景
     if (useContainer) {
         DKClearBubbleBackground(container);
         DKClearBubbleBackground(target);
     } else {
         DKClearBubbleBackground(target);
     }
+    // 已插过玻璃就直接返回（背景已在上方清掉）
+    if (objc_getAssociatedObject(glassTarget, &kDKBubbleGlassKey)) return;
+    UIVisualEffect *eff = DKBubbleGlassEffect();
+    if (!eff) return;
     // 玻璃按容器圆角裁剪
     glassTarget.clipsToBounds = YES;
     if (glassTarget.layer.cornerRadius <= 0) glassTarget.layer.cornerRadius = 8;
@@ -228,7 +228,7 @@ static void (*orig_bubbleLayoutSubviews)(id,SEL);
 static void DKShowDebugTree(UIView *cell) __attribute__((unused));   // 前置声明
 // ===== 精准调试：打印圆角父容器+内层渐变视图的图层内部(背景/子图层contents/子视图)=====
 static UILabel *g_dbg2 = nil;
-static void DKDebugBubbleContainer(UIView *gv){
+static void DKDebugBubbleContainer(UIView *gv) __attribute__((unused)){
     if (!gv) return;
     UIView *parent = gv.superview;
     NSMutableString *s=[NSMutableString string];
@@ -288,7 +288,7 @@ static void DKDebugBubbleContainer(UIView *gv){
 }
 static void hook_bubbleLayoutSubviews(id self, SEL _cmd){
     orig_bubbleLayoutSubviews(self,_cmd);
-    @try { DKDebugBubbleContainer(self); } @catch(NSException *e){}
+    // @try { DKDebugBubbleContainer(self); } @catch(NSException *e){}   // 调试标签已关闭
     @try { DKApplyGlassToView(self); } @catch(NSException *e){}
 }
 // 兜底：hook 气泡 cell layoutSubviews，递归找气泡套玻璃
