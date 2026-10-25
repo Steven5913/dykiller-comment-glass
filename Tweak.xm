@@ -178,14 +178,20 @@ static UIVisualEffect *DKBubbleGlassEffect(void){
 // → 每次 layoutSubviews 都无条件清背景(对抗重设)，玻璃只插一次
 static void DKApplyGlassToView(UIView *target){
     if (!target) return;
+    // 目标本身是整格外层手势 → 只清+移除其上玻璃, 不套新玻璃(去掉大的那层)
+    if (DKIsFullCellGesture(target)) { DKRemoveGlass(target); return; }
     UIView *container = target.superview;
+    // 整格外层手势不当作圆角容器(避免把玻璃套到整格)
     BOOL useContainer = NO;
     if (container && container.layer.cornerRadius > 0 &&
-        container.bounds.size.width >= 10 && container.bounds.size.height >= 10) {
+        container.bounds.size.width >= 10 && container.bounds.size.height >= 10 &&
+        !DKIsFullCellGesture(container)) {
         useContainer = YES;
     }
     UIView *glassTarget = useContainer ? container : target;
     if (glassTarget.bounds.size.width<10 || glassTarget.bounds.size.height<10) return;
+    // 若容器是整格外层手势, 清掉它上面可能残留的旧玻璃(消息层继续照常套)
+    if (DKIsFullCellGesture(container)) DKRemoveGlass(container);
     // ★ 每次都清背景：对抗 app 在 layoutSubviews 里重设深色背景
     if (useContainer) {
         DKClearBubbleBackground(container);
@@ -254,6 +260,22 @@ static void DKApplyGlassToView(UIView *target){
     glassTarget.layer.borderWidth = 0.5;
     objc_setAssociatedObject(glassTarget, &kDKBubbleGlassKey, @(YES), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 }
+// 整格外层手势视图: AWEIMGestureView 横跨整格(宽>=300) → 绝不给它套玻璃, 只清背景+移除已有玻璃
+static BOOL DKIsFullCellGesture(UIView *v){
+    if (!v) return NO;
+    if ([NSStringFromClass([v class]) isEqualToString:@"AWEIMGestureView"] &&
+        v.bounds.size.width >= 300 && v.bounds.size.height >= 30) return YES;
+    return NO;
+}
+// 移除某视图上的玻璃与高光, 并清背景
+static void DKRemoveGlass(UIView *v){
+    if (!v) return;
+    for (UIView *sv in [v.subviews copy])
+        if ([sv isKindOfClass:[UIVisualEffectView class]]) [sv removeFromSuperview];
+    for (CALayer *sl in [v.layer.sublayers copy])
+        if (objc_getAssociatedObject(sl, &kDKGlassGradKey)) [sl removeFromSuperlayer];
+    DKClearBubbleBackground(v);
+}
 // 媒体消息识别: 气泡子树含大图(>=80x80)或 AVPlayerLayer → 视频/图片消息, 不套玻璃避免遮住封面
 static BOOL DKIsMediaBubble(UIView *root){
     if (!root) return NO;
@@ -279,6 +301,9 @@ static void DKGlassifyCell(UIView *cell){
         UIView *v = [stack lastObject]; [stack removeLastObject];
         NSString *cn = NSStringFromClass([v class]) ?: @"";
         NSString *lo = cn.lowercaseString;
+        // 整格外层手势视图: 总是移除其上玻璃+高光+清背景(去掉大的那层), 但继续递归找内部消息气泡
+        BOOL isFullCell = DKIsFullCellGesture(v);
+        if (isFullCell) DKRemoveGlass(v);
         BOOL isBubble = [v isKindOfClass:NSClassFromString(@"AWEIMMessageBubbleGradientView")]
                      || [lo containsString:@"bubble"] || [lo containsString:@"skylight"];
         // 富媒体卡片气泡(分享/图文): 内部 AWEIMGestureView 带深色背景 → 也是气泡背景
@@ -288,22 +313,15 @@ static void DKGlassifyCell(UIView *cell){
                           && v.bounds.size.width>=80 && v.bounds.size.height>=30;
         if (isBubble) {
             if (!DKIsMediaBubble(v)) DKApplyGlassToView(v);   // 视频/图片消息跳过玻璃
-        } else if (isDarkGesture) {
-            // 外层整格 AWEIMGestureView(父=UITableViewCellContentView, 横跨整格): 只清深色背景, 不套玻璃 → 去掉大的那层
-            BOOL isOuterFullCell = v.superview
-                && [NSStringFromClass([v.superview class]) isEqualToString:@"UITableViewCellContentView"];
-            if (isOuterFullCell) {
+        } else if (isDarkGesture && !isFullCell) {
+            UIView *bubbleView = v.superview ?: v;
+            if (!DKIsMediaBubble(bubbleView)) {               // 媒体消息跳过，避免遮住封面
                 DKClearBubbleBackground(v);
-            } else {
-                UIView *bubbleView = v.superview ?: v;
-                if (!DKIsMediaBubble(bubbleView)) {           // 媒体消息跳过，避免遮住封面
-                    DKClearBubbleBackground(v);
-                    if (v.superview) DKApplyGlassToView(v.superview);
-                }
+                if (v.superview) DKApplyGlassToView(v.superview);
             }
-        } else {
-            for (UIView *s in v.subviews) [stack addObject:s];
         }
+        // 递归子视图(整格外层手势内含消息气泡, 需继续找到它套消息玻璃)
+        for (UIView *s in v.subviews) [stack addObject:s];
     }
 }
 static void (*orig_bubbleLayoutSubviews)(id,SEL);
