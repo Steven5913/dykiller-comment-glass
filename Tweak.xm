@@ -135,6 +135,21 @@ static void DKClearBubbleBackground(UIView *target){
             if ([sl isKindOfClass:[CAGradientLayer class]]) { sl.opacity = 0.0f; }
             else if (sl.contents == nil && sl.backgroundColor && [sl.sublayers count]==0) { sl.opacity = 0.0f; }
         }
+        // 隐藏气泡内的背景图片/背景视图子视图(如自己消息的蓝色 UIImageView 背景)，保留玻璃/文字/已知容器
+        NSArray *subs = [target.subviews copy];
+        for (UIView *sv in subs) {
+            if (sv.hidden) continue;
+            NSString *scn = NSStringFromClass([sv class]) ?: @"";
+            BOOL isGlass = [sv isKindOfClass:[UIVisualEffectView class]];
+            BOOL isText = [scn containsString:@"Label"] || [scn containsString:@"Text"] || [scn containsString:@"Button"];
+            BOOL isKnown = [scn containsString:@"Bubble"] || [scn containsString:@"Gradient"]
+                        || [scn containsString:@"Gesture"] || [scn containsString:@"Cell"];
+            if (isGlass || isText || isKnown) continue;
+            if ([sv isKindOfClass:[UIImageView class]] || [sv class] == [UIView class]) {
+                sv.hidden = YES;
+                sv.alpha = 0.0f;
+            }
+        }
     } @catch(NSException *e){}
 }
 // 复刻长按倍速 LJ_MakeEffect：UIGlassEffect effectWithStyle:{1,0,2} → ultraThin → Light
@@ -296,7 +311,7 @@ static void DKShowDebugTree(UIView *cell){
 static void DKDebugOwnBubbles(UIView *cell) __attribute__((unused));   // 前置声明
 static void hook_cellLayoutSubviews(id self, SEL _cmd){
     orig_cellLayoutSubviews(self,_cmd);
-    @try { DKDebugOwnBubbles(self); } @catch(NSException *e){}
+    // @try { DKDebugOwnBubbles(self); } @catch(NSException *e){}   // 调试标签已关闭
     @try { DKGlassifyCell(self); } @catch(NSException *e){}
 }
 // ===== 专项调试：打印"右侧(自己发的)"气泡类名+结构+背景来源 =====
