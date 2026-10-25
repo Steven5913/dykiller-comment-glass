@@ -4,9 +4,9 @@
 #import <substrate.h>
 
 static inline BOOL DKIsGlass(NSString *key){
-    return [key isEqualToString:@"DYKillerCommentGlass"]        // 评论区液态玻璃
-        || [key isEqualToString:@"DYKillerChatInputGlass"]      // 聊天页输入框玻璃(开)
+    return [key isEqualToString:@"DYKillerCommentGlass"]        // 评论区液态玻璃(模糊)
         || [key isEqualToString:@"DYKillerChatInputGlassClear"]; // 聊天页输入框玻璃(清透)
+    // 注意：DYKillerChatInputGlass(聊天模糊) 不能开，否则遮蔽清透 → 保持关
 }
 static inline BOOL DKShouldForceOff(NSString *key){
     if (![key hasPrefix:@"DYKiller"]) return NO;
@@ -136,10 +136,10 @@ static void DKInstallHooks(void){
 
 static void DKForceAllPrefs(void){
     NSUserDefaults *d = [NSUserDefaults standardUserDefaults];
-    // 评论玻璃(模糊) + 聊天玻璃(清透：blur+clear 双开) 显式设置
+    // 评论玻璃(模糊) + 聊天玻璃(清透：只开clear key, blur key必须关) 显式设置
     [d setBool:YES forKey:@"DYKillerCommentGlass"];          // 评论: 模糊
-    [d setBool:YES forKey:@"DYKillerChatInputGlass"];        // 聊天: 玻璃开
-    [d setBool:YES forKey:@"DYKillerChatInputGlassClear"];   // 聊天: 清透模式
+    [d setBool:YES forKey:@"DYKillerChatInputGlassClear"];   // 聊天: 清透
+    [d setBool:NO  forKey:@"DYKillerChatInputGlass"];        // 聊天: 模糊必须关
     // 其余 DYKiller 功能：彻底删除key，保证 objectForKey 返回 nil / boolForKey 返回 NO
     [d removeObjectForKey:@"DYKillerAdjustRangeExtended"];
     [d removeObjectForKey:@"DYKillerAudioVizPosition"];
