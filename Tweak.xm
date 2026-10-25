@@ -366,34 +366,25 @@ static void DKShowDebugTree(UIView *cell){
 static void DKDebugOwnBubbles(UIView *cell) __attribute__((unused));   // 前置声明
 static void hook_cellLayoutSubviews(id self, SEL _cmd){
     orig_cellLayoutSubviews(self,_cmd);
-    // @try { DKDebugOwnBubbles(self); } @catch(NSException *e){}   // 调试标签已关闭
+    @try { DKDebugOwnBubbles(self); } @catch(NSException *e){}
     @try { DKGlassifyCell(self); } @catch(NSException *e){}
 }
-// ===== 专项调试：打印"右侧(自己发的)"气泡类名+结构+背景来源 =====
+// ===== 专项调试：打印所有 UIVisualEffectView(玻璃)的 frame + 父链，定位大的玻璃层 =====
 static void DKDebugOwnBubbles(UIView *cell){
     if (!cell) return;
-    // 只 dump"非纯文本消息"cell：子树不含 IESIMTextKitLabel(链接/分享/富媒体卡片等)
-    BOOL hasTextKit = NO;
-    NSMutableArray *probe=[NSMutableArray array]; [probe addObject:cell];
-    int pg=0;
-    while (probe.count && pg<400) { pg++; UIView *v=[probe lastObject]; [probe removeLastObject];
-        NSString *cn=NSStringFromClass([v class])?:@"";
-        if ([cn containsString:@"TextKit"]) { hasTextKit=YES; break; }
-        for (UIView *sub in v.subviews) [probe addObject:sub];
-    }
-    if (hasTextKit) return;   // 普通文本消息跳过
     NSMutableString *s=[NSMutableString string];
-    [s appendFormat:@"\n== CARD[%@] %.0fx%.0f ==", NSStringFromClass([cell class]),
-     cell.bounds.size.width, cell.bounds.size.height];
     NSMutableArray *stack=[NSMutableArray array]; [stack addObject:cell];
     int guard=0;
-    while (stack.count && s.length<1000 && guard<300) {
+    while (stack.count && s.length<1100 && guard<400) {
         guard++; UIView *v=[stack lastObject]; [stack removeLastObject];
-        NSString *cn=NSStringFromClass([v class])?:@"?";
-        [s appendFormat:@"\n%@ f%.0f,%.0f %.0fx%.0f r%.1f %@ bg=%@ %@",
-         cn, v.frame.origin.x, v.frame.origin.y, v.bounds.size.width, v.bounds.size.height,
-         v.layer.cornerRadius, NSStringFromClass([v.layer class])?:@"?",
-         v.backgroundColor, (v.hidden||v.alpha<0.01)?@"H":@""];
+        if ([v isKindOfClass:[UIVisualEffectView class]]) {
+            [s appendFormat:@"\nGLASS %.0fx%.0f r%.1f <- %@(r%.1f) <- %@(r%.1f)",
+             v.bounds.size.width, v.bounds.size.height, v.layer.cornerRadius,
+             v.superview?NSStringFromClass([v.superview class]):@"?",
+             v.superview?v.superview.layer.cornerRadius:0,
+             v.superview.superview?NSStringFromClass([v.superview.superview class]):@"?",
+             v.superview.superview?v.superview.superview.layer.cornerRadius:0];
+        }
         for (UIView *sub in v.subviews) [stack addObject:sub];
     }
     @try {
@@ -402,7 +393,7 @@ static void DKDebugOwnBubbles(UIView *cell){
         if (!g_dbgLabel) {
             g_dbgLabel = [[UILabel alloc] initWithFrame:CGRectMake(6, 60, 380, 240)];
             g_dbgLabel.numberOfLines = 0;
-            g_dbgLabel.font = [UIFont systemFontOfSize:8];
+            g_dbgLabel.font = [UIFont systemFontOfSize:9];
             g_dbgLabel.textColor = [UIColor blackColor];
             g_dbgLabel.backgroundColor = [[UIColor yellowColor] colorWithAlphaComponent:0.95];
             g_dbgLabel.layer.borderWidth = 1;
@@ -417,7 +408,7 @@ static void DKDebugOwnBubbles(UIView *cell){
         CGRect f = g_dbgLabel.frame;
         CGFloat h = [combined boundingRectWithSize:CGSizeMake(380, CGFLOAT_MAX)
                    options:NSStringDrawingUsesLineFragmentOrigin
-                   attributes:@{NSFontAttributeName:[UIFont systemFontOfSize:8]}
+                   attributes:@{NSFontAttributeName:[UIFont systemFontOfSize:9]}
                    context:nil].size.height;
         f.size.height = MIN(h+8, 780);
         g_dbgLabel.frame = f;
