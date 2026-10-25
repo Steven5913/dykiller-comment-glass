@@ -323,6 +323,18 @@ static void DKDebugOwnBubbles(UIView *cell){
                     [s appendFormat:@" <- %@(r%.1f bg=%@)", NSStringFromClass([p class])?:@"?", p.layer.cornerRadius, p.backgroundColor];
                     p=p.superview;
                 }
+                // 气泡内部图层：渐变/图片/子视图(找残留背景)
+                for (CALayer *sl in v.layer.sublayers) {
+                    [s appendFormat:@"\n   L[%@] bg=%@ c=%d m=%@ op%.2f",
+                     NSStringFromClass([sl class]), sl.backgroundColor, sl.contents!=nil,
+                     sl.mask?NSStringFromClass([sl.mask class]):@"-", sl.opacity];
+                }
+                for (UIView *sv in v.subviews) {
+                    [s appendFormat:@"\n   V[%@] f%.0f,%.0f %.0fx%.0f r%.1f hid=%d bg=%@",
+                     NSStringFromClass([sv class]), sv.frame.origin.x, sv.frame.origin.y,
+                     sv.bounds.size.width, sv.bounds.size.height, sv.layer.cornerRadius,
+                     sv.hidden, sv.backgroundColor];
+                }
                 [s appendString:@"\n"];
             }
         }
