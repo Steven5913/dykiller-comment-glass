@@ -1,0 +1,217 @@
+//=============================================================================
+//  DYKiller Comment Liquid Glass — 评论区液态玻璃「模糊玻璃模式」
+//  移植自 DYKiller（液态玻璃）0.6.6.1
+//
+//  行为还原（自逆向）：
+//   - 用一个包裹 UIGlassContainerEffect + UIGlassEffect(iOS 26 液态玻璃) 的自定义
+//     玻璃视图，覆盖到评论区输入条 / 评论面板背景上；
+//   - 「模糊玻璃模式」= 玻璃材质带模糊(blur)，对应 DYKiller 的 DYKillerCommentGlass；
+//   - 默认开启、无开关（不做任何偏好读取）。
+//
+//  挂载点（DYKiller 实际 hook 的抖音类）：
+//   - AWECommentInputBackgroundView                         评论区输入条背景
+//   - AWECommentInputViewSwiftImpl.CommentInputContainerView
+//   - AWECommentPanelContainerSwiftImpl.CommentContainerInnerViewController
+//   - AWECommentContainerViewController
+//   - AWECommentFullScreenContainerViewController
+//=============================================================================
+
+#import <UIKit/UIKit.h>
+#import <objc/runtime.h>
+#import <substrate.h>
+
+//-----------------------------------------------------------------------------
+// iOS 26 私有液态玻璃类（运行时解析，避免头文件/链接依赖）
+//-----------------------------------------------------------------------------
+static Class clsGlassEffect;            // UIGlassEffect
+static Class clsGlassContainerEffect;   // UIGlassContainerEffect
+static Class clsBlurEffect;             // UIBlurEffect
+static Class clsVisualEffectView;       // UIVisualEffectView
+
+// 与 DYKiller 一致的模糊参数（对应 comment_blur 默认）
+static CGFloat const kDKGBlurRadius   = 28.0;   // 玻璃模糊半径
+static CGFloat const kDKGCornerRadius = 16.0;   // 评论区输入条圆角
+
+//-----------------------------------------------------------------------------
+// DKCommentBarGlassView —— 评论区输入条的液态玻璃容器视图
+// 忠实还原 DYKiller 的 DKCommentBarGlassView / DKGlassFlexView 结构：
+//   自身是一个 UIView，内部持有一个 UIGlassContainerEffect 的 containerView，
+//   并叠加一层 UIVisualEffectView 模糊层作为 fallback / 加强模糊。
+//-----------------------------------------------------------------------------
+@interface DKCommentBarGlassView : UIView
+@end
+
+@implementation DKCommentBarGlassView
+
+// 初始化并应用「模糊玻璃」材质
+- (instancetype)initWithFrame:(CGRect)frame {
+    self = [super initWithFrame:frame];
+    if (self) {
+        self.userInteractionEnabled = NO;
+        self.backgroundColor = UIColor.clearColor;
+        [self _dk_applyGlassMaterial];
+    }
+    return self;
+}
+
+// 核心：把液态玻璃容器效果挂到自身，并保证模糊
+- (void)_dk_applyGlassMaterial {
+    // 1) 优先用 iOS 26 液态玻璃（UIGlassContainerEffect + UIGlassEffect）
+    BOOL glassApplied = [self _dk_applyLiquidGlass];
+    // 2) 无论是否启用液态玻璃，都叠加一层模糊层（模糊玻璃模式的核心）
+    [self _dk_applyBlurBackdrop];
+    // 3) 圆角
+    self.layer.cornerRadius = kDKGCornerRadius;
+    self.layer.masksToBounds = YES;
+    (void)glassApplied;
+}
+
+// 应用 UIGlassContainerEffect + UIGlassEffect（iOS 26 液态玻璃）
+- (BOOL)_dk_applyLiquidGlass {
+    clsGlassEffect          = NSClassFromString(@"UIGlassEffect");
+    clsGlassContainerEffect = NSClassFromString(@"UIGlassContainerEffect");
+    if (!clsGlassEffect || !clsGlassContainerEffect) return NO;
+
+    // UIGlassEffect *effect = [[UIGlassEffect alloc] init];
+    id glassEffect = [[clsGlassEffect alloc] init];
+    if (!glassEffect) return NO;
+
+    // 设置模糊（KVC 方式兼容不同系统版本；不可用则忽略）
+    @try {
+        [glassEffect setValue:@(kDKGBlurRadius) forKey:@"blurRadius"];
+    } @catch (NSException *e) {}
+
+    // UIGlassContainerEffect *container =
+    //     [clsGlassContainerEffect effectWithGlassEffect:glassEffect insideView:self];
+    id container = nil;
+    SEL selEWG = NSSelectorFromString(@"effectWithGlassEffect:insideView:");
+    if ([clsGlassContainerEffect respondsToSelector:selEWG]) {
+        container = ((id (*)(id, SEL, id, id))objc_msgSend)(
+            clsGlassContainerEffect, selEWG, glassEffect, self);
+    } else {
+        SEL selAlloc = NSSelectorFromString(@"effectWithGlassEffect:");
+        if ([clsGlassContainerEffect respondsToSelector:selAlloc]) {
+            container = ((id (*)(id, SEL, id))objc_msgSend)(
+                clsGlassContainerEffect, selAlloc, glassEffect);
+        }
+    }
+    if (!container) return NO;
+
+    // UIView *containerView = [container valueForKey:@"containerView"];
+    UIView *containerView = [container valueForKey:@"containerView"];
+    if ([containerView isKindOfClass:UIView.class]) {
+        containerView.frame = self.bounds;
+        containerView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+        [self addSubview:containerView];
+        return YES;
+    }
+    return NO;
+}
+
+// 叠加一层 UIVisualEffectView 模糊层（模糊玻璃模式）
+- (void)_dk_applyBlurBackdrop {
+    clsBlurEffect       = NSClassFromString(@"UIBlurEffect");
+    clsVisualEffectView = NSClassFromString(@"UIVisualEffectView");
+    if (!clsBlurEffect || !clsVisualEffectView) return;
+
+    id blurEffect = [clsBlurEffect effectWithStyle:UIBlurEffectStyleSystemMaterial];
+    UIVisualEffectView *blur = [[clsVisualEffectView alloc] initWithEffect:blurEffect];
+    blur.frame = self.bounds;
+    blur.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+    [self addSubview:blur];
+}
+
+- (void)layoutSubviews {
+    [super layoutSubviews];
+    for (UIView *sub in self.subviews) {
+        sub.frame = self.bounds;
+    }
+}
+
+@end
+
+//-----------------------------------------------------------------------------
+// 工具：确保评论输入条背景被液态玻璃覆盖
+//-----------------------------------------------------------------------------
+static void DKGApplyGlassToView(UIView *target) {
+    if (!target || target.superview == nil) return;
+    // 已加过就不重复
+    for (UIView *sub in target.subviews) {
+        if ([sub isKindOfClass:DKCommentBarGlassView.class]) return;
+    }
+    DKCommentBarGlassView *glass =
+        [[DKCommentBarGlassView alloc] initWithFrame:target.bounds];
+    glass.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+    [target addSubview:glass];
+}
+
+//-----------------------------------------------------------------------------
+// Hooks —— 评论区输入条背景
+//-----------------------------------------------------------------------------
+%hook AWECommentInputBackgroundView
+
+- (void)layoutSubviews {
+    %orig;
+    DKGApplyGlassToView(self);
+}
+
+%end
+
+%hook AWECommentInputViewSwiftImpl.CommentInputContainerView
+
+- (void)layoutSubviews {
+    %orig;
+    // 输入容器里通常有背景视图，把玻璃盖在最底层的背景上
+    DKGApplyGlassToView(self);
+}
+
+%end
+
+//-----------------------------------------------------------------------------
+// Hooks —— 评论面板容器（背景液态玻璃）
+//-----------------------------------------------------------------------------
+%hook AWECommentPanelContainerSwiftImpl.CommentContainerInnerViewController
+
+- (void)viewDidLoad {
+    %orig;
+    DKGApplyGlassToView(self.view);
+}
+
+- (void)viewDidLayoutSubviews {
+    %orig;
+    DKGApplyGlassToView(self.view);
+}
+
+%end
+
+%hook AWECommentContainerViewController
+
+- (void)viewDidLoad {
+    %orig;
+    DKGApplyGlassToView(self.view);
+}
+
+- (void)viewDidLayoutSubviews {
+    %orig;
+    DKGApplyGlassToView(self.view);
+}
+
+%end
+
+%hook AWECommentFullScreenContainerViewController
+
+- (void)viewDidLoad {
+    %orig;
+    DKGApplyGlassToView(self.view);
+}
+
+- (void)viewDidLayoutSubviews {
+    %orig;
+    DKGApplyGlassToView(self.view);
+}
+
+%end
+
+%ctor {
+    // 确保常驻主线程使用
+}

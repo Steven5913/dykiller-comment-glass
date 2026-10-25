@@ -1,0 +1,43 @@
+name: Build DYKillerCommentGlass (arm64e)
+
+# 手动触发：在 GitHub 仓库 Actions 页点 Run workflow
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-14
+    env:
+      THEOS: ${{ github.workspace }}/theos
+
+    steps:
+      - name: Checkout 工程
+        uses: actions/checkout@v4
+
+      - name: 安装 Theos
+        run: |
+          git clone --depth=1 https://github.com/theos/theos.git "$THEOS"
+          # iOS SDK（Theos 编译必需）
+          git clone --depth=1 --filter=blob:none https://github.com/theos/sdks.git "$THEOS/sdks" || true
+          ls "$THEOS/sdks" | head -50 || echo "sdks clone 跳过，尝试使用 Xcode SDK"
+
+      - name: 编译（生成 arm64e dylib）
+        run: |
+          make clean || true
+          make package
+          echo "===== 产物 ====="
+          find .theos -name "*.dylib" -o -name "*.deb" | sort
+
+      - name: 收集产物
+        run: |
+          mkdir -p out
+          # 打包所有架构的 dylib
+          find .theos/obj -name "*.dylib" -exec cp {} out/ \; 2>/dev/null || true
+          find .theos -name "*.deb" -exec cp {} out/ \; 2>/dev/null || true
+          ls -la out/
+
+      - name: 上传 dylib
+        uses: actions/upload-artifact@v4
+        with:
+          name: DYKillerCommentGlass-dylib
+          path: out/
