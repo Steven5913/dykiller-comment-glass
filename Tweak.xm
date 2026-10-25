@@ -289,10 +289,17 @@ static void DKGlassifyCell(UIView *cell){
         if (isBubble) {
             if (!DKIsMediaBubble(v)) DKApplyGlassToView(v);   // 视频/图片消息跳过玻璃
         } else if (isDarkGesture) {
-            UIView *bubbleView = v.superview ?: v;
-            if (!DKIsMediaBubble(bubbleView)) {               // 媒体消息跳过，避免遮住封面
+            // 外层整格 AWEIMGestureView(父=UITableViewCellContentView, 横跨整格): 只清深色背景, 不套玻璃 → 去掉大的那层
+            BOOL isOuterFullCell = v.superview
+                && [NSStringFromClass([v.superview class]) isEqualToString:@"UITableViewCellContentView"];
+            if (isOuterFullCell) {
                 DKClearBubbleBackground(v);
-                if (v.superview) DKApplyGlassToView(v.superview);
+            } else {
+                UIView *bubbleView = v.superview ?: v;
+                if (!DKIsMediaBubble(bubbleView)) {           // 媒体消息跳过，避免遮住封面
+                    DKClearBubbleBackground(v);
+                    if (v.superview) DKApplyGlassToView(v.superview);
+                }
             }
         } else {
             for (UIView *s in v.subviews) [stack addObject:s];
@@ -366,7 +373,7 @@ static void DKShowDebugTree(UIView *cell){
 static void DKDebugOwnBubbles(UIView *cell) __attribute__((unused));   // 前置声明
 static void hook_cellLayoutSubviews(id self, SEL _cmd){
     orig_cellLayoutSubviews(self,_cmd);
-    @try { DKDebugOwnBubbles(self); } @catch(NSException *e){}
+    // @try { DKDebugOwnBubbles(self); } @catch(NSException *e){}   // 调试标签已关闭
     @try { DKGlassifyCell(self); } @catch(NSException *e){}
 }
 // ===== 专项调试：只打印"异常"cell——玻璃数>1 或 玻璃挂在宽>=300父视图(大的那层) =====
