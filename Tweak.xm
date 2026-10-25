@@ -233,12 +233,6 @@ static void DKInstallBubbleHooks(void){
     }
     g_bubbleHooksInstalled = (orig_bubbleLayoutSubviews || orig_tableCellForRow);
 }
-    Class cell = NSClassFromString(@"AWEIMReusableCommonCell");
-    if (cell && !orig_cellLayoutSubviews) {
-        MSHookMessageEx(cell, sel_registerName("layoutSubviews"), (IMP)hook_cellLayoutSubviews, (IMP*)&orig_cellLayoutSubviews);
-    }
-    g_bubbleHooksInstalled = (orig_bubbleLayoutSubviews || orig_cellLayoutSubviews);
-}
 
 static void DKInstallHooks(void){
     if(!orig_boolForKey){  MSHookMessageEx(NSClassFromString(@"NSUserDefaults"), sel_registerName("boolForKey:"),   (IMP)hook_boolForKey,   (IMP*)&orig_boolForKey); }
