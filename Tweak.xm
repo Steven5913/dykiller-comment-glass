@@ -357,25 +357,24 @@ static void DKShowDebugTree(UIView *cell){
 static void DKDebugOwnBubbles(UIView *cell) __attribute__((unused));   // 前置声明
 static void hook_cellLayoutSubviews(id self, SEL _cmd){
     orig_cellLayoutSubviews(self,_cmd);
-    // @try { DKDebugOwnBubbles(self); } @catch(NSException *e){}   // 调试标签已关闭
+    @try { DKDebugOwnBubbles(self); } @catch(NSException *e){}
     @try { DKGlassifyCell(self); } @catch(NSException *e){}
 }
 // ===== 专项调试：打印"右侧(自己发的)"气泡类名+结构+背景来源 =====
 static void DKDebugOwnBubbles(UIView *cell){
     if (!cell) return;
-    // 只 dump"媒体/大内容"cell：子树含 AVPlayerLayer 或 大 UIImageView(>=90) 或 高度>90
-    BOOL isMedia = cell.bounds.size.height > 90;
+    // 只 dump"非纯文本消息"cell：子树不含 IESIMTextKitLabel(链接/分享/富媒体卡片等)
+    BOOL hasTextKit = NO;
     NSMutableArray *probe=[NSMutableArray array]; [probe addObject:cell];
     int pg=0;
     while (probe.count && pg<400) { pg++; UIView *v=[probe lastObject]; [probe removeLastObject];
-        if ([NSStringFromClass([v.layer class]) isEqualToString:@"AVPlayerLayer"]) { isMedia=YES; break; }
-        if ([v isKindOfClass:[UIImageView class]] &&
-            (v.bounds.size.width>=90 || v.bounds.size.height>=90)) { isMedia=YES; break; }
+        NSString *cn=NSStringFromClass([v class])?:@"";
+        if ([cn containsString:@"TextKit"]) { hasTextKit=YES; break; }
         for (UIView *sub in v.subviews) [probe addObject:sub];
     }
-    if (!isMedia) return;
+    if (hasTextKit) return;   // 普通文本消息跳过
     NSMutableString *s=[NSMutableString string];
-    [s appendFormat:@"\n== MEDIA[%@] %.0fx%.0f ==", NSStringFromClass([cell class]),
+    [s appendFormat:@"\n== CARD[%@] %.0fx%.0f ==", NSStringFromClass([cell class]),
      cell.bounds.size.width, cell.bounds.size.height];
     NSMutableArray *stack=[NSMutableArray array]; [stack addObject:cell];
     int guard=0;
@@ -401,10 +400,10 @@ static void DKDebugOwnBubbles(UIView *cell){
             g_dbgLabel.layer.borderColor = [UIColor redColor].CGColor;
             g_dbgLabel.userInteractionEnabled = NO;
         }
-        // 累积打印(保留最近 2200 字符), 不覆盖
+        // 累积打印(保留最近 2500 字符), 不覆盖
         NSString *old = g_dbgLabel.text ?: @"";
         NSString *combined = [old stringByAppendingString:s];
-        if (combined.length > 2200) combined = [combined substringFromIndex:combined.length-2200];
+        if (combined.length > 2500) combined = [combined substringFromIndex:combined.length-2500];
         g_dbgLabel.text = combined;
         CGRect f = g_dbgLabel.frame;
         CGFloat h = [combined boundingRectWithSize:CGSizeMake(380, CGFLOAT_MAX)
