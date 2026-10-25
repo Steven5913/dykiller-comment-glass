@@ -127,13 +127,14 @@ static CGFloat const kDKGCornerRadius = 16.0;   // 评论区输入条圆角
 //-----------------------------------------------------------------------------
 static void DKGApplyGlassToView(id target) {
     if (!target || ![target isKindOfClass:UIView.class]) return;
-    for (UIView *sub in target.subviews) {
+    UIView *view = (UIView *)target;
+    for (UIView *sub in view.subviews) {
         if ([sub isKindOfClass:DKCommentBarGlassView.class]) return;
     }
     DKCommentBarGlassView *glass =
-        [[DKCommentBarGlassView alloc] initWithFrame:target.bounds];
+        [[DKCommentBarGlassView alloc] initWithFrame:view.bounds];
     glass.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
-    [target addSubview:glass];
+    [view addSubview:glass];
 }
 
 //-----------------------------------------------------------------------------
