@@ -149,21 +149,32 @@ static void DKShowDebugInfo(void){
                 for (UIViewController *ch in c.childViewControllers) [vcStack addObject:@[ch, @(d+1)]];
                 if (c.presentedViewController) [vcStack addObject:@[c.presentedViewController, @(d+1)]];
             }
-            // 遍历整个 window（含聊天页消息 collection 与气泡 cell），dump 全部子视图
+            // 遍历整个 window，只过滤显示消息/聊天/气泡/cell 相关视图类名（缩短标签）
             NSMutableArray *stack = [NSMutableArray array];
             [stack addObject:@[win, @(0)]];
+            NSMutableSet *seen = [NSMutableSet set];
             while (stack.count > 0) {
                 NSArray *top = [stack lastObject]; [stack removeLastObject];
                 UIView *v = top[0]; int d = [top[1] intValue];
-                if (d>7) continue;
+                if (d>6) continue;
                 for (UIView *s in v.subviews) {
-                    if (s.frame.size.width<15 || s.frame.size.height<15) continue;
+                    if (s.frame.size.width<10 || s.frame.size.height<10) continue;
                     NSString *cn = NSStringFromClass([s class]) ?: @"?";
-                    NSString *ind = [@"  " stringByPaddingToLength:d*2 withString:@" " startingAtIndex:0];
-                    [lines addObject:[NSString stringWithFormat:@"%@%@[%.0f,%.0f,%.0f,%.0f]", ind, cn,
-                                      s.frame.origin.x,s.frame.origin.y,s.frame.size.width,s.frame.size.height]];
+                    NSString *lo = cn.lowercaseString;
+                    BOOL hit = [lo containsString:@"cell"] || [lo containsString:@"collection"]
+                             || [lo containsString:@"message"] || [lo containsString:@"msg"]
+                             || [lo containsString:@"bubble"] || [lo containsString:@"chat"]
+                             || [lo containsString:@"skylight"] || [lo containsString:@"input"]
+                             || d<=1;
+                    if (hit && ![seen containsObject:cn]) {
+                        [seen addObject:cn];
+                        [lines addObject:[NSString stringWithFormat:@"%@[%.0f,%.0f,%.0f,%.0f]", cn,
+                                          s.frame.origin.x,s.frame.origin.y,s.frame.size.width,s.frame.size.height]];
+                        if (lines.count>=80) break;
+                    }
                     [stack addObject:@[s, @(d+1)]];
                 }
+                if (lines.count>=80) break;
             }
             g_dbgLabel.text = [lines componentsJoinedByString:@"\n"];
             [win addSubview:g_dbgLabel];
