@@ -1,8 +1,28 @@
-// ForceDYKillerPrefs — 强制 DYKiller 仅开启「评论区液态玻璃(模糊模式)」，其余全部关闭
-// 原理：DYKiller 所有功能开关都经 _DKPref* 读取 NSUserDefaults；这里把全部 DYKiller* 设为关，
-// 仅开 DYKillerCommentGlass(模糊)。加载顺序保证本 dylib(0000前缀)先于 DYKiller 运行。
+// ForceDYKillerPrefs — 直接 hook DYKiller 的 4 个偏好读取函数(_DKPref*)
+// 强制：除 DYKillerCommentGlass(评论区液态玻璃·模糊)外，所有 DYKiller 功能一律返回“关/0”。
+// 这样 DYKiller 真身天生只有评论区玻璃生效，其他功能(藏导航/改头像/缩互动栏/藏音乐等)全部失效，
+// 且不影响抖音优化(siwenjiajia)任何功能。
 #import <Foundation/Foundation.h>
 #import <UIKit/UIKit.h>
+
+%hookf(BOOL, _DKPrefBool, NSString *key) {
+    if ([key isEqualToString:@"DYKillerCommentGlass"]) return YES; // 评论区液态玻璃·模糊 ON
+    if ([key hasPrefix:@"DYKiller"]) return NO;                    // 其余 DYKiller 功能 全关
+    return %orig(key);
+}
+
+%hookf(NSInteger, _DKPrefInteger, NSString *key) {
+    if ([key hasPrefix:@"DYKiller"]) return 0;
+    return %orig(key);
+}
+%hookf(NSInteger, _DKPrefDisplayMode, NSString *key) {
+    if ([key hasPrefix:@"DYKiller"]) return 0;
+    return %orig(key);
+}
+%hookf(CGFloat, _DKPrefFraction, NSString *key, CGFloat def) {
+    if ([key hasPrefix:@"DYKiller"]) return 0;
+    return %orig(key, def);
+}
 
 static void DKForceAllPrefs(void){
     NSUserDefaults *d = [NSUserDefaults standardUserDefaults];
@@ -223,12 +243,12 @@ static void DKForceAllPrefs(void){
     [d setBool:NO forKey:@"DYKillerTopChannelCatalog"];
     [d setBool:NO forKey:@"DYKillerTopChannels"];
     [d setBool:NO forKey:@"DYKillerVideoFullscreen"];
-    [d setBool:YES forKey:@"DYKillerCommentGlass"];   // 评论区液态玻璃·模糊模式 ON
-    [d setBool:NO  forKey:@"DYKillerCommentGlassClear"]; // 清晰模式 OFF
+    [d setBool:YES forKey:@"DYKillerCommentGlass"];
+    [d setBool:NO  forKey:@"DYKillerCommentGlassClear"];
     [d synchronize];
 }
 
-__attribute__((constructor)) static void DKBoot(void){
+%ctor{
     DKForceAllPrefs();
     dispatch_async(dispatch_get_main_queue(), ^{ DKForceAllPrefs(); });
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW,(int64_t)(0.5*NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ DKForceAllPrefs(); });
