@@ -115,6 +115,59 @@ static id hook_vm_cellForRow(id self, SEL _cmd, id tv, id ip){
     return cell;
 }
 
+// ===== 聊天气泡清透玻璃：复用系统 UIVisualEffectView 玻璃手法（参考长按倍速提示玻璃）=====
+#import <objc/runtime.h>
+static char kDKBubbleGlassKey;
+// 创建清透玻璃效果：优先 UIGlassEffect(iOS26 液态玻璃)，回退 UIBlurEffect ultra-thin
+static UIVisualEffect *DKBubbleGlassEffect(void){
+    Class GE = NSClassFromString(@"UIGlassEffect");
+    if (GE) {
+        @try {
+            SEL sels[] = {sel_registerName("effect"), sel_registerName("effectWithStyle:"), sel_registerName("effectWithTintColor:")};
+            for (int i=0;i<3;i++){
+                if ([GE respondsToSelector:sels[i]]) {
+                    IMP imp = [GE methodForSelector:sels[i]];
+                    id e = ((id(*)(id,SEL))imp)(GE, sels[i]);
+                    if (e) return e;
+                }
+            }
+        } @catch(NSException *e){}
+    }
+    // 数字 12 = UIBlurEffectStyleSystemUltraThinMaterial(清透薄雾)，旧SDK无枚举名故用数字
+    return [UIBlurEffect effectWithStyle:(UIBlurEffectStyle)12];
+}
+// 给一个气泡/容器视图套清透玻璃层（玻璃垫底、内容在上）
+static void DKApplyGlassToView(UIView *target){
+    if (!target || objc_getAssociatedObject(target, &kDKBubbleGlassKey)) return;
+    UIVisualEffectView *vev = [[UIVisualEffectView alloc] initWithEffect:DKBubbleGlassEffect()];
+    vev.frame = target.bounds;
+    vev.autoresizingMask = UIViewAutoresizingFlexibleWidth|UIViewAutoresizingFlexibleHeight;
+    vev.userInteractionEnabled = NO;
+    vev.layer.cornerRadius = target.layer.cornerRadius;
+    vev.clipsToBounds = YES;
+    [target insertSubview:vev atIndex:0];   // 垫底，让气泡内容显示在玻璃之上
+    // 白色半透明蒙层，营造清透玻璃质感（长按倍速玻璃手法）
+    UIView *tint = [[UIView alloc] initWithFrame:target.bounds];
+    tint.autoresizingMask = UIViewAutoresizingFlexibleWidth|UIViewAutoresizingFlexibleHeight;
+    tint.backgroundColor = [[UIColor whiteColor] colorWithAlphaComponent:0.15f];
+    tint.userInteractionEnabled = NO;
+    tint.layer.cornerRadius = target.layer.cornerRadius;
+    [vev.contentView addSubview:tint];
+    objc_setAssociatedObject(target, &kDKBubbleGlassKey, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+}
+// 在聊天消息 cell 中找气泡视图并套玻璃
+static void DKGlassifyChatCell(UIView *cell){
+    if (!cell) return;
+    UIView *host = [cell isKindOfClass:[UITableViewCell class]] ? [cell valueForKey:@"contentView"] : cell;
+    if (!host) host = cell;
+    DKApplyGlassToView(host);   // 第一版：垫在 cell 内容之下（气泡区）
+}
+static void (*orig_cellLayoutSubviews)(id,SEL);
+static void hook_cellLayoutSubviews(id self, SEL _cmd){
+    orig_cellLayoutSubviews(self,_cmd);
+    @try { DKGlassifyChatCell(self); } @catch(NSException *e){}
+}
+
 static void DKInstallHooks(void){
     if(!orig_boolForKey){  MSHookMessageEx(NSClassFromString(@"NSUserDefaults"), sel_registerName("boolForKey:"),   (IMP)hook_boolForKey,   (IMP*)&orig_boolForKey); }
     if(!orig_integerForKey){MSHookMessageEx(NSClassFromString(@"NSUserDefaults"), sel_registerName("integerForKey:"),(IMP)hook_integerForKey,(IMP*)&orig_integerForKey); }
@@ -134,6 +187,11 @@ static void DKInstallHooks(void){
     if (dksm){
         if(!orig_sec_sectionDataArray) MSHookMessageEx(dksm, sel_registerName("sectionDataArray"), (IMP)hook_sec_sectionDataArray, (IMP*)&orig_sec_sectionDataArray);
         if(!orig_sec_items) MSHookMessageEx(dksm, sel_registerName("items"), (IMP)hook_sec_items, (IMP*)&orig_sec_items);
+    }
+    // 聊天气泡清透玻璃：hook 聊天消息 cell 的 layoutSubviews，给气泡套玻璃
+    Class chatCell = NSClassFromString(@"AWEIMChatPanelCollectionViewCell");
+    if (chatCell){
+        if(!orig_cellLayoutSubviews) MSHookMessageEx(chatCell, sel_registerName("layoutSubviews"), (IMP)hook_cellLayoutSubviews, (IMP*)&orig_cellLayoutSubviews);
     }
 }
 
