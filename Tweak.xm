@@ -362,6 +362,7 @@ static void (*orig_cellLayoutSubviews)(id,SEL);
 // ===== 调试：把消息视图树(类/frame/layer类型/圆角/隐藏)显示到屏幕 =====
 static UILabel *g_dbgLabel = nil;
 static void DKShowDebugTree(UIView *cell){
+    return;   // 识别类名调试已去除
     if (!cell) return;
     NSMutableString *s = [NSMutableString string];
     // 从 cell 向上到 window 的父级链
@@ -418,10 +419,11 @@ static void DKDebugOwnBubbles(UIView *cell) __attribute__((unused));   // 前置
 static void hook_cellLayoutSubviews(id self, SEL _cmd){
     orig_cellLayoutSubviews(self,_cmd);
     @try { DKGlassifyCell(self); } @catch(NSException *e){}
-    @try { DKDebugOwnBubbles(self); } @catch(NSException *e){}   // 调试: 玻璃化之后看内容状态
+    // @try { DKDebugOwnBubbles(self); } @catch(NSException *e){}   // 识别类名调试已去除
 }
 // ===== 专项调试：dump 含分享卡片(AWEIMFeedInfoCardView)的 cell, 看内容(图/文)是否被隐藏或覆盖 =====
 static void DKDebugOwnBubbles(UIView *cell){
+    return;   // 识别类名调试已去除
     if (!cell) return;
     // 只 dump 含分享卡片/Feed 的 cell
     BOOL hasCard = NO;
