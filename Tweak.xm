@@ -652,7 +652,6 @@ __attribute__((unused)) static void DKFindDarkCover(UIView *menu, UIWindow *win)
     CGSize sz=[g_cv sizeThatFits:CGSizeMake(win.bounds.size.width-8,1200)];
     g_cv.frame=CGRectMake(0,40,win.bounds.size.width,sz.height+4);
 }
-static void (*orig_popoverLayout)(id,SEL);
 // 清菜单按钮的深色背景源(backgroundColor/backgroundImage/UIButtonConfiguration filled背景)；
 // 不清 contentLayer(那层是文字)
 static void DKClearButtonConfigs(UIView *menu){
