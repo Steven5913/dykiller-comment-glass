@@ -744,6 +744,8 @@ static void hook_popoverLayout(id self, SEL _cmd){
     }@catch(NSException *e){}
 }
 static BOOL g_bubbleHooksInstalled = NO;
+static void (*orig_cardBelowEmojiLayout)(id,SEL);
+static void hook_cardBelowEmojiLayout(id self, SEL _cmd);
 static void DKInstallBubbleHooks(void){
     Class bubble = NSClassFromString(@"AWEIMMessageBubbleGradientView");
     if (bubble && !orig_bubbleLayoutSubviews) {
