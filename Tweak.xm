@@ -744,6 +744,8 @@ static void hook_popoverLayout(id self, SEL _cmd){
     }@catch(NSException *e){}
 }
 static BOOL g_bubbleHooksInstalled = NO;
+static void (*orig_msgVCDidAppear)(id,SEL,BOOL);
+static void hook_msgVCDidAppear(id self, SEL _cmd, BOOL animated);
 static void DKInstallBubbleHooks(void){
     Class bubble = NSClassFromString(@"AWEIMMessageBubbleGradientView");
     if (bubble && !orig_bubbleLayoutSubviews) {
