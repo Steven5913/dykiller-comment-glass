@@ -586,7 +586,8 @@ static void hook_emojiMenuLayoutSubviews(id self, SEL _cmd){
 }
 // ===== 会话长按弹出菜单(AWEPopoverActionSheet)清透玻璃：找到含多个竖排按钮的菜单容器套玻璃 =====
 // 清菜单容器内所有 UIButton 的深色内容层(contentLayer)：黑色是按钮背景绘制，不是 backgroundColor
-static void DKClearButtonContentLayers(UIView *menu){
+// [调试] 聚焦定位：延迟后遍历所有 window，找出覆盖菜单区域、带背景/深色的视图(黑色真源)
+__attribute__((unused)) static void DKClearButtonContentLayers(UIView *menu){
     if(!menu) return;
     NSMutableArray *stack=[NSMutableArray array]; [stack addObject:menu];
     int guard=0;
@@ -594,7 +595,6 @@ static void DKClearButtonContentLayers(UIView *menu){
         guard++; UIView *v=[stack lastObject]; [stack removeLastObject];
         if([v isKindOfClass:[UIButton class]]){
             for(CALayer *sl in [v.layer.sublayers copy]){
-                // 清带内容(contents)的子图层：深色按钮背景；保留 mask
                 if(sl.contents && !sl.mask) sl.opacity=0.0f;
             }
         }
@@ -618,19 +618,52 @@ static UIView *DKFindPopoverMenu(UIView *root){
     }
     return nil;
 }
+static UILabel *g_cv=nil; static NSString *g_cvlast=nil;
+static void DKFindDarkCover(UIView *menu, UIWindow *win){
+    if(!menu||!win) return;
+    CGRect mf=[menu convertRect:menu.bounds toView:win];
+    NSMutableArray *lines=[NSMutableArray array];
+    NSMutableArray *stack=[NSMutableArray array];
+    for(UIWindow *w in [[UIApplication sharedApplication] windows]) [stack addObject:@{@"v":w,@"d":@0}];
+    int guard=0;
+    while(stack.count && guard<1200){
+        guard++; NSDictionary *e=[stack lastObject];[stack removeLastObject];
+        UIView *v=e[@"v"]; int d=[e[@"d"] intValue];
+        if(d>5) continue;
+        CGRect vf=[v convertRect:v.bounds toView:win];
+        if(CGRectIntersectsRect(vf, mf)){
+            NSString *dl=@""; BOOL lDark=(v.layer.backgroundColor && DKIsDarkColor(v.layer.backgroundColor));
+            for(CALayer *sl in v.layer.sublayers){
+                if([sl isKindOfClass:[CAGradientLayer class]]){ CAGradientLayer *gr=(CAGradientLayer*)sl; if(gr.colors.count && DKIsDarkColor((__bridge CGColorRef)gr.colors[0])) dl=@"+gradD"; }
+                else if(sl.backgroundColor && DKIsDarkColor(sl.backgroundColor)) dl=@"+bgLayerD";
+            }
+            NSString *bg=v.backgroundColor?(DKIsDarkColor(v.layer.backgroundColor)?@"D":@"L"):@"-";
+            if(v.backgroundColor || lDark || dl.length){
+                [lines addObject:[NSString stringWithFormat:@"%@ %.0fx%.0f@(%.0f,%.0f) bg%@ op%.2f %@", NSStringFromClass([v class]), vf.size.width, vf.size.height, vf.origin.x, vf.origin.y, bg, v.layer.opacity, dl]];
+            }
+        }
+        for(UIView *s in v.subviews) [stack addObject:@{@"v":s,@"d":@(d+1)}];
+    }
+    if(!lines.count) [lines addObject:@"(菜单区域无带背景/深色视图)"];
+    NSString *tree=[lines componentsJoinedByString:@"\n"];
+    if([g_cvlast isEqualToString:tree]) return; g_cvlast=tree;
+    NSLog(@"[DKCover]\n%@",tree);
+    if(!g_cv){ g_cv=[[UILabel alloc]init]; g_cv.backgroundColor=[UIColor colorWithWhite:0 alpha:0.85]; g_cv.textColor=[UIColor whiteColor]; g_cv.font=[UIFont monospacedSystemFontOfSize:10 weight:UIFontWeightBold]; g_cv.numberOfLines=0; g_cv.layer.zPosition=100000; [win addSubview:g_cv]; }
+    g_cv.text=tree;
+    CGSize sz=[g_cv sizeThatFits:CGSizeMake(win.bounds.size.width-8,1000)];
+    g_cv.frame=CGRectMake(0,40,win.bounds.size.width,sz.height+4);
+}
 static void (*orig_popoverLayout)(id,SEL);
 static void hook_popoverLayout(id self, SEL _cmd){
     orig_popoverLayout(self,_cmd);
     @try{
         UIView *menu = DKFindPopoverMenu(self);
-        if (menu) {
-            // 黑色是按钮 contentLayer 绘制：清按钮深色内容层 + 套玻璃
-            DKClearButtonContentLayers(menu);
-            DKApplyGlassToPanel(menu);
-            // 延迟二次清：对抗 app 动画后重设/重绘按钮背景
-            __weak UIView *wm = menu;
-            dispatch_after(dispatch_time(DISPATCH_TIME_NOW,(int64_t)(0.5*NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-                @try{ if(wm){ DKClearButtonContentLayers(wm); DKApplyGlassToPanel(wm); } }@catch(NSException *e){}
+        UIWindow *win=[self window];
+        if (menu && win) {
+            // 延迟 dump：等菜单渲染完成，遍历所有 window 找覆盖菜单区域的深色视图
+            __weak UIView *wm=menu; __weak UIWindow *ww=win;
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW,(int64_t)(0.8*NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+                @try{ if(wm && ww) DKFindDarkCover(wm, ww); }@catch(NSException *e){}
             });
         }
     }@catch(NSException *e){}
