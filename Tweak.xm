@@ -584,49 +584,30 @@ static void hook_emojiMenuLayoutSubviews(id self, SEL _cmd){
     orig_emojiMenuLayoutSubviews(self,_cmd);
     @try { DKGlassifyLongPressMenu(self); } @catch(NSException *e){}
 }
-// ===== [调试] dump AWEPopoverActionSheet 视图树：确认会话长按菜单主体类名 =====
-static UILabel *g_treeLabel = nil;
-static NSString *g_lastTree = nil;
-static void DKShowPopoverTree(UIView *root, UIWindow *win){
-    if(!root || !win) return;
-    NSMutableArray *lines=[NSMutableArray array];
-    NSMutableArray *stack=[NSMutableArray array];
-    [stack addObject:@{@"v":root,@"d":@0}];
+// ===== 会话长按弹出菜单(AWEPopoverActionSheet)清透玻璃：找到含多个竖排按钮的菜单容器套玻璃 =====
+static UIView *DKFindPopoverMenu(UIView *root){
+    if(!root) return nil;
+    NSMutableArray *stack=[NSMutableArray array]; [stack addObject:root];
     int guard=0;
-    while(stack.count && guard<300){
-        guard++; NSDictionary *e=[stack lastObject]; [stack removeLastObject];
-        UIView *v=e[@"v"]; int d=[e[@"d"] intValue];
-        if(d>3) continue;
-        NSString *cn=NSStringFromClass([v class])?:@"";
-        NSString *ind=[@"" stringByPaddingToLength:d*2 withString:@" " startingAtIndex:0];
-        NSString *bg=v.backgroundColor?(DKIsDarkColor(v.layer.backgroundColor)?@"D":@"L"):@"-";
-        [lines addObject:[NSString stringWithFormat:@"%@%@ %.0fx%.0f r%.0f %@", ind, cn, v.bounds.size.width, v.bounds.size.height, v.layer.cornerRadius, bg]];
-        NSArray *subs=[v.subviews reverseObjectEnumerator].allObjects;
-        for(UIView *s in subs) [stack addObject:@{@"v":s,@"d":@(d+1)}];
+    while(stack.count && guard<500){
+        guard++; UIView *v=[stack lastObject]; [stack removeLastObject];
+        // 菜单容器：宽150~300, 高100~600, 含>=3个直接UIButton子视图(竖排菜单项)
+        if (v.bounds.size.width>=150 && v.bounds.size.width<=300 &&
+            v.bounds.size.height>=100 && v.bounds.size.height<=600) {
+            int btnCount=0;
+            for(UIView *s in v.subviews) if([s isKindOfClass:[UIButton class]]) btnCount++;
+            if (btnCount>=3) return v;
+        }
+        for(UIView *s in v.subviews) [stack addObject:s];
     }
-    NSString *tree=[lines componentsJoinedByString:@"\n"];
-    if([g_lastTree isEqualToString:tree]) return;   // 树无变化不刷
-    g_lastTree=tree;
-    NSLog(@"[DKPopoverTree]\n%@", tree);
-    if(!g_treeLabel){
-        g_treeLabel=[[UILabel alloc] init];
-        g_treeLabel.backgroundColor=[UIColor colorWithWhite:0 alpha:0.85];
-        g_treeLabel.textColor=[UIColor colorWithWhite:1 alpha:1];
-        g_treeLabel.font=[UIFont monospacedSystemFontOfSize:11 weight:UIFontWeightBold];
-        g_treeLabel.numberOfLines=0;
-        g_treeLabel.layer.zPosition=100000;
-        [win addSubview:g_treeLabel];
-    }
-    g_treeLabel.text=tree;
-    CGSize sz=[g_treeLabel sizeThatFits:CGSizeMake(win.bounds.size.width-12, 1000)];
-    g_treeLabel.frame=CGRectMake(0, 40, win.bounds.size.width, sz.height+6);
+    return nil;
 }
 static void (*orig_popoverLayout)(id,SEL);
 static void hook_popoverLayout(id self, SEL _cmd){
     orig_popoverLayout(self,_cmd);
     @try{
-        UIWindow *win=[self isKindOfClass:[UIWindow class]]?(UIWindow*)self:[self window];
-        DKShowPopoverTree(self, win);
+        UIView *menu = DKFindPopoverMenu(self);
+        if (menu) DKApplyGlassToPanel(menu);
     }@catch(NSException *e){}
 }
 static BOOL g_bubbleHooksInstalled = NO;
@@ -647,7 +628,7 @@ static void DKInstallBubbleHooks(void){
     if (em && !orig_emojiMenuLayoutSubviews) {
         MSHookMessageEx(em, sel_registerName("layoutSubviews"), (IMP)hook_emojiMenuLayoutSubviews, (IMP*)&orig_emojiMenuLayoutSubviews);
     }
-    // [调试] 会话长按弹出菜单(AWEPopoverActionSheet)视图树 dump
+    // 会话长按弹出菜单(AWEPopoverActionSheet)清透玻璃
     Class pp = NSClassFromString(@"AWEPopoverActionSheet");
     if (pp && !orig_popoverLayout) {
         MSHookMessageEx(pp, sel_registerName("layoutSubviews"), (IMP)hook_popoverLayout, (IMP*)&orig_popoverLayout);
