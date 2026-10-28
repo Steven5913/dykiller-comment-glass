@@ -559,7 +559,7 @@ static void DKApplyGlassToPanel(UIView *panel){
     panel.layer.borderWidth=0.5;
 }
 // 无白高光版本(快捷回复表情等小面板)：只套玻璃，不加白高光渐变，文字图标不被罩
-static void DKApplyGlassToPanelNoHL(UIView *panel){
+__attribute__((unused)) static void DKApplyGlassToPanelNoHL(UIView *panel){
     if (!panel) return;
     if (panel.bounds.size.width<10 || panel.bounds.size.height<10) return;
     DKClearBubbleBackground(panel);
@@ -801,7 +801,7 @@ static void DKInstallBubbleHooks(void){
 }
 
 // 清面板自身及子树所有背景(深浅都清，保留文字/图标contentLayer)，让玻璃完全透出
-static void DKClearPanelBackgroundsAll(UIView *panel){
+__attribute__((unused)) static void DKClearPanelBackgroundsAll(UIView *panel){
     if(!panel) return;
     panel.backgroundColor=[UIColor clearColor];
     panel.layer.backgroundColor=[UIColor clearColor].CGColor;
@@ -811,14 +811,35 @@ static void DKClearPanelBackgroundsAll(UIView *panel){
     }
     for(UIView *s in panel.subviews) DKClearPanelBackgroundsAll(s);
 }
+// [调试] dump快捷表情容器(AWEIMCardBelowQuickEmoticonBoxView)子视图树，找独立胶囊按钮层级
+__attribute__((unused)) static void DKShowCardEmojiSubs(UIView *root){
+    if(!root) return;
+    UIWindow *win=root.window; if(!win) return;
+    NSMutableArray *lines=[NSMutableArray array];
+    NSMutableArray *q=[NSMutableArray arrayWithObject:root];
+    int qi=0;
+    while(qi<(int)q.count && qi<160){
+        UIView *v=q[qi++];
+        NSMutableArray *anc=[NSMutableArray array];
+        UIView *p=v.superview; int g=0;
+        while(p && g<4){ [anc addObject:NSStringFromClass([p class])]; p=p.superview; g++; }
+        [lines addObject:[NSString stringWithFormat:@"%@ %.0fx%.0f ^%@", NSStringFromClass([v class]), v.bounds.size.width, v.bounds.size.height, [anc componentsJoinedByString:@">"]]];
+        for(UIView *s in v.subviews){ if(q.count<160) [q addObject:s]; }
+    }
+    NSString *tree=[lines componentsJoinedByString:@"\n"];
+    if([g_cvlast isEqualToString:tree]) return; g_cvlast=tree;
+    NSLog(@"[DKCardEmoji]\n%@",tree);
+    if(!g_cv){ g_cv=[[UILabel alloc]init]; g_cv.backgroundColor=[UIColor colorWithWhite:0 alpha:0.85]; g_cv.textColor=[UIColor whiteColor]; g_cv.font=[UIFont monospacedSystemFontOfSize:9 weight:UIFontWeightBold]; g_cv.numberOfLines=0; g_cv.layer.zPosition=100000; [win addSubview:g_cv]; }
+    g_cv.text=tree;
+    CGSize sz=[g_cv sizeThatFits:CGSizeMake(win.bounds.size.width-8,1200)];
+    g_cv.frame=CGRectMake(0,40,win.bounds.size.width,sz.height+4);
+}
 static void hook_cardBelowEmojiLayout(id self, SEL _cmd){
     orig_cardBelowEmojiLayout(self,_cmd);
     @try{
-        DKClearPanelBackgroundsAll(self);   // 清浅色白背景+深色层，保文字
-        DKApplyGlassToPanelNoHL(self);      // 套玻璃(无白高光，不遮文字图标)
         __weak UIView *ws=self;
-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW,(int64_t)(0.4*NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-            @try{ if(ws){ DKClearPanelBackgroundsAll(ws); DKApplyGlassToPanelNoHL(ws); } }@catch(NSException *e){}
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW,(int64_t)(0.6*NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+            @try{ if(ws) DKShowCardEmojiSubs(ws); }@catch(NSException *e){}
         });
     }@catch(NSException *e){}
 }
