@@ -558,6 +558,30 @@ static void DKApplyGlassToPanel(UIView *panel){
     panel.layer.borderColor=[UIColor colorWithWhite:1.0 alpha:0.25].CGColor;
     panel.layer.borderWidth=0.5;
 }
+// 无白高光版本(快捷回复表情等小面板)：只套玻璃，不加白高光渐变，文字图标不被罩
+static void DKApplyGlassToPanelNoHL(UIView *panel){
+    if (!panel) return;
+    if (panel.bounds.size.width<10 || panel.bounds.size.height<10) return;
+    DKClearBubbleBackground(panel);
+    for (UIView *sv in panel.subviews)
+        if ([sv isKindOfClass:[UIVisualEffectView class]] && CGRectEqualToRect(sv.frame, panel.bounds)) return;
+    for (UIView *sv in [panel.subviews copy])
+        if ([sv isKindOfClass:[UIVisualEffectView class]]) [sv removeFromSuperview];
+    for (CALayer *sl in [panel.layer.sublayers copy])
+        if (objc_getAssociatedObject(sl,&kDKGlassGradKey)) [sl removeFromSuperlayer];
+    DKClearPanelDeepBackground(panel);
+    UIVisualEffect *eff=DKBubbleGlassEffect(); if(!eff) return;
+    panel.clipsToBounds=YES;
+    CGFloat radius=panel.layer.cornerRadius>0?panel.layer.cornerRadius:22.0f;
+    if (radius>22) radius=22;
+    panel.layer.cornerRadius=radius;
+    UIVisualEffectView *vev=[[UIVisualEffectView alloc] initWithEffect:eff];
+    vev.frame=panel.bounds; vev.autoresizingMask=UIViewAutoresizingFlexibleWidth|UIViewAutoresizingFlexibleHeight;
+    vev.userInteractionEnabled=NO; vev.layer.cornerRadius=radius; vev.clipsToBounds=YES;
+    [panel insertSubview:vev atIndex:0];
+    panel.layer.borderColor=[UIColor colorWithWhite:1.0 alpha:0.25].CGColor;
+    panel.layer.borderWidth=0.5;
+}
 // 递归找长按面板主体并套玻璃
 static void DKGlassifyLongPressMenu(UIView *root){
     if(!root) return;
@@ -791,10 +815,10 @@ static void hook_cardBelowEmojiLayout(id self, SEL _cmd){
     orig_cardBelowEmojiLayout(self,_cmd);
     @try{
         DKClearPanelBackgroundsAll(self);   // 清浅色白背景+深色层，保文字
-        DKApplyGlassToPanel(self);          // 套清透玻璃
+        DKApplyGlassToPanelNoHL(self);      // 套玻璃(无白高光，不遮文字图标)
         __weak UIView *ws=self;
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW,(int64_t)(0.4*NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-            @try{ if(ws){ DKClearPanelBackgroundsAll(ws); DKApplyGlassToPanel(ws); } }@catch(NSException *e){}
+            @try{ if(ws){ DKClearPanelBackgroundsAll(ws); DKApplyGlassToPanelNoHL(ws); } }@catch(NSException *e){}
         });
     }@catch(NSException *e){}
 }
