@@ -585,16 +585,23 @@ static void hook_emojiMenuLayoutSubviews(id self, SEL _cmd){
     @try { DKGlassifyLongPressMenu(self); } @catch(NSException *e){}
 }
 // ===== 会话长按弹出菜单(AWEPopoverActionSheet)清透玻璃：找到含多个竖排按钮的菜单容器套玻璃 =====
-// 清某视图 layer 上覆盖的深色子图层（不清 backgroundColor/内容，避免误伤）
-static void DKClearDarkSubLayers(UIView *v){
-    if(!v) return;
-    for(CALayer *sl in [v.layer.sublayers copy]) {
-        if([sl isKindOfClass:[CAGradientLayer class]]) {
-            CAGradientLayer *g=(CAGradientLayer*)sl;
-            if(g.colors.count && DKIsDarkColor((__bridge CGColorRef)g.colors[0])) sl.opacity=0.0f;
-        } else if(sl.contents==nil && sl.backgroundColor && [sl.sublayers count]==0) {
-            if(DKIsDarkColor(sl.backgroundColor)) sl.opacity=0.0f;
+// 沿菜单容器父链清背景：清每层 view 的 backgroundColor + layer 深色子图层
+static void DKClearAncestorBackgrounds(UIView *menu){
+    UIView *anc = menu;
+    int g=0;
+    while(anc && g<20){
+        // 清 backgroundColor（含动态色），同时清 layer 深色子图层
+        anc.backgroundColor=[UIColor clearColor];
+        anc.layer.backgroundColor=[UIColor clearColor].CGColor;
+        for(CALayer *sl in [anc.layer.sublayers copy]) {
+            if([sl isKindOfClass:[CAGradientLayer class]]) {
+                CAGradientLayer *gr=(CAGradientLayer*)sl;
+                if(gr.colors.count && DKIsDarkColor((__bridge CGColorRef)gr.colors[0])) sl.opacity=0.0f;
+            } else if(sl.contents==nil && sl.backgroundColor && [sl.sublayers count]==0) {
+                if(DKIsDarkColor(sl.backgroundColor)) sl.opacity=0.0f;
+            }
         }
+        anc=anc.superview;
     }
 }
 static UIView *DKFindPopoverMenu(UIView *root){
@@ -620,10 +627,16 @@ static void hook_popoverLayout(id self, SEL _cmd){
     @try{
         UIView *menu = DKFindPopoverMenu(self);
         if (menu) {
-            // 沿父链清深色背景层：菜单黑色可能来自上层容器 layer 的深色子图层
-            UIView *anc = menu; int g=0;
-            while(anc && g<20){ DKClearDarkSubLayers(anc); anc=anc.superview; g++; }
+            // 沿父链清背景(backgroundColor+深色子图层)：菜单黑色来自上层容器背景
+            DKClearAncestorBackgrounds(menu);
             DKApplyGlassToPanel(menu);
+            // 延迟二次清：对抗 app 在动画后重设深色背景
+            __weak UIView *wm = menu;
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW,(int64_t)(0.4*NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+                @try{
+                    if(wm){ DKClearAncestorBackgrounds(wm); DKApplyGlassToPanel(wm); }
+                }@catch(NSException *e){}
+            });
         }
     }@catch(NSException *e){}
 }
