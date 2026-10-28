@@ -626,31 +626,30 @@ static void DKFindDarkCover(UIView *menu, UIWindow *win){
     NSMutableArray *stack=[NSMutableArray array];
     for(UIWindow *w in [[UIApplication sharedApplication] windows]) [stack addObject:@{@"v":w,@"d":@0}];
     int guard=0;
-    while(stack.count && guard<1200){
+    while(stack.count && guard<2500){
         guard++; NSDictionary *e=[stack lastObject];[stack removeLastObject];
         UIView *v=e[@"v"]; int d=[e[@"d"] intValue];
-        if(d>5) continue;
+        if(d>8) continue;
         CGRect vf=[v convertRect:v.bounds toView:win];
         if(CGRectIntersectsRect(vf, mf)){
-            NSString *dl=@""; BOOL lDark=(v.layer.backgroundColor && DKIsDarkColor(v.layer.backgroundColor));
-            for(CALayer *sl in v.layer.sublayers){
-                if([sl isKindOfClass:[CAGradientLayer class]]){ CAGradientLayer *gr=(CAGradientLayer*)sl; if(gr.colors.count && DKIsDarkColor((__bridge CGColorRef)gr.colors[0])) dl=@"+gradD"; }
-                else if(sl.backgroundColor && DKIsDarkColor(sl.backgroundColor)) dl=@"+bgLayerD";
-            }
-            NSString *bg=v.backgroundColor?(DKIsDarkColor(v.layer.backgroundColor)?@"D":@"L"):@"-";
-            if(v.backgroundColor || lDark || dl.length){
-                [lines addObject:[NSString stringWithFormat:@"%@ %.0fx%.0f@(%.0f,%.0f) bg%@ op%.2f %@", NSStringFromClass([v class]), vf.size.width, vf.size.height, vf.origin.x, vf.origin.y, bg, v.layer.opacity, dl]];
-            }
+            NSString *lrgb=@"";
+            CGColorRef c=v.layer.backgroundColor;
+            if(c && CGColorGetNumberOfComponents(c)>=4){ const CGFloat*cc=CGColorGetComponents(c); lrgb=[NSString stringWithFormat:@"lbg(%.0f,%.0f,%.0f,a%.0f)",cc[0]*255,cc[1]*255,cc[2]*255,cc[3]*255]; }
+            NSString *ct=v.layer.contents?@"cY":@"c-";
+            NSString *sh=(v.layer.shadowOpacity>0.01)?[NSString stringWithFormat:@" sh%.2f",v.layer.shadowOpacity]:@"";
+            NSString *eff=@"";
+            if([v isKindOfClass:[UIVisualEffectView class]]){ UIVisualEffectView *ev=(UIVisualEffectView*)v; eff=[NSString stringWithFormat:@" eff:%@",ev.effect?NSStringFromClass([ev.effect class]):@"nil"]; }
+            [lines addObject:[NSString stringWithFormat:@"%@ %.0fx%.0f@(%.0f,%.0f) op%.2f %@ %@%@%@", NSStringFromClass([v class]), vf.size.width, vf.size.height, vf.origin.x, vf.origin.y, v.layer.opacity, lrgb, ct, sh, eff]];
         }
         for(UIView *s in v.subviews) [stack addObject:@{@"v":s,@"d":@(d+1)}];
     }
-    if(!lines.count) [lines addObject:@"(菜单区域无带背景/深色视图)"];
+    if(!lines.count) [lines addObject:@"(无视图覆盖菜单区域)"];
     NSString *tree=[lines componentsJoinedByString:@"\n"];
     if([g_cvlast isEqualToString:tree]) return; g_cvlast=tree;
     NSLog(@"[DKCover]\n%@",tree);
-    if(!g_cv){ g_cv=[[UILabel alloc]init]; g_cv.backgroundColor=[UIColor colorWithWhite:0 alpha:0.85]; g_cv.textColor=[UIColor whiteColor]; g_cv.font=[UIFont monospacedSystemFontOfSize:10 weight:UIFontWeightBold]; g_cv.numberOfLines=0; g_cv.layer.zPosition=100000; [win addSubview:g_cv]; }
+    if(!g_cv){ g_cv=[[UILabel alloc]init]; g_cv.backgroundColor=[UIColor colorWithWhite:0 alpha:0.85]; g_cv.textColor=[UIColor whiteColor]; g_cv.font=[UIFont monospacedSystemFontOfSize:9 weight:UIFontWeightBold]; g_cv.numberOfLines=0; g_cv.layer.zPosition=100000; [win addSubview:g_cv]; }
     g_cv.text=tree;
-    CGSize sz=[g_cv sizeThatFits:CGSizeMake(win.bounds.size.width-8,1000)];
+    CGSize sz=[g_cv sizeThatFits:CGSizeMake(win.bounds.size.width-8,1200)];
     g_cv.frame=CGRectMake(0,40,win.bounds.size.width,sz.height+4);
 }
 static void (*orig_popoverLayout)(id,SEL);
