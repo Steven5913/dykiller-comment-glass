@@ -715,13 +715,13 @@ __attribute__((unused)) static void DKShowAncSubs(UIView *menu, UIWindow *win){
     CGSize sz=[g_cv sizeThatFits:CGSizeMake(win.bounds.size.width-8,1200)];
     g_cv.frame=CGRectMake(0,40,win.bounds.size.width,sz.height+4);
 }
-// 清菜单容器上 CAShapeLayer 的深色 fillColor(圆角深色菜单背景) + 深色子图层；不碰按钮文字
+// 清菜单容器上所有 CAShapeLayer 的 fillColor(深浅都清，去掉深色圆角背景和浅色"白白"层) + 深色子图层；不碰按钮文字
 __attribute__((unused)) static void DKClearShapeFill(UIView *menu){
     if(!menu) return;
     for(CALayer *sl in [menu.layer.sublayers copy]){
         if([sl isKindOfClass:[CAShapeLayer class]]){
             CAShapeLayer *sh=(CAShapeLayer*)sl;
-            if(sh.fillColor && DKIsDarkColor(sh.fillColor)) sh.fillColor=[UIColor clearColor].CGColor;
+            sh.fillColor=[UIColor clearColor].CGColor;   // 所有填充透明(深色圆角背景 + 浅色白层都去)
             if(sh.strokeColor && DKIsDarkColor(sh.strokeColor)) sh.strokeColor=[UIColor clearColor].CGColor;
         }
         if(sl.backgroundColor && DKIsDarkColor(sl.backgroundColor)) sl.opacity=0.0f;
