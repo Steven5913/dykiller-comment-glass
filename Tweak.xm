@@ -692,7 +692,7 @@ __attribute__((unused)) static void DKClearAncSubLayersDeep(UIView *menu){
     }
 }
 // [调试] dump菜单容器父链每一层的全部子图层(RGB+contents+opacity)：定位深色背景图
-static void DKShowAncSubs(UIView *menu, UIWindow *win){
+__attribute__((unused)) static void DKShowAncSubs(UIView *menu, UIWindow *win){
     if(!menu||!win) return;
     NSMutableArray *lines=[NSMutableArray array];
     UIView *a=menu; int i=0;
@@ -715,16 +715,30 @@ static void DKShowAncSubs(UIView *menu, UIWindow *win){
     CGSize sz=[g_cv sizeThatFits:CGSizeMake(win.bounds.size.width-8,1200)];
     g_cv.frame=CGRectMake(0,40,win.bounds.size.width,sz.height+4);
 }
+// 清菜单容器上 CAShapeLayer 的深色 fillColor(圆角深色菜单背景) + 深色子图层；不碰按钮文字
+__attribute__((unused)) static void DKClearShapeFill(UIView *menu){
+    if(!menu) return;
+    for(CALayer *sl in [menu.layer.sublayers copy]){
+        if([sl isKindOfClass:[CAShapeLayer class]]){
+            CAShapeLayer *sh=(CAShapeLayer*)sl;
+            if(sh.fillColor && DKIsDarkColor(sh.fillColor)) sh.fillColor=[UIColor clearColor].CGColor;
+            if(sh.strokeColor && DKIsDarkColor(sh.strokeColor)) sh.strokeColor=[UIColor clearColor].CGColor;
+        }
+        if(sl.backgroundColor && DKIsDarkColor(sl.backgroundColor)) sl.opacity=0.0f;
+    }
+}
 static void (*orig_popoverLayout)(id,SEL);
 static void hook_popoverLayout(id self, SEL _cmd){
     orig_popoverLayout(self,_cmd);
     @try{
         UIView *menu = DKFindPopoverMenu(self);
-        UIWindow *win=[self window];
-        if (menu && win) {
-            __weak UIView *wm=menu; __weak UIWindow *ww=win;
-            dispatch_after(dispatch_time(DISPATCH_TIME_NOW,(int64_t)(0.8*NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-                @try{ if(wm && ww) DKShowAncSubs(wm, ww); }@catch(NSException *e){}
+        if (menu) {
+            // 黑色真源=CAShapeLayer深色fillColor(圆角菜单背景)：清掉+套玻璃，文字在按钮contentLayer不碰
+            DKClearShapeFill(menu);
+            DKApplyGlassToPanel(menu);
+            __weak UIView *wm = menu;
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW,(int64_t)(0.5*NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+                @try{ if(wm){ DKClearShapeFill(wm); DKApplyGlassToPanel(wm); } }@catch(NSException *e){}
             });
         }
     }@catch(NSException *e){}
