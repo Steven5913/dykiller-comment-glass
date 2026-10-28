@@ -586,7 +586,7 @@ static void hook_emojiMenuLayoutSubviews(id self, SEL _cmd){
 }
 // ===== 会话长按弹出菜单(AWEPopoverActionSheet)清透玻璃：找到含多个竖排按钮的菜单容器套玻璃 =====
 // 沿菜单容器父链清背景：清每层 view 的 backgroundColor + layer 深色子图层
-static void DKClearAncestorBackgrounds(UIView *menu){
+__attribute__((unused)) static void DKClearAncestorBackgrounds(UIView *menu){
     UIView *anc = menu;
     int g=0;
     while(anc && g<20){
