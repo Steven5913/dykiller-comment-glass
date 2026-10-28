@@ -619,7 +619,7 @@ static UIView *DKFindPopoverMenu(UIView *root){
     return nil;
 }
 static UILabel *g_cv=nil; static NSString *g_cvlast=nil;
-static void DKFindDarkCover(UIView *menu, UIWindow *win){
+__attribute__((unused)) static void DKFindDarkCover(UIView *menu, UIWindow *win){
     if(!menu||!win) return;
     CGRect mf=[menu convertRect:menu.bounds toView:win];
     NSMutableArray *lines=[NSMutableArray array];
@@ -653,16 +653,45 @@ static void DKFindDarkCover(UIView *menu, UIWindow *win){
     g_cv.frame=CGRectMake(0,40,win.bounds.size.width,sz.height+4);
 }
 static void (*orig_popoverLayout)(id,SEL);
+// 清菜单按钮的深色背景源(backgroundColor/backgroundImage/UIButtonConfiguration filled背景)；
+// 不清 contentLayer(那层是文字)
+static void DKClearButtonConfigs(UIView *menu){
+    if(!menu) return;
+    NSMutableArray *stack=[NSMutableArray array]; [stack addObject:menu];
+    int guard=0;
+    while(stack.count && guard<300){
+        guard++; UIView *v=[stack lastObject]; [stack removeLastObject];
+        if([v isKindOfClass:[UIButton class]]){
+            UIButton *b=(UIButton*)v;
+            b.backgroundColor=[UIColor clearColor];
+            b.layer.backgroundColor=[UIColor clearColor].CGColor;
+            [b setBackgroundImage:nil forState:UIControlStateNormal];
+            [b setBackgroundImage:nil forState:UIControlStateHighlighted];
+            [b setBackgroundImage:nil forState:UIControlStateSelected];
+            if(@available(iOS 15.0,*)){
+                UIButtonConfiguration *cfg=[b configuration];
+                if(cfg){
+                    cfg.background.backgroundColor=[UIColor clearColor];
+                    cfg.background.strokeColor=[UIColor clearColor];
+                    [b setConfiguration:cfg];
+                }
+            }
+        }
+        for(UIView *s in v.subviews) [stack addObject:s];
+    }
+}
+static void (*orig_popoverLayout)(id,SEL);
 static void hook_popoverLayout(id self, SEL _cmd){
     orig_popoverLayout(self,_cmd);
     @try{
         UIView *menu = DKFindPopoverMenu(self);
-        UIWindow *win=[self window];
-        if (menu && win) {
-            // 延迟 dump：等菜单渲染完成，遍历所有 window 找覆盖菜单区域的深色视图
-            __weak UIView *wm=menu; __weak UIWindow *ww=win;
-            dispatch_after(dispatch_time(DISPATCH_TIME_NOW,(int64_t)(0.8*NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-                @try{ if(wm && ww) DKFindDarkCover(wm, ww); }@catch(NSException *e){}
+        if (menu) {
+            // 黑色真源=按钮configuration filled深色背景：清掉+套玻璃，不动contentLayer(文字)
+            DKClearButtonConfigs(menu);
+            DKApplyGlassToPanel(menu);
+            __weak UIView *wm = menu;
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW,(int64_t)(0.5*NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+                @try{ if(wm){ DKClearButtonConfigs(wm); DKApplyGlassToPanel(wm); } }@catch(NSException *e){}
             });
         }
     }@catch(NSException *e){}
