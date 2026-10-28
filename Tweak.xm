@@ -766,7 +766,53 @@ static void DKInstallBubbleHooks(void){
     if (pp && !orig_popoverLayout) {
         MSHookMessageEx(pp, sel_registerName("layoutSubviews"), (IMP)hook_popoverLayout, (IMP*)&orig_popoverLayout);
     }
-    g_bubbleHooksInstalled = (orig_bubbleLayoutSubviews || orig_cellLayoutSubviews || orig_tableCellForRow || orig_emojiMenuLayoutSubviews || orig_popoverLayout);
+    // 聊天页快捷回复表情面板调试dump
+    Class vc2 = NSClassFromString(@"AWEIMMessageBaseViewController");
+    if (vc2 && !orig_msgVCDidAppear) {
+        MSHookMessageEx(vc2, sel_registerName("viewDidAppear:"), (IMP)hook_msgVCDidAppear, (IMP*)&orig_msgVCDidAppear);
+    }
+    g_bubbleHooksInstalled = (orig_bubbleLayoutSubviews || orig_cellLayoutSubviews || orig_tableCellForRow || orig_emojiMenuLayoutSubviews || orig_popoverLayout || orig_msgVCDidAppear);
+}
+
+// [调试] dump聊天页含快捷表情按钮(≥3个UIButton/collection/stack)的容器，带按钮标题定位面板
+__attribute__((unused)) static void DKFindEmojiQuickPanel(UIView *root, UIWindow *win){
+    if(!root||!win) return;
+    NSMutableArray *lines=[NSMutableArray array];
+    NSMutableArray *q=[NSMutableArray arrayWithObject:root];
+    int qi=0;
+    while(qi<(int)q.count && qi<600){
+        UIView *v=q[qi++];
+        int bc=0; for(UIView *s in v.subviews){ if([s isKindOfClass:[UIButton class]]) bc++; }
+        BOOL isCol=[v isKindOfClass:[UICollectionView class]];
+        if(isCol || bc>=3 || [v isKindOfClass:[UIStackView class]]){
+            NSMutableArray *titles=[NSMutableArray array];
+            for(UIView *s in v.subviews){ if([s isKindOfClass:[UIButton class]]){ NSString *t=[[(UIButton*)s titleLabel] text]; if(t.length) [titles addObject:t]; } }
+            NSMutableArray *anc=[NSMutableArray array];
+            UIView *p=v.superview; int g=0;
+            while(p && g<6){ [anc addObject:NSStringFromClass([p class])]; p=p.superview; g++; }
+            [lines addObject:[NSString stringWithFormat:@"%@ %.0fx%.0f 按钮%d [%@]\n  ^父:%@", NSStringFromClass([v class]), v.bounds.size.width, v.bounds.size.height, bc, [titles componentsJoinedByString:@","], [anc componentsJoinedByString:@">"]]];
+        }
+        for(UIView *s in v.subviews){ if(q.count<600) [q addObject:s]; }
+    }
+    if(!lines.count) [lines addObject:@"(无候选容器)"];
+    NSString *tree=[lines componentsJoinedByString:@"\n"];
+    if([g_cvlast isEqualToString:tree]) return; g_cvlast=tree;
+    NSLog(@"[DKEmojiQuick]\n%@",tree);
+    if(!g_cv){ g_cv=[[UILabel alloc]init]; g_cv.backgroundColor=[UIColor colorWithWhite:0 alpha:0.85]; g_cv.textColor=[UIColor whiteColor]; g_cv.font=[UIFont monospacedSystemFontOfSize:9 weight:UIFontWeightBold]; g_cv.numberOfLines=0; g_cv.layer.zPosition=100000; [win addSubview:g_cv]; }
+    g_cv.text=tree;
+    CGSize sz=[g_cv sizeThatFits:CGSizeMake(win.bounds.size.width-8,1200)];
+    g_cv.frame=CGRectMake(0,40,win.bounds.size.width,sz.height+4);
+}
+static void (*orig_msgVCDidAppear)(id,SEL,BOOL);
+static void hook_msgVCDidAppear(id self, SEL _cmd, BOOL animated){
+    orig_msgVCDidAppear(self,_cmd,animated);
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW,(int64_t)(1.0*NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        @try{
+            UIView *root=[(UIViewController*)self view];
+            UIWindow *win=root.window;
+            if(root && win) DKFindEmojiQuickPanel(root, win);
+        }@catch(NSException *e){}
+    });
 }
 
 // ===== 聊天长按操作面板清透玻璃：长按消息弹出的操作面板(AWEIMEmojiReplyMenuView 内 AFDHoverableContainerView)套玻璃 =====
