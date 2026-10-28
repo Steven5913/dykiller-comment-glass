@@ -515,55 +515,57 @@ static void DKInstallBubbleHooks(void){
     g_bubbleHooksInstalled = (orig_bubbleLayoutSubviews || orig_cellLayoutSubviews || orig_tableCellForRow);
 }
 
-// ===== [调试] 识别聊天页长按面板类名：长按面板弹出时在屏幕浮层显示实际类名 =====
+// ===== [调试] 识别聊天页长按面板类名：常驻浮层显示新出现的覆盖视图类名 =====
 static void (*orig_addSubview)(id,SEL,UIView*);
-static NSString *g_lastPanelIdentify = nil;
+static NSMutableArray *g_panelIds = nil;
+static UILabel *g_panelLabel = nil;
 static void DKShowPanelIdentify(NSString *cn, UIView *v, UIWindow *win){
-    if ([g_lastPanelIdentify isEqualToString:cn]) return;
-    g_lastPanelIdentify = cn;
-    NSLog(@"[DKPanelIdentify] class=%@ frame=%@", cn, NSStringFromCGRect(v.frame));
-    NSMutableArray *subs=[NSMutableArray array];
-    for (UIView *s in v.subviews) {
-        NSString *sc = NSStringFromClass([s class]) ?: @"";
-        if (sc.length) [subs addObject:sc];
-    }
-    NSLog(@"[DKPanelIdentify] subviews=%@", [subs componentsJoinedByString:@", "]);
+    if (!g_panelIds) g_panelIds=[NSMutableArray array];
+    NSString *line=[NSString stringWithFormat:@"%@  %.0fx%.0f", cn, v.bounds.size.width, v.bounds.size.height];
+    for (NSString *old in g_panelIds) if ([old isEqualToString:line]) return;   // 去重
+    [g_panelIds insertObject:line atIndex:0];
+    if (g_panelIds.count>12) [g_panelIds removeLastObject];
+    NSLog(@"[DKPanelIdentify] %@", line);
     if (!win) return;
-    UILabel *lab=[[UILabel alloc] initWithFrame:CGRectMake(16,140,win.bounds.size.width-32,110)];
-    lab.backgroundColor=[UIColor colorWithWhite:0 alpha:0.85];
-    lab.textColor=[UIColor whiteColor];
-    lab.font=[UIFont boldSystemFontOfSize:16];
-    lab.textAlignment=NSTextAlignmentCenter;
-    lab.numberOfLines=0;
-    lab.layer.cornerRadius=10;
-    lab.layer.masksToBounds=YES;
-    lab.text=[NSString stringWithFormat:@"面板类名:\n%@", cn];
-    lab.layer.zPosition=10000;
-    [win addSubview:lab];
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW,(int64_t)(6.0*NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-        [lab removeFromSuperview];
-    });
+    if (!g_panelLabel) {
+        g_panelLabel=[[UILabel alloc] init];
+        g_panelLabel.backgroundColor=[UIColor colorWithWhite:0 alpha:0.82];
+        g_panelLabel.textColor=[UIColor whiteColor];
+        g_panelLabel.font=[UIFont boldSystemFontOfSize:13];
+        g_panelLabel.numberOfLines=0;
+        g_panelLabel.layer.zPosition=100000;
+        [win addSubview:g_panelLabel];
+    }
+    // 常驻浮层：不消失，随匹配列表更新（按用户要求去掉6秒自动消失）
+    g_panelLabel.text=[NSString stringWithFormat:@"[面板识别]\n%@", [g_panelIds componentsJoinedByString:@"\n"]];
+    CGSize sz=[g_panelLabel sizeThatFits:CGSizeMake(win.bounds.size.width-20, 500)];
+    g_panelLabel.frame=CGRectMake(0, 40, win.bounds.size.width, sz.height+8);
 }
 static void hook_addSubview(id self, SEL _cmd, UIView *v){
     orig_addSubview(self,_cmd,v);
-    @try {
-        if (!v || v.hidden) return;
-        CGFloat w=v.bounds.size.width, h=v.bounds.size.height;
-        CGFloat sw=[UIScreen mainScreen].bounds.size.width;
-        CGFloat sh=[UIScreen mainScreen].bounds.size.height;
-        // 横向操作面板特征：宽>=屏宽一半, 高<宽, 高<=屏高70%
-        if (w < sw*0.5 || h < 40 || h > sh*0.7 || h >= w) return;
-        NSString *cn = NSStringFromClass([v class]) ?: @"";
-        NSString *lo = [cn lowercaseString];
-        if ([lo containsString:@"panel"] || [lo containsString:@"menu"] ||
-            [lo containsString:@"action"] || [lo containsString:@"sheet"] ||
-            [lo containsString:@"longpress"] || [lo containsString:@"long_press"] ||
-            [lo containsString:@"tip"] || [lo containsString:@"toast"] ||
-            [lo containsString:@"bubble_menu"]) {
-            UIWindow *win = [self isKindOfClass:[UIWindow class]] ? (UIWindow*)self : [self window];
-            DKShowPanelIdentify(cn, v, win);
-        }
-    } @catch(NSException *e){}
+    if (!v) return;
+    __weak UIView *wv=v;
+    __weak UIView *wself=self;
+    dispatch_async(dispatch_get_main_queue(), ^{
+        @try {
+            UIView *vu=wv; if(!vu || vu.hidden) return;
+            CGFloat w=vu.bounds.size.width, h=vu.bounds.size.height;
+            if (w<180 || h<30) return;   // 面板/覆盖视图尺寸
+            NSString *cn=NSStringFromClass([vu class]) ?: @"";
+            NSString *lo=[cn lowercaseString];
+            if ([lo containsString:@"inputset"] || [lo containsString:@"keyboard"]
+                || [lo containsString:@"uicallout"] || [lo containsString:@"_uikit"]
+                || [lo containsString:@"touches"]) return;   // 排除系统键盘/光标
+            UIView *par=[vu superview];
+            NSString *pcn=par?NSStringFromClass([par class])?:@"":@"";
+            NSString *plo=[pcn lowercaseString];
+            // 排除加在 cell/滚动容器里的内容视图（气泡/列表项）
+            if ([plo containsString:@"cell"] || [plo containsString:@"scrollview"]
+                || [plo containsString:@"tableview"] || [plo containsString:@"collectionview"]) return;
+            UIWindow *win=[wself isKindOfClass:[UIWindow class]]?(UIWindow*)wself:[wself window];
+            DKShowPanelIdentify(cn, vu, win);
+        } @catch(NSException *e){}
+    });
 }
 
 static void DKInstallHooks(void){
