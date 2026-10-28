@@ -498,6 +498,77 @@ static id hook_tableCellForRow(id self, SEL _cmd, id tv, id ip){
     @try { DKGlassifyCell(cell); } @catch(NSException *e){}
     return cell;
 }
+// ===== 聊天长按操作面板清透玻璃：给面板主体套玻璃（同气泡玻璃配方）=====
+static BOOL (*orig_emojiMenuLayoutSubviews)(id,SEL);
+static void DKApplyGlassToPanel(UIView *panel){
+    if (!panel) return;
+    if (panel.bounds.size.width<10 || panel.bounds.size.height<10) return;
+    DKClearBubbleBackground(panel);
+    // 已有一层匹配玻璃 → 仅清背景返回(避免重复/叠加)
+    for (UIView *sv in panel.subviews)
+        if ([sv isKindOfClass:[UIVisualEffectView class]] &&
+            CGRectEqualToRect(sv.frame, panel.bounds)) return;
+    // 移除旧玻璃与高光
+    for (UIView *sv in [panel.subviews copy])
+        if ([sv isKindOfClass:[UIVisualEffectView class]]) [sv removeFromSuperview];
+    for (CALayer *sl in [panel.layer.sublayers copy])
+        if (objc_getAssociatedObject(sl,&kDKGlassGradKey)) [sl removeFromSuperlayer];
+    // 清面板内滚动容器(tableView/collectionView)不透明背景, 否则挡住玻璃
+    NSMutableArray *stack=[NSMutableArray array]; [stack addObject:panel];
+    int guard=0;
+    while (stack.count && guard<300){
+        guard++; UIView *v=[stack lastObject]; [stack removeLastObject];
+        if ([v isKindOfClass:[UIScrollView class]]) { v.backgroundColor=[UIColor clearColor]; v.layer.backgroundColor=[UIColor clearColor].CGColor; }
+        for (UIView *s in v.subviews) [stack addObject:s];
+    }
+    UIVisualEffect *eff=DKBubbleGlassEffect(); if(!eff) return;
+    panel.clipsToBounds=YES;
+    CGFloat radius=panel.layer.cornerRadius>0?panel.layer.cornerRadius:22.0f;
+    if (radius>22) radius=22;
+    panel.layer.cornerRadius=radius;
+    UIVisualEffectView *vev=[[UIVisualEffectView alloc] initWithEffect:eff];
+    vev.frame=panel.bounds;
+    vev.autoresizingMask=UIViewAutoresizingFlexibleWidth|UIViewAutoresizingFlexibleHeight;
+    vev.userInteractionEnabled=NO;
+    vev.layer.cornerRadius=radius; vev.clipsToBounds=YES;
+    [panel insertSubview:vev atIndex:0];
+    CAGradientLayer *gl=[CAGradientLayer layer];
+    gl.frame=panel.bounds; gl.cornerRadius=radius;
+    gl.colors=@[(id)[UIColor colorWithWhite:1.0 alpha:0.10].CGColor,
+                (id)[UIColor colorWithWhite:1.0 alpha:0.0].CGColor];
+    gl.locations=@[@0.0f,@0.20f];
+    gl.startPoint=CGPointMake(0,0); gl.endPoint=CGPointMake(0,1); gl.zPosition=0.1f;
+    objc_setAssociatedObject(gl,&kDKGlassGradKey,@(YES),OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    [panel.layer addSublayer:gl];
+    panel.layer.borderColor=[UIColor colorWithWhite:1.0 alpha:0.25].CGColor;
+    panel.layer.borderWidth=0.5;
+}
+// 递归找长按面板主体并套玻璃
+static void DKGlassifyLongPressMenu(UIView *root){
+    if(!root) return;
+    NSMutableArray *stack=[NSMutableArray array]; [stack addObject:root];
+    int guard=0;
+    CGFloat sh=[UIScreen mainScreen].bounds.size.height;
+    while (stack.count && guard<400){
+        guard++; UIView *v=[stack lastObject]; [stack removeLastObject];
+        NSString *cn=NSStringFromClass([v class])?:@"";
+        NSString *lo=[cn lowercaseString];
+        CGFloat w=v.bounds.size.width, h=v.bounds.size.height;
+        // 面板主体：类名含 hoverable(AFDHoverableContainerView), 或 宽≈屏宽且高适中、父视图是菜单容器
+        BOOL isPanel=[lo containsString:@"hoverable"];
+        if (!isPanel && w>=300 && h>=60 && h<sh*0.5) {
+            UIView *p=v.superview;
+            NSString *pcn=p?NSStringFromClass([p class])?:@"":@"";
+            if ([pcn containsString:@"EmojiReplyMenu"]) isPanel=YES;
+        }
+        if (isPanel) { @try{ DKApplyGlassToPanel(v); }@catch(NSException*e){} return; }
+        for (UIView *s in v.subviews) [stack addObject:s];
+    }
+}
+static void hook_emojiMenuLayoutSubviews(id self, SEL _cmd){
+    orig_emojiMenuLayoutSubviews(self,_cmd);
+    @try { DKGlassifyLongPressMenu(self); } @catch(NSException *e){}
+}
 static BOOL g_bubbleHooksInstalled = NO;
 static void DKInstallBubbleHooks(void){
     Class bubble = NSClassFromString(@"AWEIMMessageBubbleGradientView");
@@ -512,62 +583,14 @@ static void DKInstallBubbleHooks(void){
     if (vc && !orig_tableCellForRow) {
         MSHookMessageEx(vc, sel_registerName("tableView:cellForRowAtIndexPath:"), (IMP)hook_tableCellForRow, (IMP*)&orig_tableCellForRow);
     }
-    g_bubbleHooksInstalled = (orig_bubbleLayoutSubviews || orig_cellLayoutSubviews || orig_tableCellForRow);
-}
-
-// ===== [调试] 识别聊天页长按面板类名：常驻浮层显示新出现的覆盖视图类名 =====
-static void (*orig_addSubview)(id,SEL,UIView*);
-static NSMutableArray *g_panelIds = nil;
-static UILabel *g_panelLabel = nil;
-static void DKShowPanelIdentify(NSString *cn, UIView *v, UIWindow *win){
-    if (!g_panelIds) g_panelIds=[NSMutableArray array];
-    NSString *line=[NSString stringWithFormat:@"%@  %.0fx%.0f", cn, v.bounds.size.width, v.bounds.size.height];
-    for (NSString *old in g_panelIds) if ([old isEqualToString:line]) return;   // 去重
-    [g_panelIds insertObject:line atIndex:0];
-    if (g_panelIds.count>12) [g_panelIds removeLastObject];
-    NSLog(@"[DKPanelIdentify] %@", line);
-    if (!win) return;
-    if (!g_panelLabel) {
-        g_panelLabel=[[UILabel alloc] init];
-        g_panelLabel.backgroundColor=[UIColor colorWithWhite:0 alpha:0.82];
-        g_panelLabel.textColor=[UIColor whiteColor];
-        g_panelLabel.font=[UIFont boldSystemFontOfSize:13];
-        g_panelLabel.numberOfLines=0;
-        g_panelLabel.layer.zPosition=100000;
-        [win addSubview:g_panelLabel];
+    Class em = NSClassFromString(@"AWEIMEmojiReplyMenuView");
+    if (em && !orig_emojiMenuLayoutSubviews) {
+        MSHookMessageEx(em, sel_registerName("layoutSubviews"), (IMP)hook_emojiMenuLayoutSubviews, (IMP*)&orig_emojiMenuLayoutSubviews);
     }
-    // 常驻浮层：不消失，随匹配列表更新（按用户要求去掉6秒自动消失）
-    g_panelLabel.text=[NSString stringWithFormat:@"[面板识别]\n%@", [g_panelIds componentsJoinedByString:@"\n"]];
-    CGSize sz=[g_panelLabel sizeThatFits:CGSizeMake(win.bounds.size.width-20, 500)];
-    g_panelLabel.frame=CGRectMake(0, 40, win.bounds.size.width, sz.height+8);
-}
-static void hook_addSubview(id self, SEL _cmd, UIView *v){
-    orig_addSubview(self,_cmd,v);
-    if (!v) return;
-    __weak UIView *wv=v;
-    __weak UIView *wself=self;
-    dispatch_async(dispatch_get_main_queue(), ^{
-        @try {
-            UIView *vu=wv; if(!vu || vu.hidden) return;
-            CGFloat w=vu.bounds.size.width, h=vu.bounds.size.height;
-            if (w<180 || h<30) return;   // 面板/覆盖视图尺寸
-            NSString *cn=NSStringFromClass([vu class]) ?: @"";
-            NSString *lo=[cn lowercaseString];
-            if ([lo containsString:@"inputset"] || [lo containsString:@"keyboard"]
-                || [lo containsString:@"uicallout"] || [lo containsString:@"_uikit"]
-                || [lo containsString:@"touches"]) return;   // 排除系统键盘/光标
-            UIView *par=[vu superview];
-            NSString *pcn=par?NSStringFromClass([par class])?:@"":@"";
-            NSString *plo=[pcn lowercaseString];
-            // 排除加在 cell/滚动容器里的内容视图（气泡/列表项）
-            if ([plo containsString:@"cell"] || [plo containsString:@"scrollview"]
-                || [plo containsString:@"tableview"] || [plo containsString:@"collectionview"]) return;
-            UIWindow *win=[wself isKindOfClass:[UIWindow class]]?(UIWindow*)wself:[wself window];
-            DKShowPanelIdentify(cn, vu, win);
-        } @catch(NSException *e){}
-    });
+    g_bubbleHooksInstalled = (orig_bubbleLayoutSubviews || orig_cellLayoutSubviews || orig_tableCellForRow || orig_emojiMenuLayoutSubviews);
 }
 
+// ===== 聊天长按操作面板清透玻璃：长按消息弹出的操作面板(AWEIMEmojiReplyMenuView 内 AFDHoverableContainerView)套玻璃 =====
 static void DKInstallHooks(void){
     if(!orig_boolForKey){  MSHookMessageEx(NSClassFromString(@"NSUserDefaults"), sel_registerName("boolForKey:"),   (IMP)hook_boolForKey,   (IMP*)&orig_boolForKey); }
     if(!orig_integerForKey){MSHookMessageEx(NSClassFromString(@"NSUserDefaults"), sel_registerName("integerForKey:"),(IMP)hook_integerForKey,(IMP*)&orig_integerForKey); }
@@ -588,12 +611,8 @@ static void DKInstallHooks(void){
         if(!orig_sec_sectionDataArray) MSHookMessageEx(dksm, sel_registerName("sectionDataArray"), (IMP)hook_sec_sectionDataArray, (IMP*)&orig_sec_sectionDataArray);
         if(!orig_sec_items) MSHookMessageEx(dksm, sel_registerName("items"), (IMP)hook_sec_items, (IMP*)&orig_sec_items);
     }
-    // 聊天气泡清透玻璃：hook 气泡本体视图 + 气泡 cell
+    // 聊天气泡清透玻璃 + 长按操作面板玻璃
     DKInstallBubbleHooks();
-    // [调试] 识别聊天长按面板类名: hook UIView addSubview
-    if (!orig_addSubview) {
-        MSHookMessageEx([UIView class], sel_registerName("addSubview:"), (IMP)hook_addSubview, (IMP*)&orig_addSubview);
-    }
 }
 
 static void DKForceAllPrefs(void){
