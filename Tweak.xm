@@ -839,7 +839,7 @@ static void hook_cardBelowEmojiLayout(id self, SEL _cmd){
     @try{
         // 对每个独立胶囊(AWEIMCardBelowQuickEmoticonView 53x53)各自套玻璃，不套整条容器
         DKClearPanelBackgroundsAll(self);   // 清容器背景条
-        for(UIView *cap in [self.subviews copy]){
+        for(UIView *cap in [(UIView*)self subviews]){
             if(cap.bounds.size.width>=40 && cap.bounds.size.height>=40){
                 @try{
                     DKClearPanelBackgroundsAll(cap);   // 清胶囊背景
@@ -852,7 +852,7 @@ static void hook_cardBelowEmojiLayout(id self, SEL _cmd){
             @try{
                 if(!ws) return;
                 DKClearPanelBackgroundsAll(ws);
-                for(UIView *cap in [ws.subviews copy]){
+                for(UIView *cap in [(UIView*)ws subviews]){
                     if(cap.bounds.size.width>=40 && cap.bounds.size.height>=40){
                         @try{ DKClearPanelBackgroundsAll(cap); DKApplyGlassToPanelNoHL(cap); }@catch(NSException *e){}
                     }
