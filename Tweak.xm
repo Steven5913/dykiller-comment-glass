@@ -787,7 +787,6 @@ static void DKClearPanelBackgroundsAll(UIView *panel){
     }
     for(UIView *s in panel.subviews) DKClearPanelBackgroundsAll(s);
 }
-static void (*orig_cardBelowEmojiLayout)(id,SEL);
 static void hook_cardBelowEmojiLayout(id self, SEL _cmd){
     orig_cardBelowEmojiLayout(self,_cmd);
     @try{
