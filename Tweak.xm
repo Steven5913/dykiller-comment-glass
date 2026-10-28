@@ -515,6 +515,58 @@ static void DKInstallBubbleHooks(void){
     g_bubbleHooksInstalled = (orig_bubbleLayoutSubviews || orig_cellLayoutSubviews || orig_tableCellForRow);
 }
 
+// ===== [调试] 识别聊天页长按面板类名：长按面板弹出时在屏幕浮层显示实际类名 =====
+static void (*orig_addSubview)(id,SEL,UIView*);
+static NSString *g_lastPanelIdentify = nil;
+static void DKShowPanelIdentify(NSString *cn, UIView *v, UIWindow *win){
+    if ([g_lastPanelIdentify isEqualToString:cn]) return;
+    g_lastPanelIdentify = cn;
+    NSLog(@"[DKPanelIdentify] class=%@ frame=%@", cn, NSStringFromCGRect(v.frame));
+    NSMutableArray *subs=[NSMutableArray array];
+    for (UIView *s in v.subviews) {
+        NSString *sc=[NSStringFromClass([s class]) ?: @""];
+        if (sc.length) [subs addObject:sc];
+    }
+    NSLog(@"[DKPanelIdentify] subviews=%@", [subs componentsJoinedByString:@", "]);
+    if (!win) return;
+    UILabel *lab=[[UILabel alloc] initWithFrame:CGRectMake(16,140,win.bounds.size.width-32,110)];
+    lab.backgroundColor=[UIColor colorWithWhite:0 alpha:0.85];
+    lab.textColor=[UIColor whiteColor];
+    lab.font=[UIFont boldSystemFontOfSize:16];
+    lab.textAlignment=NSTextAlignmentCenter;
+    lab.numberOfLines=0;
+    lab.layer.cornerRadius=10;
+    lab.layer.masksToBounds=YES;
+    lab.text=[NSString stringWithFormat:@"面板类名:\n%@", cn];
+    lab.layer.zPosition=10000;
+    [win addSubview:lab];
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW,(int64_t)(6.0*NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        [lab removeFromSuperview];
+    });
+}
+static void hook_addSubview(id self, SEL _cmd, UIView *v){
+    orig_addSubview(self,_cmd,v);
+    @try {
+        if (!v || v.hidden) return;
+        CGFloat w=v.bounds.size.width, h=v.bounds.size.height;
+        CGFloat sw=[UIScreen mainScreen].bounds.size.width;
+        CGFloat sh=[UIScreen mainScreen].bounds.size.height;
+        // 横向操作面板特征：宽>=屏宽一半, 高<宽, 高<=屏高70%
+        if (w < sw*0.5 || h < 40 || h > sh*0.7 || h >= w) return;
+        NSString *cn = NSStringFromClass([v class]) ?: @"";
+        NSString *lo = [cn lowercaseString];
+        if ([lo containsString:@"panel"] || [lo containsString:@"menu"] ||
+            [lo containsString:@"action"] || [lo containsString:@"sheet"] ||
+            [lo containsString:@"longpress"] || [lo containsString:@"long_press"] ||
+            [lo containsString:@"tip"] || [lo containsString:@"toast"] ||
+            [lo containsString:@"bubble_menu"]) {
+            UIWindow *win = [self isKindOfClass:[UIWindow class]] ? (UIWindow*)self : [self window];
+            if (!win) win = [[UIApplication sharedApplication] keyWindow];
+            DKShowPanelIdentify(cn, v, win);
+        }
+    } @catch(NSException *e){}
+}
+
 static void DKInstallHooks(void){
     if(!orig_boolForKey){  MSHookMessageEx(NSClassFromString(@"NSUserDefaults"), sel_registerName("boolForKey:"),   (IMP)hook_boolForKey,   (IMP*)&orig_boolForKey); }
     if(!orig_integerForKey){MSHookMessageEx(NSClassFromString(@"NSUserDefaults"), sel_registerName("integerForKey:"),(IMP)hook_integerForKey,(IMP*)&orig_integerForKey); }
@@ -537,6 +589,10 @@ static void DKInstallHooks(void){
     }
     // 聊天气泡清透玻璃：hook 气泡本体视图 + 气泡 cell
     DKInstallBubbleHooks();
+    // [调试] 识别聊天长按面板类名: hook UIView addSubview
+    if (!orig_addSubview) {
+        MSHookMessageEx([UIView class], sel_registerName("addSubview:"), (IMP)hook_addSubview, (IMP*)&orig_addSubview);
+    }
 }
 
 static void DKForceAllPrefs(void){
