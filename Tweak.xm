@@ -499,6 +499,27 @@ static id hook_tableCellForRow(id self, SEL _cmd, id tv, id ip){
     return cell;
 }
 // ===== 聊天长按操作面板清透玻璃：给面板主体套玻璃（同气泡玻璃配方）=====
+// 递归清面板子树内所有不透明背景与深色子图层，让玻璃彻底透出
+static void DKClearPanelDeepBackground(UIView *root){
+    if(!root) return;
+    NSMutableArray *stack=[NSMutableArray array]; [stack addObject:root];
+    int guard=0;
+    while (stack.count && guard<600){
+        guard++; UIView *v=[stack lastObject]; [stack removeLastObject];
+        if ([v isKindOfClass:[UIVisualEffectView class]]) continue;   // 保留玻璃层
+        if (![v isKindOfClass:[UIImageView class]]) v.backgroundColor=[UIColor clearColor];
+        v.layer.backgroundColor=[UIColor clearColor].CGColor;
+        for (CALayer *sl in [v.layer.sublayers copy]) {
+            if ([sl isKindOfClass:[CAGradientLayer class]]) {
+                CAGradientLayer *g=(CAGradientLayer*)sl;
+                if (g.colors.count && DKIsDarkColor((__bridge CGColorRef)g.colors[0])) sl.opacity=0.0f;
+            } else if (sl.contents==nil && sl.backgroundColor && [sl.sublayers count]==0) {
+                if (DKIsDarkColor(sl.backgroundColor)) sl.opacity=0.0f;
+            }
+        }
+        for (UIView *s in v.subviews) [stack addObject:s];
+    }
+}
 static BOOL (*orig_emojiMenuLayoutSubviews)(id,SEL);
 static void DKApplyGlassToPanel(UIView *panel){
     if (!panel) return;
@@ -513,14 +534,8 @@ static void DKApplyGlassToPanel(UIView *panel){
         if ([sv isKindOfClass:[UIVisualEffectView class]]) [sv removeFromSuperview];
     for (CALayer *sl in [panel.layer.sublayers copy])
         if (objc_getAssociatedObject(sl,&kDKGlassGradKey)) [sl removeFromSuperlayer];
-    // 清面板内滚动容器(tableView/collectionView)不透明背景, 否则挡住玻璃
-    NSMutableArray *stack=[NSMutableArray array]; [stack addObject:panel];
-    int guard=0;
-    while (stack.count && guard<300){
-        guard++; UIView *v=[stack lastObject]; [stack removeLastObject];
-        if ([v isKindOfClass:[UIScrollView class]]) { v.backgroundColor=[UIColor clearColor]; v.layer.backgroundColor=[UIColor clearColor].CGColor; }
-        for (UIView *s in v.subviews) [stack addObject:s];
-    }
+    // 递归清面板内所有不透明背景与深色子图层, 让玻璃彻底透出
+    DKClearPanelDeepBackground(panel);
     UIVisualEffect *eff=DKBubbleGlassEffect(); if(!eff) return;
     panel.clipsToBounds=YES;
     CGFloat radius=panel.layer.cornerRadius>0?panel.layer.cornerRadius:22.0f;
