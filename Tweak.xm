@@ -691,7 +691,6 @@ __attribute__((unused)) static void DKClearAncSubLayersDeep(UIView *menu){
         anc=anc.superview;
     }
 }
-static void (*orig_popoverLayout)(id,SEL);
 // [调试] dump菜单容器父链每一层的全部子图层(RGB+contents+opacity)：定位深色背景图
 static void DKShowAncSubs(UIView *menu, UIWindow *win){
     if(!menu||!win) return;
