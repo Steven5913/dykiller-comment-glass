@@ -9,15 +9,20 @@ static inline BOOL DKIsGlass(NSString *key){
         || [key isEqualToString:@"DYKillerChatInputGlass"]      // 聊天页输入框玻璃(开)
         || [key isEqualToString:@"DYKillerChatInputGlassClear"]; // 聊天页输入框玻璃(样式:清透=2)
 }
+// 需要强制开启的功能：玻璃 + 长按不弹出长按面板
+static inline BOOL DKShouldForceOn(NSString *key){
+    return DKIsGlass(key)
+        || [key isEqualToString:@"DYKillerFeedMenuNoPanel"];    // 长按不弹出长按面板
+}
 static inline BOOL DKShouldForceOff(NSString *key){
     if (![key hasPrefix:@"DYKiller"]) return NO;
-    if (DKIsGlass(key)) return NO;
+    if (DKShouldForceOn(key)) return NO;
     return YES;
 }
 
 static BOOL (*orig_boolForKey)(id,SEL,NSString*);
 static BOOL hook_boolForKey(id self, SEL _cmd, NSString *key){
-    if (DKIsGlass(key)) return YES;
+    if (DKShouldForceOn(key)) return YES;
     if (DKShouldForceOff(key)) return NO;
     return orig_boolForKey(self,_cmd,key);
 }
@@ -41,7 +46,7 @@ static float hook_floatForKey(id self, SEL _cmd, NSString *key){
 static id (*orig_objectForKey)(id,SEL,NSString*);
 static id hook_objectForKey(id self, SEL _cmd, NSString *key){
     if ([key isEqualToString:@"DYKillerChatInputGlassClear"]) return @(2); // 清透样式
-    if (DKIsGlass(key)) return @YES;
+    if (DKShouldForceOn(key)) return @YES;
     if (DKShouldForceOff(key)) return nil;   // 关键：返回nil，非@NO
     return orig_objectForKey(self,_cmd,key);
 }
@@ -540,6 +545,7 @@ static void DKForceAllPrefs(void){
     [d setBool:YES forKey:@"DYKillerCommentGlass"];          // 评论: 模糊
     [d setBool:YES forKey:@"DYKillerChatInputGlass"];        // 聊天: 玻璃开
     [d setInteger:2 forKey:@"DYKillerChatInputGlassClear"];  // 聊天: 清透样式
+    [d setBool:YES forKey:@"DYKillerFeedMenuNoPanel"];        // 长按不弹出长按面板
     // 其余 DYKiller 功能：彻底删除key，保证 objectForKey 返回 nil / boolForKey 返回 NO
     [d removeObjectForKey:@"DYKillerAdjustRangeExtended"];
     [d removeObjectForKey:@"DYKillerAudioVizPosition"];
