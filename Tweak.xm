@@ -625,24 +625,30 @@ static UILabel *g_dl=nil; static NSString *g_dlast=nil;
 static NSString *DKBGMark(UIView *v){
     NSString *bg = v.backgroundColor?(DKIsDarkColor(v.layer.backgroundColor)?@"D":@"L") : @"-";
     NSString *lbg = (v.layer.backgroundColor)? (DKIsDarkColor(v.layer.backgroundColor)?@"D":@"L") : @"-";
-    return [NSString stringWithFormat:@"bg%@/l%@/o%.2f", bg, lbg, v.layer.opacity];
+    NSString *ct = v.layer.contents?@"C":@"-";
+    return [NSString stringWithFormat:@"bg%@/l%@/c%@/o%.2f", bg, lbg, ct, v.layer.opacity];
 }
 static void DKShowPopDetail(UIView *menu, UIWindow *win){
     if(!menu||!win) return;
     NSMutableArray *lines=[NSMutableArray array];
     UIView *a=menu; int i=0;
-    while(a && i<3){ [lines addObject:[NSString stringWithFormat:@"anc%ld: %@ %.0fx%.0f %@ r%.0f", (long)i, NSStringFromClass([a class]), a.bounds.size.width, a.bounds.size.height, DKBGMark(a), a.layer.cornerRadius]]; a=a.superview; i++; }
+    while(a && i<12){ [lines addObject:[NSString stringWithFormat:@"anc%ld: %@ %.0fx%.0f %@ r%.0f", (long)i, NSStringFromClass([a class]), a.bounds.size.width, a.bounds.size.height, DKBGMark(a), a.layer.cornerRadius]]; a=a.superview; i++; }
     NSMutableArray *stack=[NSMutableArray array]; [stack addObject:@{@"v":menu,@"d":@0}];
     int guard=0;
-    while(stack.count && guard<80){
+    while(stack.count && guard<90){
         guard++; NSDictionary *e=[stack lastObject];[stack removeLastObject];
         UIView *v=e[@"v"]; int d=[e[@"d"] intValue];
         if(d>2) continue;
         NSString *ind=[@"" stringByPaddingToLength:d*2 withString:@" " startingAtIndex:0];
         [lines addObject:[NSString stringWithFormat:@"%@%@ %.0fx%.0f %@ r%.0f", ind, NSStringFromClass([v class]), v.bounds.size.width, v.bounds.size.height, DKBGMark(v), v.layer.cornerRadius]];
+        if([v isKindOfClass:[UIButton class]]){
+            UIButton *b=(UIButton*)v;
+            if([b backgroundImageForState:UIControlStateNormal]) [lines addObject:[NSString stringWithFormat:@"%@  +btnBGImage", ind]];
+        }
         for(CALayer *sl in v.layer.sublayers){
             if([sl isKindOfClass:[CAGradientLayer class]]) { CAGradientLayer *gr=(CAGradientLayer*)sl; if(gr.colors.count && DKIsDarkColor((__bridge CGColorRef)gr.colors[0])) [lines addObject:[NSString stringWithFormat:@"%@  +gradD op:%.2f", ind, sl.opacity]]; }
             else if(sl.backgroundColor && DKIsDarkColor(sl.backgroundColor)) [lines addObject:[NSString stringWithFormat:@"%@  +bgLayerD op:%.2f hasContent:%@", ind, sl.opacity, sl.contents?@"Y":@"N"]];
+            else if(sl.contents && !sl.backgroundColor) [lines addObject:[NSString stringWithFormat:@"%@  +contentLayer(op:%.2f)", ind, sl.opacity]];
         }
         for(UIView *s in v.subviews) [stack addObject:@{@"v":s,@"d":@(d+1)}];
     }
@@ -660,7 +666,13 @@ static void hook_popoverLayout(id self, SEL _cmd){
     @try{
         UIView *menu = DKFindPopoverMenu(self);
         UIWindow *win=[self window];
-        if (menu && win) DKShowPopDetail(menu, win);
+        if (menu && win) {
+            // 延迟 dump：等菜单渲染完成(动画后)再看真实背景/内容层
+            __weak UIView *wm=menu; __weak UIWindow *ww=win;
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW,(int64_t)(0.8*NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+                @try{ if(wm && ww) DKShowPopDetail(wm, ww); }@catch(NSException *e){}
+            });
+        }
     }@catch(NSException *e){}
 }
 static BOOL g_bubbleHooksInstalled = NO;
