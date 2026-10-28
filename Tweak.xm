@@ -679,18 +679,31 @@ static void DKClearButtonConfigs(UIView *menu){
         for(UIView *s in v.subviews) [stack addObject:s];
     }
 }
+// 沿父链清所有深色子图层(含contents的深色背景图)+UIVisualEffectView暗色effect
+static void DKClearAncSubLayersDeep(UIView *menu){
+    UIView *anc=menu; int g=0;
+    while(anc && g<20){
+        if([anc isKindOfClass:[UIVisualEffectView class]]) ((UIVisualEffectView*)anc).effect=nil;
+        for(CALayer *sl in [anc.layer.sublayers copy]){
+            if([sl isKindOfClass:[CAGradientLayer class]]){ CAGradientLayer *gr=(CAGradientLayer*)sl; if(gr.colors.count && DKIsDarkColor((__bridge CGColorRef)gr.colors[0])) sl.opacity=0.0f; }
+            else if(sl.backgroundColor && DKIsDarkColor(sl.backgroundColor)) sl.opacity=0.0f;  // 不管有无contents
+        }
+        anc=anc.superview;
+    }
+}
 static void (*orig_popoverLayout)(id,SEL);
 static void hook_popoverLayout(id self, SEL _cmd){
     orig_popoverLayout(self,_cmd);
     @try{
         UIView *menu = DKFindPopoverMenu(self);
         if (menu) {
-            // 黑色真源=按钮configuration filled深色背景：清掉+套玻璃，不动contentLayer(文字)
+            // 黑色真源综合清: 按钮背景 + 父链深色子图层(含contents) + effect; 不碰contentLayer(文字)
             DKClearButtonConfigs(menu);
+            DKClearAncSubLayersDeep(menu);
             DKApplyGlassToPanel(menu);
             __weak UIView *wm = menu;
             dispatch_after(dispatch_time(DISPATCH_TIME_NOW,(int64_t)(0.5*NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-                @try{ if(wm){ DKClearButtonConfigs(wm); DKApplyGlassToPanel(wm); } }@catch(NSException *e){}
+                @try{ if(wm){ DKClearButtonConfigs(wm); DKClearAncSubLayersDeep(wm); DKApplyGlassToPanel(wm); } }@catch(NSException *e){}
             });
         }
     }@catch(NSException *e){}
