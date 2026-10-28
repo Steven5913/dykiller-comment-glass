@@ -524,7 +524,7 @@ static void DKShowPanelIdentify(NSString *cn, UIView *v, UIWindow *win){
     NSLog(@"[DKPanelIdentify] class=%@ frame=%@", cn, NSStringFromCGRect(v.frame));
     NSMutableArray *subs=[NSMutableArray array];
     for (UIView *s in v.subviews) {
-        NSString *sc=[NSStringFromClass([s class]) ?: @""];
+        NSString *sc = NSStringFromClass([s class]) ?: @"";
         if (sc.length) [subs addObject:sc];
     }
     NSLog(@"[DKPanelIdentify] subviews=%@", [subs componentsJoinedByString:@", "]);
@@ -561,7 +561,6 @@ static void hook_addSubview(id self, SEL _cmd, UIView *v){
             [lo containsString:@"tip"] || [lo containsString:@"toast"] ||
             [lo containsString:@"bubble_menu"]) {
             UIWindow *win = [self isKindOfClass:[UIWindow class]] ? (UIWindow*)self : [self window];
-            if (!win) win = [[UIApplication sharedApplication] keyWindow];
             DKShowPanelIdentify(cn, v, win);
         }
     } @catch(NSException *e){}
