@@ -654,7 +654,7 @@ __attribute__((unused)) static void DKFindDarkCover(UIView *menu, UIWindow *win)
 }
 // 清菜单按钮的深色背景源(backgroundColor/backgroundImage/UIButtonConfiguration filled背景)；
 // 不清 contentLayer(那层是文字)
-static void DKClearButtonConfigs(UIView *menu){
+__attribute__((unused)) static void DKClearButtonConfigs(UIView *menu){
     if(!menu) return;
     NSMutableArray *stack=[NSMutableArray array]; [stack addObject:menu];
     int guard=0;
@@ -680,7 +680,7 @@ static void DKClearButtonConfigs(UIView *menu){
     }
 }
 // 沿父链清所有深色子图层(含contents的深色背景图)+UIVisualEffectView暗色effect
-static void DKClearAncSubLayersDeep(UIView *menu){
+__attribute__((unused)) static void DKClearAncSubLayersDeep(UIView *menu){
     UIView *anc=menu; int g=0;
     while(anc && g<20){
         if([anc isKindOfClass:[UIVisualEffectView class]]) ((UIVisualEffectView*)anc).effect=nil;
@@ -692,18 +692,40 @@ static void DKClearAncSubLayersDeep(UIView *menu){
     }
 }
 static void (*orig_popoverLayout)(id,SEL);
+// [调试] dump菜单容器父链每一层的全部子图层(RGB+contents+opacity)：定位深色背景图
+static void DKShowAncSubs(UIView *menu, UIWindow *win){
+    if(!menu||!win) return;
+    NSMutableArray *lines=[NSMutableArray array];
+    UIView *a=menu; int i=0;
+    while(a && i<16){
+        [lines addObject:[NSString stringWithFormat:@"anc%ld: %@ %.0fx%.0f r%.0f", (long)i, NSStringFromClass([a class]), a.bounds.size.width, a.bounds.size.height, a.layer.cornerRadius]];
+        for(CALayer *sl in [a.layer.sublayers copy]){
+            NSString *rgb=@"";
+            CGColorRef c=sl.backgroundColor;
+            if(c && CGColorGetNumberOfComponents(c)>=4){ const CGFloat*cc=CGColorGetComponents(c); rgb=[NSString stringWithFormat:@"bg(%.0f,%.0f,%.0f,a%.0f)",cc[0]*255,cc[1]*255,cc[2]*255,cc[3]*255]; }
+            NSString *ct=sl.contents?@"cY":@"c-";
+            [lines addObject:[NSString stringWithFormat:@"   +%@ %@ %@ op%.2f", NSStringFromClass([sl class]), rgb, ct, sl.opacity]];
+        }
+        a=a.superview; i++;
+    }
+    NSString *tree=[lines componentsJoinedByString:@"\n"];
+    if([g_cvlast isEqualToString:tree]) return; g_cvlast=tree;
+    NSLog(@"[DKAncSubs]\n%@",tree);
+    if(!g_cv){ g_cv=[[UILabel alloc]init]; g_cv.backgroundColor=[UIColor colorWithWhite:0 alpha:0.85]; g_cv.textColor=[UIColor whiteColor]; g_cv.font=[UIFont monospacedSystemFontOfSize:9 weight:UIFontWeightBold]; g_cv.numberOfLines=0; g_cv.layer.zPosition=100000; [win addSubview:g_cv]; }
+    g_cv.text=tree;
+    CGSize sz=[g_cv sizeThatFits:CGSizeMake(win.bounds.size.width-8,1200)];
+    g_cv.frame=CGRectMake(0,40,win.bounds.size.width,sz.height+4);
+}
+static void (*orig_popoverLayout)(id,SEL);
 static void hook_popoverLayout(id self, SEL _cmd){
     orig_popoverLayout(self,_cmd);
     @try{
         UIView *menu = DKFindPopoverMenu(self);
-        if (menu) {
-            // 黑色真源综合清: 按钮背景 + 父链深色子图层(含contents) + effect; 不碰contentLayer(文字)
-            DKClearButtonConfigs(menu);
-            DKClearAncSubLayersDeep(menu);
-            DKApplyGlassToPanel(menu);
-            __weak UIView *wm = menu;
-            dispatch_after(dispatch_time(DISPATCH_TIME_NOW,(int64_t)(0.5*NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-                @try{ if(wm){ DKClearButtonConfigs(wm); DKClearAncSubLayersDeep(wm); DKApplyGlassToPanel(wm); } }@catch(NSException *e){}
+        UIWindow *win=[self window];
+        if (menu && win) {
+            __weak UIView *wm=menu; __weak UIWindow *ww=win;
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW,(int64_t)(0.8*NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+                @try{ if(wm && ww) DKShowAncSubs(wm, ww); }@catch(NSException *e){}
             });
         }
     }@catch(NSException *e){}
