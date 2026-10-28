@@ -585,6 +585,18 @@ static void hook_emojiMenuLayoutSubviews(id self, SEL _cmd){
     @try { DKGlassifyLongPressMenu(self); } @catch(NSException *e){}
 }
 // ===== 会话长按弹出菜单(AWEPopoverActionSheet)清透玻璃：找到含多个竖排按钮的菜单容器套玻璃 =====
+// 清某视图 layer 上覆盖的深色子图层（不清 backgroundColor/内容，避免误伤）
+static void DKClearDarkSubLayers(UIView *v){
+    if(!v) return;
+    for(CALayer *sl in [v.layer.sublayers copy]) {
+        if([sl isKindOfClass:[CAGradientLayer class]]) {
+            CAGradientLayer *g=(CAGradientLayer*)sl;
+            if(g.colors.count && DKIsDarkColor((__bridge CGColorRef)g.colors[0])) sl.opacity=0.0f;
+        } else if(sl.contents==nil && sl.backgroundColor && [sl.sublayers count]==0) {
+            if(DKIsDarkColor(sl.backgroundColor)) sl.opacity=0.0f;
+        }
+    }
+}
 static UIView *DKFindPopoverMenu(UIView *root){
     if(!root) return nil;
     NSMutableArray *stack=[NSMutableArray array]; [stack addObject:root];
@@ -607,7 +619,12 @@ static void hook_popoverLayout(id self, SEL _cmd){
     orig_popoverLayout(self,_cmd);
     @try{
         UIView *menu = DKFindPopoverMenu(self);
-        if (menu) DKApplyGlassToPanel(menu);
+        if (menu) {
+            // 沿父链清深色背景层：菜单黑色可能来自上层容器 layer 的深色子图层
+            UIView *anc = menu; int g=0;
+            while(anc && g<20){ DKClearDarkSubLayers(anc); anc=anc.superview; g++; }
+            DKApplyGlassToPanel(menu);
+        }
     }@catch(NSException *e){}
 }
 static BOOL g_bubbleHooksInstalled = NO;
