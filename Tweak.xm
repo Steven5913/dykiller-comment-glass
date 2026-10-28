@@ -584,6 +584,51 @@ static void hook_emojiMenuLayoutSubviews(id self, SEL _cmd){
     orig_emojiMenuLayoutSubviews(self,_cmd);
     @try { DKGlassifyLongPressMenu(self); } @catch(NSException *e){}
 }
+// ===== [调试] dump AWEPopoverActionSheet 视图树：确认会话长按菜单主体类名 =====
+static UILabel *g_treeLabel = nil;
+static NSString *g_lastTree = nil;
+static void DKShowPopoverTree(UIView *root, UIWindow *win){
+    if(!root || !win) return;
+    NSMutableArray *lines=[NSMutableArray array];
+    NSMutableArray *stack=[NSMutableArray array];
+    [stack addObject:@{@"v":root,@"d":@0}];
+    int guard=0;
+    while(stack.count && guard<300){
+        guard++; NSDictionary *e=[stack lastObject]; [stack removeLastObject];
+        UIView *v=e[@"v"]; int d=[e[@"d"] intValue];
+        if(d>3) continue;
+        NSString *cn=NSStringFromClass([v class])?:@"";
+        NSString *ind=[@"" stringByPaddingToLength:d*2 withString:@" " startingAtIndex:0];
+        NSString *bg=v.backgroundColor?(DKIsDarkColor(v.layer.backgroundColor)?@"D":@"L"):@"-";
+        [lines addObject:[NSString stringWithFormat:@"%@%@ %.0fx%.0f r%.0f %@", ind, cn, v.bounds.size.width, v.bounds.size.height, v.layer.cornerRadius, bg]];
+        NSArray *subs=[v.subviews reverseObjectEnumerator].allObjects;
+        for(UIView *s in subs) [stack addObject:@{@"v":s,@"d":@(d+1)}];
+    }
+    NSString *tree=[lines componentsJoinedByString:@"\n"];
+    if([g_lastTree isEqualToString:tree]) return;   // 树无变化不刷
+    g_lastTree=tree;
+    NSLog(@"[DKPopoverTree]\n%@", tree);
+    if(!g_treeLabel){
+        g_treeLabel=[[UILabel alloc] init];
+        g_treeLabel.backgroundColor=[UIColor colorWithWhite:0 alpha:0.85];
+        g_treeLabel.textColor=[UIColor colorWithWhite:1 alpha:1];
+        g_treeLabel.font=[UIFont monospacedSystemFontOfSize:11 weight:UIFontWeightBold];
+        g_treeLabel.numberOfLines=0;
+        g_treeLabel.layer.zPosition=100000;
+        [win addSubview:g_treeLabel];
+    }
+    g_treeLabel.text=tree;
+    CGSize sz=[g_treeLabel sizeThatFits:CGSizeMake(win.bounds.size.width-12, 1000)];
+    g_treeLabel.frame=CGRectMake(0, 40, win.bounds.size.width, sz.height+6);
+}
+static void (*orig_popoverLayout)(id,SEL);
+static void hook_popoverLayout(id self, SEL _cmd){
+    orig_popoverLayout(self,_cmd);
+    @try{
+        UIWindow *win=[self isKindOfClass:[UIWindow class]]?(UIWindow*)self:[self window];
+        DKShowPopoverTree(self, win);
+    }@catch(NSException *e){}
+}
 static BOOL g_bubbleHooksInstalled = NO;
 static void DKInstallBubbleHooks(void){
     Class bubble = NSClassFromString(@"AWEIMMessageBubbleGradientView");
@@ -602,7 +647,12 @@ static void DKInstallBubbleHooks(void){
     if (em && !orig_emojiMenuLayoutSubviews) {
         MSHookMessageEx(em, sel_registerName("layoutSubviews"), (IMP)hook_emojiMenuLayoutSubviews, (IMP*)&orig_emojiMenuLayoutSubviews);
     }
-    g_bubbleHooksInstalled = (orig_bubbleLayoutSubviews || orig_cellLayoutSubviews || orig_tableCellForRow || orig_emojiMenuLayoutSubviews);
+    // [调试] 会话长按弹出菜单(AWEPopoverActionSheet)视图树 dump
+    Class pp = NSClassFromString(@"AWEPopoverActionSheet");
+    if (pp && !orig_popoverLayout) {
+        MSHookMessageEx(pp, sel_registerName("layoutSubviews"), (IMP)hook_popoverLayout, (IMP*)&orig_popoverLayout);
+    }
+    g_bubbleHooksInstalled = (orig_bubbleLayoutSubviews || orig_cellLayoutSubviews || orig_tableCellForRow || orig_emojiMenuLayoutSubviews || orig_popoverLayout);
 }
 
 // ===== 聊天长按操作面板清透玻璃：长按消息弹出的操作面板(AWEIMEmojiReplyMenuView 内 AFDHoverableContainerView)套玻璃 =====
