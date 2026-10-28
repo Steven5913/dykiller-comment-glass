@@ -837,9 +837,27 @@ __attribute__((unused)) static void DKShowCardEmojiSubs(UIView *root){
 static void hook_cardBelowEmojiLayout(id self, SEL _cmd){
     orig_cardBelowEmojiLayout(self,_cmd);
     @try{
+        // 对每个独立胶囊(AWEIMCardBelowQuickEmoticonView 53x53)各自套玻璃，不套整条容器
+        DKClearPanelBackgroundsAll(self);   // 清容器背景条
+        for(UIView *cap in [self.subviews copy]){
+            if(cap.bounds.size.width>=40 && cap.bounds.size.height>=40){
+                @try{
+                    DKClearPanelBackgroundsAll(cap);   // 清胶囊背景
+                    DKApplyGlassToPanelNoHL(cap);       // 独立胶囊玻璃(无白高光不遮文字图标)
+                }@catch(NSException *e){}
+            }
+        }
         __weak UIView *ws=self;
-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW,(int64_t)(0.6*NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-            @try{ if(ws) DKShowCardEmojiSubs(ws); }@catch(NSException *e){}
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW,(int64_t)(0.4*NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+            @try{
+                if(!ws) return;
+                DKClearPanelBackgroundsAll(ws);
+                for(UIView *cap in [ws.subviews copy]){
+                    if(cap.bounds.size.width>=40 && cap.bounds.size.height>=40){
+                        @try{ DKClearPanelBackgroundsAll(cap); DKApplyGlassToPanelNoHL(cap); }@catch(NSException *e){}
+                    }
+                }
+            }@catch(NSException *e){}
         });
     }@catch(NSException *e){}
 }
