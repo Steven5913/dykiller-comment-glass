@@ -805,7 +805,6 @@ __attribute__((unused)) static void DKFindEmojiQuickPanel(UIView *root, UIWindow
     CGSize sz=[g_cv sizeThatFits:CGSizeMake(win.bounds.size.width-8,1200)];
     g_cv.frame=CGRectMake(0,40,win.bounds.size.width,sz.height+4);
 }
-static void (*orig_msgVCDidAppear)(id,SEL,BOOL);
 static void hook_msgVCDidAppear(id self, SEL _cmd, BOOL animated){
     orig_msgVCDidAppear(self,_cmd,animated);
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW,(int64_t)(1.0*NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
