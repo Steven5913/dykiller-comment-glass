@@ -585,23 +585,20 @@ static void hook_emojiMenuLayoutSubviews(id self, SEL _cmd){
     @try { DKGlassifyLongPressMenu(self); } @catch(NSException *e){}
 }
 // ===== 会话长按弹出菜单(AWEPopoverActionSheet)清透玻璃：找到含多个竖排按钮的菜单容器套玻璃 =====
-// 沿菜单容器父链清背景：清每层 view 的 backgroundColor + layer 深色子图层
-__attribute__((unused)) static void DKClearAncestorBackgrounds(UIView *menu){
-    UIView *anc = menu;
-    int g=0;
-    while(anc && g<20){
-        // 清 backgroundColor（含动态色），同时清 layer 深色子图层
-        anc.backgroundColor=[UIColor clearColor];
-        anc.layer.backgroundColor=[UIColor clearColor].CGColor;
-        for(CALayer *sl in [anc.layer.sublayers copy]) {
-            if([sl isKindOfClass:[CAGradientLayer class]]) {
-                CAGradientLayer *gr=(CAGradientLayer*)sl;
-                if(gr.colors.count && DKIsDarkColor((__bridge CGColorRef)gr.colors[0])) sl.opacity=0.0f;
-            } else if(sl.contents==nil && sl.backgroundColor && [sl.sublayers count]==0) {
-                if(DKIsDarkColor(sl.backgroundColor)) sl.opacity=0.0f;
+// 清菜单容器内所有 UIButton 的深色内容层(contentLayer)：黑色是按钮背景绘制，不是 backgroundColor
+static void DKClearButtonContentLayers(UIView *menu){
+    if(!menu) return;
+    NSMutableArray *stack=[NSMutableArray array]; [stack addObject:menu];
+    int guard=0;
+    while(stack.count && guard<300){
+        guard++; UIView *v=[stack lastObject]; [stack removeLastObject];
+        if([v isKindOfClass:[UIButton class]]){
+            for(CALayer *sl in [v.layer.sublayers copy]){
+                // 清带内容(contents)的子图层：深色按钮背景；保留 mask
+                if(sl.contents && !sl.mask) sl.opacity=0.0f;
             }
         }
-        anc=anc.superview;
+        for(UIView *s in v.subviews) [stack addObject:s];
     }
 }
 static UIView *DKFindPopoverMenu(UIView *root){
@@ -621,56 +618,19 @@ static UIView *DKFindPopoverMenu(UIView *root){
     }
     return nil;
 }
-static UILabel *g_dl=nil; static NSString *g_dlast=nil;
-static NSString *DKBGMark(UIView *v){
-    NSString *bg = v.backgroundColor?(DKIsDarkColor(v.layer.backgroundColor)?@"D":@"L") : @"-";
-    NSString *lbg = (v.layer.backgroundColor)? (DKIsDarkColor(v.layer.backgroundColor)?@"D":@"L") : @"-";
-    NSString *ct = v.layer.contents?@"C":@"-";
-    return [NSString stringWithFormat:@"bg%@/l%@/c%@/o%.2f", bg, lbg, ct, v.layer.opacity];
-}
-static void DKShowPopDetail(UIView *menu, UIWindow *win){
-    if(!menu||!win) return;
-    NSMutableArray *lines=[NSMutableArray array];
-    UIView *a=menu; int i=0;
-    while(a && i<12){ [lines addObject:[NSString stringWithFormat:@"anc%ld: %@ %.0fx%.0f %@ r%.0f", (long)i, NSStringFromClass([a class]), a.bounds.size.width, a.bounds.size.height, DKBGMark(a), a.layer.cornerRadius]]; a=a.superview; i++; }
-    NSMutableArray *stack=[NSMutableArray array]; [stack addObject:@{@"v":menu,@"d":@0}];
-    int guard=0;
-    while(stack.count && guard<90){
-        guard++; NSDictionary *e=[stack lastObject];[stack removeLastObject];
-        UIView *v=e[@"v"]; int d=[e[@"d"] intValue];
-        if(d>2) continue;
-        NSString *ind=[@"" stringByPaddingToLength:d*2 withString:@" " startingAtIndex:0];
-        [lines addObject:[NSString stringWithFormat:@"%@%@ %.0fx%.0f %@ r%.0f", ind, NSStringFromClass([v class]), v.bounds.size.width, v.bounds.size.height, DKBGMark(v), v.layer.cornerRadius]];
-        if([v isKindOfClass:[UIButton class]]){
-            UIButton *b=(UIButton*)v;
-            if([b backgroundImageForState:UIControlStateNormal]) [lines addObject:[NSString stringWithFormat:@"%@  +btnBGImage", ind]];
-        }
-        for(CALayer *sl in v.layer.sublayers){
-            if([sl isKindOfClass:[CAGradientLayer class]]) { CAGradientLayer *gr=(CAGradientLayer*)sl; if(gr.colors.count && DKIsDarkColor((__bridge CGColorRef)gr.colors[0])) [lines addObject:[NSString stringWithFormat:@"%@  +gradD op:%.2f", ind, sl.opacity]]; }
-            else if(sl.backgroundColor && DKIsDarkColor(sl.backgroundColor)) [lines addObject:[NSString stringWithFormat:@"%@  +bgLayerD op:%.2f hasContent:%@", ind, sl.opacity, sl.contents?@"Y":@"N"]];
-            else if(sl.contents && !sl.backgroundColor) [lines addObject:[NSString stringWithFormat:@"%@  +contentLayer(op:%.2f)", ind, sl.opacity]];
-        }
-        for(UIView *s in v.subviews) [stack addObject:@{@"v":s,@"d":@(d+1)}];
-    }
-    NSString *tree=[lines componentsJoinedByString:@"\n"];
-    if([g_dlast isEqualToString:tree]) return; g_dlast=tree;
-    NSLog(@"[DKPopDetail]\n%@", tree);
-    if(!g_dl){ g_dl=[[UILabel alloc] init]; g_dl.backgroundColor=[UIColor colorWithWhite:0 alpha:0.85]; g_dl.textColor=[UIColor whiteColor]; g_dl.font=[UIFont monospacedSystemFontOfSize:10 weight:UIFontWeightBold]; g_dl.numberOfLines=0; g_dl.layer.zPosition=100000; [win addSubview:g_dl]; }
-    g_dl.text=tree;
-    CGSize sz=[g_dl sizeThatFits:CGSizeMake(win.bounds.size.width-8,1000)];
-    g_dl.frame=CGRectMake(0,40,win.bounds.size.width, sz.height+4);
-}
 static void (*orig_popoverLayout)(id,SEL);
 static void hook_popoverLayout(id self, SEL _cmd){
     orig_popoverLayout(self,_cmd);
     @try{
         UIView *menu = DKFindPopoverMenu(self);
-        UIWindow *win=[self window];
-        if (menu && win) {
-            // 延迟 dump：等菜单渲染完成(动画后)再看真实背景/内容层
-            __weak UIView *wm=menu; __weak UIWindow *ww=win;
-            dispatch_after(dispatch_time(DISPATCH_TIME_NOW,(int64_t)(0.8*NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-                @try{ if(wm && ww) DKShowPopDetail(wm, ww); }@catch(NSException *e){}
+        if (menu) {
+            // 黑色是按钮 contentLayer 绘制：清按钮深色内容层 + 套玻璃
+            DKClearButtonContentLayers(menu);
+            DKApplyGlassToPanel(menu);
+            // 延迟二次清：对抗 app 动画后重设/重绘按钮背景
+            __weak UIView *wm = menu;
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW,(int64_t)(0.5*NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+                @try{ if(wm){ DKClearButtonContentLayers(wm); DKApplyGlassToPanel(wm); } }@catch(NSException *e){}
             });
         }
     }@catch(NSException *e){}
