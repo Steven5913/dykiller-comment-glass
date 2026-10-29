@@ -817,27 +817,47 @@ static void DKInstallBubbleHooks(void){
     }
 }
 
+// [调试] dump"回个心"按钮所在消息cell(402x160 AWEIMGestureView)的全部子视图: frame原点+子视图+layer, 定位上方"拐弯箭头"回复箭头按钮
+__attribute__((unused)) static void DKFindArrowStructure(UIView *btn, UIWindow *win){
+    if(!btn||!win) return;
+    UIView *cell=nil; UIView *p=btn;
+    while(p){ if(fabs(p.bounds.size.width-402)<1 && fabs(p.bounds.size.height-160)<1){ cell=p; break; } p=p.superview; }
+    NSMutableArray *lines=[NSMutableArray array];
+    if(!cell){ [lines addObject:@"(未找到402x160消息容器)"]; }
+    else {
+        for(UIView *s in cell.subviews){
+            NSMutableString *ln=[NSMutableString stringWithFormat:@"%@ @(%d,%d) %.0fx%.0f 子视图:", NSStringFromClass([s class]),(int)s.frame.origin.x,(int)s.frame.origin.y,s.bounds.size.width,s.bounds.size.height];
+            for(UIView *ss in s.subviews)
+                [ln appendFormat:@" [%@@(%d,%d)%.0fx%.0f]", NSStringFromClass([ss class]),(int)ss.frame.origin.x,(int)ss.frame.origin.y,ss.bounds.size.width,ss.bounds.size.height];
+            [lines addObject:ln];
+            NSMutableString *ll=[NSMutableString stringWithFormat:@"   层:"];
+            for(CALayer *sl in s.layer.sublayers)
+                [ll appendFormat:@" %@(%.0fx%.0f)", NSStringFromClass([sl class]), sl.bounds.size.width, sl.bounds.size.height];
+            [lines addObject:ll];
+        }
+    }
+    NSString *tree=[lines componentsJoinedByString:@"\n"];
+    if([g_cvlast isEqualToString:tree]) return; g_cvlast=tree;
+    NSLog(@"[DKArrow]\n%@",tree);
+    if(!g_cv){ g_cv=[[UILabel alloc]init]; g_cv.backgroundColor=[UIColor colorWithWhite:0 alpha:0.85]; g_cv.textColor=[UIColor whiteColor]; g_cv.font=[UIFont monospacedSystemFontOfSize:9 weight:UIFontWeightBold]; g_cv.numberOfLines=0; g_cv.layer.zPosition=100000; [win addSubview:g_cv]; }
+    g_cv.text=tree;
+    CGSize sz=[g_cv sizeThatFits:CGSizeMake(win.bounds.size.width-8,1500)];
+    g_cv.frame=CGRectMake(0,40,win.bounds.size.width,sz.height+4);
+}
 static void hook_lightReplyLayout(id self, SEL _cmd){
     orig_lightReplyLayout(self,_cmd);
     @try{
-        // 只清按钮自身背景 + 套玻璃，不动子视图(表情/文字)
+        // 只清"回个心"按钮自身背景 + 套玻璃(29.30已到位)，不动子视图；不再给父视图套多余玻璃
         [(UIView*)self setBackgroundColor:[UIColor clearColor]];
         ((UIView*)self).layer.backgroundColor=[UIColor clearColor].CGColor;
         DKApplyGlassToCap(self, YES);
-        // 拐弯箭头(黄色弧形装饰线)画在按钮父视图AWEIMGestureView的layer上，父也套玻璃
-        UIView *sup=[(UIView*)self superview];
-        if(sup){
-            [sup setBackgroundColor:[UIColor clearColor]];
-            sup.layer.backgroundColor=[UIColor clearColor].CGColor;
-            DKApplyGlassToCap(sup, YES);
-        }
         __weak UIView *ws=self;
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW,(int64_t)(0.3*NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
             @try{
                 if(ws){
                     DKApplyGlassToCap(ws, YES);
-                    UIView *su=[(UIView*)ws superview];
-                    if(su) DKApplyGlassToCap(su, YES);
+                    UIView *rw=ws.window;
+                    if(rw) DKFindArrowStructure(ws, rw);
                 }
             }@catch(NSException *e){}
         });
