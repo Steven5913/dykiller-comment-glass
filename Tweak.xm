@@ -558,8 +558,8 @@ static void DKApplyGlassToPanel(UIView *panel){
     panel.layer.borderColor=[UIColor colorWithWhite:1.0 alpha:0.25].CGColor;
     panel.layer.borderWidth=0.5;
 }
-// 无白高光版本(快捷回复表情等小面板)：只套玻璃，不加白高光渐变，文字图标不被罩
-__attribute__((unused)) static void DKApplyGlassToPanelNoHL(UIView *panel){
+// 胶囊玻璃(快捷回复表情小胶囊)：ultraThin模糊 + 淡白高光(0.06)增强玻璃质感、不遮文字图标
+__attribute__((unused)) static void DKApplyGlassToCap(UIView *panel){
     if (!panel) return;
     if (panel.bounds.size.width<10 || panel.bounds.size.height<10) return;
     DKClearBubbleBackground(panel);
@@ -572,15 +572,23 @@ __attribute__((unused)) static void DKApplyGlassToPanelNoHL(UIView *panel){
     DKClearPanelDeepBackground(panel);
     UIVisualEffect *eff=DKBubbleGlassEffect(); if(!eff) return;
     panel.clipsToBounds=YES;
-    CGFloat radius=panel.layer.cornerRadius>0?panel.layer.cornerRadius:22.0f;
-    if (radius>22) radius=22;
+    CGFloat radius=panel.layer.cornerRadius>0?panel.layer.cornerRadius:18.0f;
+    if (radius>20) radius=20;
     panel.layer.cornerRadius=radius;
     UIVisualEffectView *vev=[[UIVisualEffectView alloc] initWithEffect:eff];
     vev.frame=panel.bounds; vev.autoresizingMask=UIViewAutoresizingFlexibleWidth|UIViewAutoresizingFlexibleHeight;
     vev.userInteractionEnabled=NO; vev.layer.cornerRadius=radius; vev.clipsToBounds=YES;
     [panel insertSubview:vev atIndex:0];
-    panel.layer.borderColor=[UIColor colorWithWhite:1.0 alpha:0.25].CGColor;
-    panel.layer.borderWidth=0.5;
+    CAGradientLayer *gl=[CAGradientLayer layer];
+    gl.frame=panel.bounds; gl.cornerRadius=radius;
+    gl.colors=@[(id)[UIColor colorWithWhite:1.0 alpha:0.06].CGColor,
+                (id)[UIColor colorWithWhite:1.0 alpha:0.0].CGColor];
+    gl.locations=@[@0.0f,@0.30f];
+    gl.startPoint=CGPointMake(0,0); gl.endPoint=CGPointMake(0,1); gl.zPosition=0.1f;
+    objc_setAssociatedObject(gl,&kDKGlassGradKey,@(YES),OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    [panel.layer addSublayer:gl];
+    panel.layer.borderColor=[UIColor colorWithWhite:1.0 alpha:0.30].CGColor;
+    panel.layer.borderWidth=0.6;
 }
 // 递归找长按面板主体并套玻璃
 static void DKGlassifyLongPressMenu(UIView *root){
@@ -843,7 +851,7 @@ static void hook_cardBelowEmojiLayout(id self, SEL _cmd){
             if(cap.bounds.size.width>=40 && cap.bounds.size.height>=40){
                 @try{
                     DKClearPanelBackgroundsAll(cap);   // 清胶囊背景
-                    DKApplyGlassToPanelNoHL(cap);       // 独立胶囊玻璃(无白高光不遮文字图标)
+                    DKApplyGlassToCap(cap);             // 独立胶囊玻璃(淡白高光,不遮字,有质感)
                 }@catch(NSException *e){}
             }
         }
@@ -851,10 +859,10 @@ static void hook_cardBelowEmojiLayout(id self, SEL _cmd){
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW,(int64_t)(0.4*NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
             @try{
                 if(!ws) return;
-                DKClearPanelBackgroundsAll(ws);
+                // 延迟只保证每个胶囊玻璃存在(防重复)，不再递归清背景(避免清掉玻璃内部)
                 for(UIView *cap in [(UIView*)ws subviews]){
                     if(cap.bounds.size.width>=40 && cap.bounds.size.height>=40){
-                        @try{ DKClearPanelBackgroundsAll(cap); DKApplyGlassToPanelNoHL(cap); }@catch(NSException *e){}
+                        @try{ DKApplyGlassToCap(cap); }@catch(NSException *e){}
                     }
                 }
             }@catch(NSException *e){}
