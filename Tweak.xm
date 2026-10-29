@@ -699,10 +699,10 @@ static void hook_pendantGroupLayout(id self, SEL _cmd){
             s.backgroundColor=[UIColor clearColor];
             s.layer.backgroundColor=[UIColor clearColor].CGColor;
         }
-        DKApplyGlassToCap(self, YES);
+        DKApplyGlassToCap(self, NO);
         __weak UIView *ws=self;
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW,(int64_t)(0.3*NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-            @try{ if(ws){ DKApplyGlassToCap(ws, YES); } }@catch(NSException *e){}
+            @try{ if(ws){ DKApplyGlassToCap(ws, NO); } }@catch(NSException *e){}
         });
     }@catch(NSException *e){}
 }
@@ -712,10 +712,10 @@ static void hook_pendantEmojiLayout(id self, SEL _cmd){
     @try{
         [(UIView*)self setBackgroundColor:[UIColor clearColor]];
         ((UIView*)self).layer.backgroundColor=[UIColor clearColor].CGColor;
-        DKApplyGlassToCap(self, YES);
+        DKApplyGlassToCap(self, NO);
         __weak UIView *ws=self;
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW,(int64_t)(0.3*NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-            @try{ if(ws){ DKApplyGlassToCap(ws, YES); } }@catch(NSException *e){}
+            @try{ if(ws){ DKApplyGlassToCap(ws, NO); } }@catch(NSException *e){}
         });
     }@catch(NSException *e){}
 }
