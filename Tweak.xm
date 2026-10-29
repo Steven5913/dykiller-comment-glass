@@ -607,6 +607,9 @@ static void (*orig_lightReplyLayout)(id,SEL);
 static void hook_lightReplyLayout(id self, SEL _cmd);
 static void (*orig_presenterBtnLayout)(id,SEL);
 static void hook_presenterBtnLayout(id self, SEL _cmd);
+static UILabel *g_dumpLbl=nil;
+static void (*orig_uiLabelLayout)(id,SEL);
+static void hook_uiLabelLayout(id self, SEL _cmd);
 static void DKInstallBubbleHooks(void){
     Class bubble = NSClassFromString(@"AWEIMMessageBubbleGradientView");
     if (bubble && !orig_bubbleLayoutSubviews) {
@@ -645,6 +648,11 @@ static void DKInstallBubbleHooks(void){
     if (pb && !orig_presenterBtnLayout) {
         MSHookMessageEx(pb, sel_registerName("layoutSubviews"), (IMP)hook_presenterBtnLayout, (IMP*)&orig_presenterBtnLayout);
     }
+    // [调试] hook互动标签dump消息cell结构, 定位zh消息互动按钮类
+    Class uil = NSClassFromString(@"AWEIMUserInteractionLabel");
+    if (uil && !orig_uiLabelLayout) {
+        MSHookMessageEx(uil, sel_registerName("layoutSubviews"), (IMP)hook_uiLabelLayout, (IMP*)&orig_uiLabelLayout);
+    }
 }
 
 static void hook_lightReplyLayout(id self, SEL _cmd){
@@ -671,6 +679,41 @@ static void hook_presenterBtnLayout(id self, SEL _cmd){
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW,(int64_t)(0.3*NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
             @try{ if(ws){ DKApplyGlassToCap(ws, YES); } }@catch(NSException *e){}
         });
+    }@catch(NSException *e){}
+}
+// [调试] dump发送者名标签所在消息cell的子视图+子子视图, 定位zh消息互动按钮类
+static void hook_uiLabelLayout(id self, SEL _cmd){
+    orig_uiLabelLayout(self,_cmd);
+    @try{
+        UIView *v=(UIView*)self;
+        UIView *cell=nil; UIView *p=v;
+        while(p){ if(fabs(p.bounds.size.width-402)<1 && fabs(p.bounds.size.height-160)<1){ cell=p; break; } p=p.superview; }
+        NSMutableArray *lines=[NSMutableArray array];
+        if(cell){
+            [lines addObject:[NSString stringWithFormat:@"== cell %@ ==", NSStringFromCGRect(cell.frame)]];
+            for(UIView *s in cell.subviews){
+                NSString *img=[s isKindOfClass:[UIImageView class]]?@"[IMG]":@"";
+                NSString *txt=@"";
+                if([s isKindOfClass:[UILabel class]]) txt=[NSString stringWithFormat:@" txt=%@", ((UILabel*)s).text];
+                NSMutableString *ln=[NSMutableString stringWithFormat:@" -%@%@ %@%@", NSStringFromClass([s class]), img, NSStringFromCGRect(s.frame), txt];
+                for(UIView *ss in s.subviews){
+                    NSString *ssimg=[ss isKindOfClass:[UIImageView class]]?@"[IMG]":@"";
+                    NSString *sstxt=@"";
+                    if([ss isKindOfClass:[UILabel class]]) sstxt=[NSString stringWithFormat:@" txt=%@", ((UILabel*)ss).text];
+                    [ln appendFormat:@" | [%@%@ %@%@]", NSStringFromClass([ss class]), ssimg, NSStringFromCGRect(ss.frame), sstxt];
+                }
+                [lines addObject:ln];
+            }
+        } else [lines addObject:@"(不在402x160 cell)"];
+        NSString *tree=[lines componentsJoinedByString:@"\n"];
+        NSLog(@"[UIWANT]\n%@",tree);
+        UIWindow *w=v.window; if(!w) w=[[[UIApplication sharedApplication] windows] lastObject];
+        if(w){
+            if(!g_dumpLbl){ g_dumpLbl=[[UILabel alloc]init]; g_dumpLbl.backgroundColor=[UIColor colorWithWhite:0 alpha:0.85]; g_dumpLbl.textColor=[UIColor whiteColor]; g_dumpLbl.font=[UIFont monospacedSystemFontOfSize:8 weight:UIFontWeightBold]; g_dumpLbl.numberOfLines=0; g_dumpLbl.layer.zPosition=100000; [w addSubview:g_dumpLbl]; }
+            g_dumpLbl.text=tree;
+            CGSize sz=[g_dumpLbl sizeThatFits:CGSizeMake(w.bounds.size.width-8,1600)];
+            g_dumpLbl.frame=CGRectMake(0,36,w.bounds.size.width,sz.height+4);
+        }
     }@catch(NSException *e){}
 }
 // 清面板自身及子树所有背景(深浅都清，保留文字/图标contentLayer)，让玻璃完全透出
