@@ -826,7 +826,15 @@ __attribute__((unused)) static NSString* DKColorDesc(UIColor *c){
     if(comp[3]<0.02f) return @"clear";
     return [NSString stringWithFormat:@"r%.0f,g%.0f,b%.0f,a%.2f",comp[0]*255,comp[1]*255,comp[2]*255,comp[3]];
 }
-// [调试] dump"回个心"所在消息cell子树(深度3), 标出UIImageView(箭头图)与CAShapeLayer(弧形线), 定位上方"拐弯箭头"
+// CGColor色值描述(找黄色弧形layer)
+__attribute__((unused)) static NSString* DKColorDesc2(CGColorRef c){
+    if(!c) return @"nil";
+    const CGFloat *comp=CGColorGetComponents(c);
+    if(!comp) return @"?";
+    if(comp[3]<0.02f) return @"clear";
+    return [NSString stringWithFormat:@"r%.0f,g%.0f,b%.0f,a%.2f",comp[0]*255,comp[1]*255,comp[2]*255,comp[3]];
+}
+// [调试] dump消息cell(AWEIMGestureView 402x160)的layer子层详细, 定位黄色弧形"拐弯箭头"
 __attribute__((unused)) static void DKFindArrowStructure(UIView *btn, UIWindow *win){
     if(!btn||!win) return;
     UIView *cell=nil; UIView *p=btn;
@@ -834,26 +842,23 @@ __attribute__((unused)) static void DKFindArrowStructure(UIView *btn, UIWindow *
     NSMutableArray *lines=[NSMutableArray array];
     if(!cell){ [lines addObject:@"(未找到402x160消息容器)"]; }
     else {
-        NSMutableArray *q=[NSMutableArray arrayWithObject:@[cell,@(0)]];
-        int qi=0; int cnt=0;
-        while(qi<(int)q.count && cnt<70){
-            NSArray *ent=q[qi++]; UIView *v=ent[0]; int dep=[ent[1] intValue];
-            NSString *ind=[@"" stringByPaddingToLength:dep*2 withString:@" " startingAtIndex:0];
-            NSMutableString *ln=[NSMutableString stringWithFormat:@"%@%@ bg[%@] @(%d,%d)%.0fx%.0f", ind, NSStringFromClass([v class]), DKColorDesc(v.backgroundColor),(int)v.frame.origin.x,(int)v.frame.origin.y,v.bounds.size.width,v.bounds.size.height];
-            if([v isKindOfClass:[UIImageView class]]) [ln appendString:@" [IMG]"];
-            for(CALayer *sl in v.layer.sublayers){
-                [ln appendFormat:@" <%@>", NSStringFromClass([sl class])];
-                if([sl isKindOfClass:[CAShapeLayer class]]){
-                    CAShapeLayer *sh=(CAShapeLayer*)sl;
-                    const CGFloat *f=CGColorGetComponents(sh.fillColor); const CGFloat *s=CGColorGetComponents(sh.strokeColor);
-                    if(f&&f[3]>0.02f) [ln appendFormat:@" fill(%d,%d)",(int)(f[0]*255),(int)(f[1]*255)];
-                    if(s&&s[3]>0.02f) [ln appendFormat:@" stroke(%d,%d,%d)",(int)(s[0]*255),(int)(s[1]*255),(int)(s[2]*255)];
-                    [ln appendString:@" [SHAPE]"];
+        [lines addObject:[NSString stringWithFormat:@"cell=%@ 402x160 有%d个layer子层",NSStringFromClass([cell class]),(int)cell.layer.sublayers.count]];
+        for(CALayer *sl in cell.layer.sublayers){
+            NSString *line=[NSString stringWithFormat:@"LAY %@ @(%d,%d)%.0fx%.0f bg[%@]%@%@%@",
+                NSStringFromClass([sl class]),(int)sl.frame.origin.x,(int)sl.frame.origin.y,sl.bounds.size.width,sl.bounds.size.height,
+                DKColorDesc2(sl.backgroundColor),
+                sl.contents?@" [CONTENTS]":@"",
+                ([sl isKindOfClass:[CAGradientLayer class]])?@" [GRAD]":@"",
+                (sl.mask)?@" [MASK]":@""];
+            [lines addObject:line];
+        }
+        // 回个心按钮父UIView 106x40 的layer子层
+        for(UIView *s in cell.subviews){
+            if(fabs(s.bounds.size.width-106)<1 && fabs(s.bounds.size.height-40)<1){
+                for(CALayer *sl in s.layer.sublayers){
+                    [lines addObject:[NSString stringWithFormat:@" btnParent.%@ @(%d,%d)%.0fx%.0f bg[%@]%@",NSStringFromClass([sl class]),(int)sl.frame.origin.x,(int)sl.frame.origin.y,sl.bounds.size.width,sl.bounds.size.height,DKColorDesc2(sl.backgroundColor),sl.contents?@" [CONTENTS]":@""]];
                 }
             }
-            [lines addObject:ln];
-            if(dep<3) for(UIView *ss in v.subviews){ if(cnt<70) [q addObject:@[ss,@(dep+1)]]; }
-            cnt++;
         }
     }
     NSString *tree=[lines componentsJoinedByString:@"\n"];
