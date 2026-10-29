@@ -655,9 +655,9 @@ static void DKInstallBubbleHooks(void){
         MSHookMessageEx(pg, sel_registerName("layoutSubviews"), (IMP)hook_pendantGroupLayout, (IMP*)&orig_pendantGroupLayout);
     }
     // 表情回复挂件: 右段(笑脸)AWEIMMessagePropertyPendantAddMoreEmojiView 玻璃
-    Class em = NSClassFromString(@"AWEIMMessagePropertyPendantAddMoreEmojiView");
-    if (em && !orig_pendantEmojiLayout) {
-        MSHookMessageEx(em, sel_registerName("layoutSubviews"), (IMP)hook_pendantEmojiLayout, (IMP*)&orig_pendantEmojiLayout);
+    Class emCls = NSClassFromString(@"AWEIMMessagePropertyPendantAddMoreEmojiView");
+    if (emCls && !orig_pendantEmojiLayout) {
+        MSHookMessageEx(emCls, sel_registerName("layoutSubviews"), (IMP)hook_pendantEmojiLayout, (IMP*)&orig_pendantEmojiLayout);
     }
 }
 
