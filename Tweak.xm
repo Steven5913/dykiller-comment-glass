@@ -608,8 +608,8 @@ static void hook_lightReplyLayout(id self, SEL _cmd);
 static void (*orig_presenterBtnLayout)(id,SEL);
 static void hook_presenterBtnLayout(id self, SEL _cmd);
 static UILabel *g_dumpLbl=nil;
-static void (*orig_uiLabelLayout)(id,SEL);
-static void hook_uiLabelLayout(id self, SEL _cmd);
+static void (*orig_pendantLayout)(id,SEL);
+static void hook_pendantLayout(id self, SEL _cmd);
 static void DKInstallBubbleHooks(void){
     Class bubble = NSClassFromString(@"AWEIMMessageBubbleGradientView");
     if (bubble && !orig_bubbleLayoutSubviews) {
@@ -648,10 +648,10 @@ static void DKInstallBubbleHooks(void){
     if (pb && !orig_presenterBtnLayout) {
         MSHookMessageEx(pb, sel_registerName("layoutSubviews"), (IMP)hook_presenterBtnLayout, (IMP*)&orig_presenterBtnLayout);
     }
-    // [调试] hook互动标签dump消息cell结构, 定位zh消息互动按钮类
-    Class uil = NSClassFromString(@"AWEIMUserInteractionLabel");
-    if (uil && !orig_uiLabelLayout) {
-        MSHookMessageEx(uil, sel_registerName("layoutSubviews"), (IMP)hook_uiLabelLayout, (IMP*)&orig_uiLabelLayout);
+    // [调试] hook表情回复挂件容器, 递归dump后代定位zh互动按钮类
+    Class pd = NSClassFromString(@"AWEIMMessageEmoticonReplyPendantView");
+    if (pd && !orig_pendantLayout) {
+        MSHookMessageEx(pd, sel_registerName("layoutSubviews"), (IMP)hook_pendantLayout, (IMP*)&orig_pendantLayout);
     }
 }
 
@@ -682,34 +682,25 @@ static void hook_presenterBtnLayout(id self, SEL _cmd){
     }@catch(NSException *e){}
 }
 // [调试] dump发送者名标签所在消息cell的子视图+子子视图, 定位zh消息互动按钮类
-static void hook_uiLabelLayout(id self, SEL _cmd){
-    orig_uiLabelLayout(self,_cmd);
+static void dumpPendantTree(UIView *v, NSString *pfx, NSMutableArray *lines, int depth){
+    if(!v||depth>6) return;
+    NSString *img=[v isKindOfClass:[UIImageView class]]?@"[IMG]":@"";
+    NSString *txt=@"";
+    if([v isKindOfClass:[UILabel class]]) txt=[NSString stringWithFormat:@" txt=%@", ((UILabel*)v).text];
+    NSString *bg=(v.backgroundColor==nil||v.backgroundColor==[UIColor clearColor])?@"clear":@"BG";
+    [lines addObject:[NSString stringWithFormat:@"%@%@%@ bg%@ %@%@", pfx, NSStringFromClass([v class]), img, bg, NSStringFromCGRect(v.frame), txt]];
+    for(UIView *s in v.subviews) dumpPendantTree(s,[pfx stringByAppendingString:@"  "],lines,depth+1);
+}
+// [调试] dump表情回复挂件容器全部后代, 定位zh"来日方长"互动按钮类
+static void hook_pendantLayout(id self, SEL _cmd){
+    orig_pendantLayout(self,_cmd);
     @try{
         UIView *v=(UIView*)self;
         NSMutableArray *lines=[NSMutableArray array];
-        // 发送者名标签 → window 整条父链, 每级列子视图, 找互动按钮
-        UIView *cur=v; int d=0;
-        while(cur && d<12){
-            NSString *bg=(cur.backgroundColor==nil||cur.backgroundColor==[UIColor clearColor])?@"clear":@"BG";
-            [lines addObject:[NSString stringWithFormat:@"[%d]%@ bg%@ %@", d, NSStringFromClass([cur class]), bg, NSStringFromCGRect(cur.frame)]];
-            for(UIView *ss in cur.subviews){
-                NSString *img=[ss isKindOfClass:[UIImageView class]]?@"[IMG]":@"";
-                NSString *txt=@"";
-                if([ss isKindOfClass:[UILabel class]]) txt=[NSString stringWithFormat:@" txt=%@", ((UILabel*)ss).text];
-                NSString *ssbg=(ss.backgroundColor==nil||ss.backgroundColor==[UIColor clearColor])?@"clear":@"BG";
-                NSMutableString *ln=[NSMutableString stringWithFormat:@"   -%@%@ bg%@ %@%@", NSStringFromClass([ss class]), img, ssbg, NSStringFromCGRect(ss.frame), txt];
-                for(UIView *sss in ss.subviews){
-                    NSString *s3=[sss isKindOfClass:[UIImageView class]]?@"[IMG]":@"";
-                    NSString *s3t=@"";
-                    if([sss isKindOfClass:[UILabel class]]) s3t=[NSString stringWithFormat:@" txt=%@", ((UILabel*)sss).text];
-                    [ln appendFormat:@" | [%@%@ %@%@]", NSStringFromClass([sss class]), s3, NSStringFromCGRect(sss.frame), s3t];
-                }
-                [lines addObject:ln];
-            }
-            cur=cur.superview; d++;
-        }
+        [lines addObject:@"== 表情回复挂件全层级 =="];
+        dumpPendantTree(v,@"",lines,0);
         NSString *tree=[lines componentsJoinedByString:@"\n"];
-        NSLog(@"[UIWANT]\n%@",tree);
+        NSLog(@"[PENDANT]\n%@",tree);
         UIWindow *w=v.window; if(!w) w=[[[UIApplication sharedApplication] windows] lastObject];
         if(w){
             if(!g_dumpLbl){ g_dumpLbl=[[UILabel alloc]init]; g_dumpLbl.backgroundColor=[UIColor colorWithWhite:0 alpha:0.85]; g_dumpLbl.textColor=[UIColor whiteColor]; g_dumpLbl.font=[UIFont monospacedSystemFontOfSize:8 weight:UIFontWeightBold]; g_dumpLbl.numberOfLines=0; g_dumpLbl.layer.zPosition=100000; [w addSubview:g_dumpLbl]; }
