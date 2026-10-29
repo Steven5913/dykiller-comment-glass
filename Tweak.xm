@@ -672,7 +672,7 @@ static void hook_lightReplyLayout(id self, SEL _cmd){
         }
         NSString *tree=[lines componentsJoinedByString:@"\n"];
         NSLog(@"[DKParent]\n%@",tree);
-        UIWindow *w=self.window; if(!w) w=[[[UIApplication sharedApplication] windows] lastObject];
+        UIWindow *w=((UIView*)self).window; if(!w) w=[[[UIApplication sharedApplication] windows] lastObject];
         if(w){
             if(!g_dumpLbl){ g_dumpLbl=[[UILabel alloc]init]; g_dumpLbl.backgroundColor=[UIColor colorWithWhite:0 alpha:0.85]; g_dumpLbl.textColor=[UIColor whiteColor]; g_dumpLbl.font=[UIFont monospacedSystemFontOfSize:9 weight:UIFontWeightBold]; g_dumpLbl.numberOfLines=0; g_dumpLbl.layer.zPosition=100000; [w addSubview:g_dumpLbl]; }
             g_dumpLbl.text=tree;
