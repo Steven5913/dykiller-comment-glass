@@ -562,14 +562,15 @@ static void DKApplyGlassToPanel(UIView *panel){
 __attribute__((unused)) static void DKApplyGlassToCap(UIView *panel){
     if (!panel) return;
     if (panel.bounds.size.width<10 || panel.bounds.size.height<10) return;
-    DKClearBubbleBackground(panel);
+    // 只清胶囊自身背景，绝不动子视图(图标/文字)
+    panel.backgroundColor=[UIColor clearColor];
+    panel.layer.backgroundColor=[UIColor clearColor].CGColor;
     for (UIView *sv in panel.subviews)
         if ([sv isKindOfClass:[UIVisualEffectView class]] && CGRectEqualToRect(sv.frame, panel.bounds)) return;
     for (UIView *sv in [panel.subviews copy])
         if ([sv isKindOfClass:[UIVisualEffectView class]]) [sv removeFromSuperview];
     for (CALayer *sl in [panel.layer.sublayers copy])
         if (objc_getAssociatedObject(sl,&kDKGlassGradKey)) [sl removeFromSuperlayer];
-    DKClearPanelDeepBackground(panel);
     UIVisualEffect *eff=DKBubbleGlassEffect(); if(!eff) return;
     panel.clipsToBounds=YES;
     CGFloat radius=panel.layer.cornerRadius>0?panel.layer.cornerRadius:18.0f;
@@ -845,13 +846,16 @@ __attribute__((unused)) static void DKShowCardEmojiSubs(UIView *root){
 static void hook_cardBelowEmojiLayout(id self, SEL _cmd){
     orig_cardBelowEmojiLayout(self,_cmd);
     @try{
-        // 对每个独立胶囊(AWEIMCardBelowQuickEmoticonView 53x53)各自套玻璃，不套整条容器
-        DKClearPanelBackgroundsAll(self);   // 清容器背景条
+        // 只清容器自身背景(不递归，绝不动胶囊/图标/文字子视图)
+        [(UIView*)self setBackgroundColor:[UIColor clearColor]];
+        ((UIView*)self).layer.backgroundColor=[UIColor clearColor].CGColor;
         for(UIView *cap in [(UIView*)self subviews]){
             if(cap.bounds.size.width>=40 && cap.bounds.size.height>=40){
                 @try{
-                    DKClearPanelBackgroundsAll(cap);   // 清胶囊背景
-                    DKApplyGlassToCap(cap);             // 独立胶囊玻璃(淡白高光,不遮字,有质感)
+                    // 只清胶囊自身背景 + 套玻璃，子视图(图标/文字)完全不动
+                    cap.backgroundColor=[UIColor clearColor];
+                    cap.layer.backgroundColor=[UIColor clearColor].CGColor;
+                    DKApplyGlassToCap(cap);
                 }@catch(NSException *e){}
             }
         }
@@ -859,7 +863,7 @@ static void hook_cardBelowEmojiLayout(id self, SEL _cmd){
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW,(int64_t)(0.4*NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
             @try{
                 if(!ws) return;
-                // 延迟只保证每个胶囊玻璃存在(防重复)，不再递归清背景(避免清掉玻璃内部)
+                // 延迟只保证每个胶囊玻璃存在(防重复)，不再递归清背景(避免清掉玻璃/文字)
                 for(UIView *cap in [(UIView*)ws subviews]){
                     if(cap.bounds.size.width>=40 && cap.bounds.size.height>=40){
                         @try{ DKApplyGlassToCap(cap); }@catch(NSException *e){}
