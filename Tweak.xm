@@ -356,7 +356,6 @@ static void DKGlassifyCell(UIView *cell){
     }
 }
 static void (*orig_bubbleLayoutSubviews)(id,SEL);
-static void DKShowDebugTree(UIView *cell) __attribute__((unused));   // 前置声明
 static void hook_bubbleLayoutSubviews(id self, SEL _cmd){
     orig_bubbleLayoutSubviews(self,_cmd);
     // @try { DKDebugBubbleContainer(self); } @catch(NSException *e){}   // 调试标签已关闭
@@ -366,131 +365,12 @@ static void hook_bubbleLayoutSubviews(id self, SEL _cmd){
 static void (*orig_cellLayoutSubviews)(id,SEL);
 // ===== 调试：把消息视图树(类/frame/layer类型/圆角/隐藏)显示到屏幕 =====
 static UILabel *g_dbgLabel = nil;
-static void DKShowDebugTree(UIView *cell){
-    return;   // 识别类名调试已去除
-    if (!cell) return;
-    NSMutableString *s = [NSMutableString string];
-    // 从 cell 向上到 window 的父级链
-    UIView *p = cell;
-    while (p && s.length<700) {
-        NSString *cn = NSStringFromClass([p class]) ?: @"?";
-        NSString *lc = NSStringFromClass([p.layer class]) ?: @"?";
-        [s appendFormat:@"\n[↑%@] %@ r%.1f%.0fx%.0f%@",
-         cn, lc, p.layer.cornerRadius, p.bounds.size.width, p.bounds.size.height,
-         (p.hidden||p.alpha<0.01)?@"H":@""];
-        p = p.superview;
-    }
-    // 向下遍历所有子视图
-    NSMutableArray *stack = [NSMutableArray array];
-    [stack addObject:cell];
-    int guard=0;
-    while (stack.count>0 && s.length<1300 && guard<200) {
-        guard++;
-        UIView *v = [stack lastObject]; [stack removeLastObject];
-        NSString *cn = NSStringFromClass([v class]) ?: @"?";
-        NSString *lc = NSStringFromClass([v.layer class]) ?: @"?";
-        [s appendFormat:@"\n[↓%@] %@ r%.1f %.0fx%.0f %@",
-         cn, lc, v.layer.cornerRadius, v.bounds.size.width, v.bounds.size.height,
-         (v.hidden||v.alpha<0.01)?@"H":@""];
-        for (UIView *sub in v.subviews) [stack addObject:sub];
-    }
-    @try {
-        UIWindow *w = cell.window;
-        if (!w) w = [[[UIApplication sharedApplication] windows] lastObject];
-        if (!w) return;
-        if (!g_dbgLabel) {
-            g_dbgLabel = [[UILabel alloc] initWithFrame:CGRectMake(6, 100, 360, 200)];
-            g_dbgLabel.numberOfLines = 0;
-            g_dbgLabel.font = [UIFont systemFontOfSize:8];
-            g_dbgLabel.textColor = [UIColor blackColor];
-            g_dbgLabel.backgroundColor = [[UIColor yellowColor] colorWithAlphaComponent:0.92];
-            g_dbgLabel.layer.borderWidth = 1;
-            g_dbgLabel.layer.borderColor = [UIColor redColor].CGColor;
-            g_dbgLabel.userInteractionEnabled = NO;
-        }
-        g_dbgLabel.text = s;
-        CGRect f = g_dbgLabel.frame;
-        CGFloat h = [s boundingRectWithSize:CGSizeMake(360, CGFLOAT_MAX)
-                   options:NSStringDrawingUsesLineFragmentOrigin
-                   attributes:@{NSFontAttributeName:[UIFont systemFontOfSize:8]}
-                   context:nil].size.height;
-        f.size.height = MIN(h+8, 700);
-        g_dbgLabel.frame = f;
-        [w addSubview:g_dbgLabel];
-        [w bringSubviewToFront:g_dbgLabel];
-    } @catch(NSException *e){}
-}
-static void DKDebugOwnBubbles(UIView *cell) __attribute__((unused));   // 前置声明
 static void hook_cellLayoutSubviews(id self, SEL _cmd){
     orig_cellLayoutSubviews(self,_cmd);
     @try { DKGlassifyCell(self); } @catch(NSException *e){}
     // @try { DKDebugOwnBubbles(self); } @catch(NSException *e){}   // 识别类名调试已去除
 }
 // ===== 专项调试：dump 含分享卡片(AWEIMFeedInfoCardView)的 cell, 看内容(图/文)是否被隐藏或覆盖 =====
-static void DKDebugOwnBubbles(UIView *cell){
-    return;   // 识别类名调试已去除
-    if (!cell) return;
-    // 只 dump 含分享卡片/Feed 的 cell
-    BOOL hasCard = NO;
-    NSMutableArray *probe=[NSMutableArray array]; [probe addObject:cell];
-    int pg=0;
-    while (probe.count && pg<400) { pg++; UIView *v=[probe lastObject]; [probe removeLastObject];
-        NSString *cn=NSStringFromClass([v class])?:@"";
-        if ([cn containsString:@"Feed"] || [cn containsString:@"Card"]) { hasCard=YES; break; }
-        for (UIView *sub in v.subviews) [probe addObject:sub];
-    }
-    if (!hasCard) return;
-    NSMutableString *s=[NSMutableString string];
-    [s appendFormat:@"\n== CARDCELL %@ %.0fx%.0f ==", NSStringFromClass([cell class]),
-     cell.bounds.size.width, cell.bounds.size.height];
-    NSMutableArray *stack=[NSMutableArray array]; [stack addObject:cell];
-    int guard=0;
-    while (stack.count && s.length<1100 && guard<300) {
-        guard++; UIView *v=[stack lastObject]; [stack removeLastObject];
-        NSString *cn=NSStringFromClass([v class])?:@"?";
-        NSString *state = (v.hidden||v.alpha<0.05) ? @"HIDDEN" : @"";
-        NSString *lstate = [NSString stringWithFormat:@"lop=%.2f", v.layer.opacity];
-        NSString *imgState = @"";
-        if ([v isKindOfClass:[UIImageView class]]) {
-            UIImageView *iv = (UIImageView*)v;
-            imgState = (iv.image ? [NSString stringWithFormat:@"IMG %.0fx%.0f", iv.image.size.width, iv.image.size.height]
-                        : (v.layer.contents ? @"LAYERCONT" : @"NOIMG"));
-        }
-        [s appendFormat:@"\n%@ f%.0f,%.0f %.0fx%.0f r%.1f %@ bg=%@ %@ %@ %@",
-         cn, v.frame.origin.x, v.frame.origin.y, v.bounds.size.width, v.bounds.size.height,
-         v.layer.cornerRadius, NSStringFromClass([v.layer class])?:@"?",
-         v.backgroundColor, state, lstate, imgState];
-        for (UIView *sub in v.subviews) [stack addObject:sub];
-    }
-    @try {
-        UIWindow *w = cell.window ?: [[[UIApplication sharedApplication] windows] lastObject];
-        if (!w) return;
-        if (!g_dbgLabel) {
-            g_dbgLabel = [[UILabel alloc] initWithFrame:CGRectMake(6, 60, 380, 240)];
-            g_dbgLabel.numberOfLines = 0;
-            g_dbgLabel.font = [UIFont systemFontOfSize:8];
-            g_dbgLabel.textColor = [UIColor blackColor];
-            g_dbgLabel.backgroundColor = [[UIColor yellowColor] colorWithAlphaComponent:0.95];
-            g_dbgLabel.layer.borderWidth = 1;
-            g_dbgLabel.layer.borderColor = [UIColor redColor].CGColor;
-            g_dbgLabel.userInteractionEnabled = NO;
-        }
-        // 累积打印(保留最近 2300 字符), 不覆盖
-        NSString *old = g_dbgLabel.text ?: @"";
-        NSString *combined = [old stringByAppendingString:s];
-        if (combined.length > 2300) combined = [combined substringFromIndex:combined.length-2300];
-        g_dbgLabel.text = combined;
-        CGRect f = g_dbgLabel.frame;
-        CGFloat h = [combined boundingRectWithSize:CGSizeMake(380, CGFLOAT_MAX)
-                   options:NSStringDrawingUsesLineFragmentOrigin
-                   attributes:@{NSFontAttributeName:[UIFont systemFontOfSize:8]}
-                   context:nil].size.height;
-        f.size.height = MIN(h+8, 780);
-        g_dbgLabel.frame = f;
-        [w addSubview:g_dbgLabel];
-        [w bringSubviewToFront:g_dbgLabel];
-    } @catch(NSException *e){}
-}
 // hook 消息表格 cellForRowAtIndexPath → 覆盖所有 cell（对方+自己发的）
 static id (*orig_tableCellForRow)(id,SEL,id,id);
 static id hook_tableCellForRow(id self, SEL _cmd, id tv, id ip){
@@ -652,40 +532,6 @@ static UIView *DKFindPopoverMenu(UIView *root){
     }
     return nil;
 }
-static UILabel *g_cv=nil; static NSString *g_cvlast=nil;
-__attribute__((unused)) static void DKFindDarkCover(UIView *menu, UIWindow *win){
-    if(!menu||!win) return;
-    CGRect mf=[menu convertRect:menu.bounds toView:win];
-    NSMutableArray *lines=[NSMutableArray array];
-    NSMutableArray *stack=[NSMutableArray array];
-    for(UIWindow *w in [[UIApplication sharedApplication] windows]) [stack addObject:@{@"v":w,@"d":@0}];
-    int guard=0;
-    while(stack.count && guard<2500){
-        guard++; NSDictionary *e=[stack lastObject];[stack removeLastObject];
-        UIView *v=e[@"v"]; int d=[e[@"d"] intValue];
-        if(d>8) continue;
-        CGRect vf=[v convertRect:v.bounds toView:win];
-        if(CGRectIntersectsRect(vf, mf)){
-            NSString *lrgb=@"";
-            CGColorRef c=v.layer.backgroundColor;
-            if(c && CGColorGetNumberOfComponents(c)>=4){ const CGFloat*cc=CGColorGetComponents(c); lrgb=[NSString stringWithFormat:@"lbg(%.0f,%.0f,%.0f,a%.0f)",cc[0]*255,cc[1]*255,cc[2]*255,cc[3]*255]; }
-            NSString *ct=v.layer.contents?@"cY":@"c-";
-            NSString *sh=(v.layer.shadowOpacity>0.01)?[NSString stringWithFormat:@" sh%.2f",v.layer.shadowOpacity]:@"";
-            NSString *eff=@"";
-            if([v isKindOfClass:[UIVisualEffectView class]]){ UIVisualEffectView *ev=(UIVisualEffectView*)v; eff=[NSString stringWithFormat:@" eff:%@",ev.effect?NSStringFromClass([ev.effect class]):@"nil"]; }
-            [lines addObject:[NSString stringWithFormat:@"%@ %.0fx%.0f@(%.0f,%.0f) op%.2f %@ %@%@%@", NSStringFromClass([v class]), vf.size.width, vf.size.height, vf.origin.x, vf.origin.y, v.layer.opacity, lrgb, ct, sh, eff]];
-        }
-        for(UIView *s in v.subviews) [stack addObject:@{@"v":s,@"d":@(d+1)}];
-    }
-    if(!lines.count) [lines addObject:@"(无视图覆盖菜单区域)"];
-    NSString *tree=[lines componentsJoinedByString:@"\n"];
-    if([g_cvlast isEqualToString:tree]) return; g_cvlast=tree;
-    NSLog(@"[DKCover]\n%@",tree);
-    if(!g_cv){ g_cv=[[UILabel alloc]init]; g_cv.backgroundColor=[UIColor colorWithWhite:0 alpha:0.85]; g_cv.textColor=[UIColor whiteColor]; g_cv.font=[UIFont monospacedSystemFontOfSize:9 weight:UIFontWeightBold]; g_cv.numberOfLines=0; g_cv.layer.zPosition=100000; [win addSubview:g_cv]; }
-    g_cv.text=tree;
-    CGSize sz=[g_cv sizeThatFits:CGSizeMake(win.bounds.size.width-8,1200)];
-    g_cv.frame=CGRectMake(0,40,win.bounds.size.width,sz.height+4);
-}
 // 清菜单按钮的深色背景源(backgroundColor/backgroundImage/UIButtonConfiguration filled背景)；
 // 不清 contentLayer(那层是文字)
 __attribute__((unused)) static void DKClearButtonConfigs(UIView *menu){
@@ -726,29 +572,6 @@ __attribute__((unused)) static void DKClearAncSubLayersDeep(UIView *menu){
     }
 }
 // [调试] dump菜单容器父链每一层的全部子图层(RGB+contents+opacity)：定位深色背景图
-__attribute__((unused)) static void DKShowAncSubs(UIView *menu, UIWindow *win){
-    if(!menu||!win) return;
-    NSMutableArray *lines=[NSMutableArray array];
-    UIView *a=menu; int i=0;
-    while(a && i<16){
-        [lines addObject:[NSString stringWithFormat:@"anc%ld: %@ %.0fx%.0f r%.0f", (long)i, NSStringFromClass([a class]), a.bounds.size.width, a.bounds.size.height, a.layer.cornerRadius]];
-        for(CALayer *sl in [a.layer.sublayers copy]){
-            NSString *rgb=@"";
-            CGColorRef c=sl.backgroundColor;
-            if(c && CGColorGetNumberOfComponents(c)>=4){ const CGFloat*cc=CGColorGetComponents(c); rgb=[NSString stringWithFormat:@"bg(%.0f,%.0f,%.0f,a%.0f)",cc[0]*255,cc[1]*255,cc[2]*255,cc[3]*255]; }
-            NSString *ct=sl.contents?@"cY":@"c-";
-            [lines addObject:[NSString stringWithFormat:@"   +%@ %@ %@ op%.2f", NSStringFromClass([sl class]), rgb, ct, sl.opacity]];
-        }
-        a=a.superview; i++;
-    }
-    NSString *tree=[lines componentsJoinedByString:@"\n"];
-    if([g_cvlast isEqualToString:tree]) return; g_cvlast=tree;
-    NSLog(@"[DKAncSubs]\n%@",tree);
-    if(!g_cv){ g_cv=[[UILabel alloc]init]; g_cv.backgroundColor=[UIColor colorWithWhite:0 alpha:0.85]; g_cv.textColor=[UIColor whiteColor]; g_cv.font=[UIFont monospacedSystemFontOfSize:9 weight:UIFontWeightBold]; g_cv.numberOfLines=0; g_cv.layer.zPosition=100000; [win addSubview:g_cv]; }
-    g_cv.text=tree;
-    CGSize sz=[g_cv sizeThatFits:CGSizeMake(win.bounds.size.width-8,1200)];
-    g_cv.frame=CGRectMake(0,40,win.bounds.size.width,sz.height+4);
-}
 // 清菜单容器上所有 CAShapeLayer 的 fillColor(深浅都清，去掉深色圆角背景和浅色"白白"层) + 深色子图层；不碰按钮文字
 __attribute__((unused)) static void DKClearShapeFill(UIView *menu){
     if(!menu) return;
@@ -818,57 +641,8 @@ static void DKInstallBubbleHooks(void){
 }
 
 // 描述UIColor近似颜色(找黄色拐弯箭头)
-__attribute__((unused)) static NSString* DKColorDesc(UIColor *c){
-    if(!c) return @"nil";
-    if(c==[UIColor clearColor]) return @"clear";
-    const CGFloat *comp=CGColorGetComponents(c.CGColor);
-    if(!comp) return @"?";
-    if(comp[3]<0.02f) return @"clear";
-    return [NSString stringWithFormat:@"r%.0f,g%.0f,b%.0f,a%.2f",comp[0]*255,comp[1]*255,comp[2]*255,comp[3]];
-}
 // CGColor色值描述(找黄色弧形layer)
-__attribute__((unused)) static NSString* DKColorDesc2(CGColorRef c){
-    if(!c) return @"nil";
-    const CGFloat *comp=CGColorGetComponents(c);
-    if(!comp) return @"?";
-    if(comp[3]<0.02f) return @"clear";
-    return [NSString stringWithFormat:@"r%.0f,g%.0f,b%.0f,a%.2f",comp[0]*255,comp[1]*255,comp[2]*255,comp[3]];
-}
 // [调试] dump消息cell(AWEIMGestureView 402x160)的layer子层详细, 定位黄色弧形"拐弯箭头"
-__attribute__((unused)) static void DKFindArrowStructure(UIView *btn, UIWindow *win){
-    if(!btn||!win) return;
-    UIView *cell=nil; UIView *p=btn;
-    while(p){ if(fabs(p.bounds.size.width-402)<1 && fabs(p.bounds.size.height-160)<1){ cell=p; break; } p=p.superview; }
-    NSMutableArray *lines=[NSMutableArray array];
-    if(!cell){ [lines addObject:@"(未找到402x160消息容器)"]; }
-    else {
-        [lines addObject:[NSString stringWithFormat:@"cell=%@ 402x160 有%d个layer子层",NSStringFromClass([cell class]),(int)cell.layer.sublayers.count]];
-        for(CALayer *sl in cell.layer.sublayers){
-            NSString *line=[NSString stringWithFormat:@"LAY %@ @(%d,%d)%.0fx%.0f bg[%@]%@%@%@",
-                NSStringFromClass([sl class]),(int)sl.frame.origin.x,(int)sl.frame.origin.y,sl.bounds.size.width,sl.bounds.size.height,
-                DKColorDesc2(sl.backgroundColor),
-                sl.contents?@" [CONTENTS]":@"",
-                ([sl isKindOfClass:[CAGradientLayer class]])?@" [GRAD]":@"",
-                (sl.mask)?@" [MASK]":@""];
-            [lines addObject:line];
-        }
-        // 回个心按钮父UIView 106x40 的layer子层
-        for(UIView *s in cell.subviews){
-            if(fabs(s.bounds.size.width-106)<1 && fabs(s.bounds.size.height-40)<1){
-                for(CALayer *sl in s.layer.sublayers){
-                    [lines addObject:[NSString stringWithFormat:@" btnParent.%@ @(%d,%d)%.0fx%.0f bg[%@]%@",NSStringFromClass([sl class]),(int)sl.frame.origin.x,(int)sl.frame.origin.y,sl.bounds.size.width,sl.bounds.size.height,DKColorDesc2(sl.backgroundColor),sl.contents?@" [CONTENTS]":@""]];
-                }
-            }
-        }
-    }
-    NSString *tree=[lines componentsJoinedByString:@"\n"];
-    if([g_cvlast isEqualToString:tree]) return; g_cvlast=tree;
-    NSLog(@"[DKArrow]\n%@",tree);
-    if(!g_cv){ g_cv=[[UILabel alloc]init]; g_cv.backgroundColor=[UIColor colorWithWhite:0 alpha:0.85]; g_cv.textColor=[UIColor whiteColor]; g_cv.font=[UIFont monospacedSystemFontOfSize:9 weight:UIFontWeightBold]; g_cv.numberOfLines=0; g_cv.layer.zPosition=100000; [win addSubview:g_cv]; }
-    g_cv.text=tree;
-    CGSize sz=[g_cv sizeThatFits:CGSizeMake(win.bounds.size.width-8,1500)];
-    g_cv.frame=CGRectMake(0,40,win.bounds.size.width,sz.height+4);
-}
 static void hook_lightReplyLayout(id self, SEL _cmd){
     orig_lightReplyLayout(self,_cmd);
     @try{
@@ -911,28 +685,6 @@ __attribute__((unused)) static void DKClearPanelBackgroundsAll(UIView *panel){
     for(UIView *s in panel.subviews) DKClearPanelBackgroundsAll(s);
 }
 // [调试] dump快捷表情容器(AWEIMCardBelowQuickEmoticonBoxView)子视图树，找独立胶囊按钮层级
-__attribute__((unused)) static void DKShowCardEmojiSubs(UIView *root){
-    if(!root) return;
-    UIWindow *win=root.window; if(!win) return;
-    NSMutableArray *lines=[NSMutableArray array];
-    NSMutableArray *q=[NSMutableArray arrayWithObject:root];
-    int qi=0;
-    while(qi<(int)q.count && qi<160){
-        UIView *v=q[qi++];
-        NSMutableArray *anc=[NSMutableArray array];
-        UIView *p=v.superview; int g=0;
-        while(p && g<4){ [anc addObject:NSStringFromClass([p class])]; p=p.superview; g++; }
-        [lines addObject:[NSString stringWithFormat:@"%@ %.0fx%.0f ^%@", NSStringFromClass([v class]), v.bounds.size.width, v.bounds.size.height, [anc componentsJoinedByString:@">"]]];
-        for(UIView *s in v.subviews){ if(q.count<160) [q addObject:s]; }
-    }
-    NSString *tree=[lines componentsJoinedByString:@"\n"];
-    if([g_cvlast isEqualToString:tree]) return; g_cvlast=tree;
-    NSLog(@"[DKCardEmoji]\n%@",tree);
-    if(!g_cv){ g_cv=[[UILabel alloc]init]; g_cv.backgroundColor=[UIColor colorWithWhite:0 alpha:0.85]; g_cv.textColor=[UIColor whiteColor]; g_cv.font=[UIFont monospacedSystemFontOfSize:9 weight:UIFontWeightBold]; g_cv.numberOfLines=0; g_cv.layer.zPosition=100000; [win addSubview:g_cv]; }
-    g_cv.text=tree;
-    CGSize sz=[g_cv sizeThatFits:CGSizeMake(win.bounds.size.width-8,1200)];
-    g_cv.frame=CGRectMake(0,40,win.bounds.size.width,sz.height+4);
-}
 static void hook_cardBelowEmojiLayout(id self, SEL _cmd){
     orig_cardBelowEmojiLayout(self,_cmd);
     @try{
