@@ -876,13 +876,23 @@ static void hook_lightReplyLayout(id self, SEL _cmd){
         [(UIView*)self setBackgroundColor:[UIColor clearColor]];
         ((UIView*)self).layer.backgroundColor=[UIColor clearColor].CGColor;
         DKApplyGlassToCap(self, YES);
+        // 拐弯箭头(白色回复箭头)=消息cell内AWEIMUserInteractionLabel(互动标签)，单独套玻璃
+        UIView *cell=nil; UIView *p=self;
+        while(p){ if(fabs(p.bounds.size.width-402)<1 && fabs(p.bounds.size.height-160)<1){ cell=p; break; } p=p.superview; }
+        if(cell){
+            for(UIView *s in cell.subviews){
+                if([NSStringFromClass([s class]) isEqualToString:@"AWEIMUserInteractionLabel"]){
+                    [s setBackgroundColor:[UIColor clearColor]];
+                    s.layer.backgroundColor=[UIColor clearColor].CGColor;
+                    DKApplyGlassToCap(s, NO);
+                }
+            }
+        }
         __weak UIView *ws=self;
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW,(int64_t)(0.3*NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
             @try{
                 if(ws){
                     DKApplyGlassToCap(ws, YES);
-                    UIWindow *rw=ws.window;
-                    if(rw) DKFindArrowStructure(ws, rw);
                 }
             }@catch(NSException *e){}
         });
