@@ -686,25 +686,28 @@ static void hook_uiLabelLayout(id self, SEL _cmd){
     orig_uiLabelLayout(self,_cmd);
     @try{
         UIView *v=(UIView*)self;
-        UIView *cell=nil; UIView *p=v;
-        while(p){ if(fabs(p.bounds.size.width-402)<1 && fabs(p.bounds.size.height-160)<1){ cell=p; break; } p=p.superview; }
         NSMutableArray *lines=[NSMutableArray array];
-        if(cell){
-            [lines addObject:[NSString stringWithFormat:@"== cell %@ ==", NSStringFromCGRect(cell.frame)]];
-            for(UIView *s in cell.subviews){
-                NSString *img=[s isKindOfClass:[UIImageView class]]?@"[IMG]":@"";
+        // 发送者名标签 → window 整条父链, 每级列子视图, 找互动按钮
+        UIView *cur=v; int d=0;
+        while(cur && d<12){
+            NSString *bg=(cur.backgroundColor==nil||cur.backgroundColor==[UIColor clearColor])?@"clear":@"BG";
+            [lines addObject:[NSString stringWithFormat:@"[%d]%@ bg%@ %@", d, NSStringFromClass([cur class]), bg, NSStringFromCGRect(cur.frame)]];
+            for(UIView *ss in cur.subviews){
+                NSString *img=[ss isKindOfClass:[UIImageView class]]?@"[IMG]":@"";
                 NSString *txt=@"";
-                if([s isKindOfClass:[UILabel class]]) txt=[NSString stringWithFormat:@" txt=%@", ((UILabel*)s).text];
-                NSMutableString *ln=[NSMutableString stringWithFormat:@" -%@%@ %@%@", NSStringFromClass([s class]), img, NSStringFromCGRect(s.frame), txt];
-                for(UIView *ss in s.subviews){
-                    NSString *ssimg=[ss isKindOfClass:[UIImageView class]]?@"[IMG]":@"";
-                    NSString *sstxt=@"";
-                    if([ss isKindOfClass:[UILabel class]]) sstxt=[NSString stringWithFormat:@" txt=%@", ((UILabel*)ss).text];
-                    [ln appendFormat:@" | [%@%@ %@%@]", NSStringFromClass([ss class]), ssimg, NSStringFromCGRect(ss.frame), sstxt];
+                if([ss isKindOfClass:[UILabel class]]) txt=[NSString stringWithFormat:@" txt=%@", ((UILabel*)ss).text];
+                NSString *ssbg=(ss.backgroundColor==nil||ss.backgroundColor==[UIColor clearColor])?@"clear":@"BG";
+                NSMutableString *ln=[NSMutableString stringWithFormat:@"   -%@%@ bg%@ %@%@", NSStringFromClass([ss class]), img, ssbg, NSStringFromCGRect(ss.frame), txt];
+                for(UIView *sss in ss.subviews){
+                    NSString *s3=[sss isKindOfClass:[UIImageView class]]?@"[IMG]":@"";
+                    NSString *s3t=@"";
+                    if([sss isKindOfClass:[UILabel class]]) s3t=[NSString stringWithFormat:@" txt=%@", ((UILabel*)sss).text];
+                    [ln appendFormat:@" | [%@%@ %@%@]", NSStringFromClass([sss class]), s3, NSStringFromCGRect(sss.frame), s3t];
                 }
                 [lines addObject:ln];
             }
-        } else [lines addObject:@"(不在402x160 cell)"];
+            cur=cur.superview; d++;
+        }
         NSString *tree=[lines componentsJoinedByString:@"\n"];
         NSLog(@"[UIWANT]\n%@",tree);
         UIWindow *w=v.window; if(!w) w=[[[UIApplication sharedApplication] windows] lastObject];
