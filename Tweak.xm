@@ -780,8 +780,8 @@ static void hook_popoverLayout(id self, SEL _cmd){
 static BOOL g_bubbleHooksInstalled = NO;
 static void (*orig_cardBelowEmojiLayout)(id,SEL);
 static void hook_cardBelowEmojiLayout(id self, SEL _cmd);
-static void (*orig_msgVCDidAppear)(id,SEL,BOOL);
-static void hook_msgVCDidAppear(id self, SEL _cmd, BOOL animated);
+static void (*orig_lightReplyLayout)(id,SEL);
+static void hook_lightReplyLayout(id self, SEL _cmd);
 static void DKInstallBubbleHooks(void){
     Class bubble = NSClassFromString(@"AWEIMMessageBubbleGradientView");
     if (bubble && !orig_bubbleLayoutSubviews) {
@@ -810,53 +810,26 @@ static void DKInstallBubbleHooks(void){
         MSHookMessageEx(cbe, sel_registerName("layoutSubviews"), (IMP)hook_cardBelowEmojiLayout, (IMP*)&orig_cardBelowEmojiLayout);
     }
     g_bubbleHooksInstalled = (orig_bubbleLayoutSubviews || orig_cellLayoutSubviews || orig_tableCellForRow || orig_emojiMenuLayoutSubviews || orig_popoverLayout || orig_cardBelowEmojiLayout);
-    // 调试: dump聊天页含"回个心"等互动文字按钮的类(定位互动按钮)
-    Class vcd = NSClassFromString(@"AWEIMMessageBaseViewController");
-    if (vcd && !orig_msgVCDidAppear) {
-        MSHookMessageEx(vcd, sel_registerName("viewDidAppear:"), (IMP)hook_msgVCDidAppear, (IMP*)&orig_msgVCDidAppear);
+    // 互动按钮(回个心/赞等, AWEIMLightInteractionReplyButton)清透玻璃
+    Class lr = NSClassFromString(@"AWEIMLightInteractionReplyButton");
+    if (lr && !orig_lightReplyLayout) {
+        MSHookMessageEx(lr, sel_registerName("layoutSubviews"), (IMP)hook_lightReplyLayout, (IMP*)&orig_lightReplyLayout);
     }
 }
 
-// [调试] dump含"回个心/赞/比心/黑脸"等互动文字的UILabel的父链，定位互动按钮容器
-__attribute__((unused)) static void DKFindQuickReaction(UIView *root, UIWindow *win){
-    if(!root||!win) return;
-    NSMutableArray *lines=[NSMutableArray array];
-    NSMutableArray *q=[NSMutableArray arrayWithObject:root];
-    int qi=0;
-    while(qi<(int)q.count && qi<900){
-        UIView *v=q[qi++];
-        for(UIView *s in v.subviews){
-            if([s isKindOfClass:[UILabel class]]){
-                NSString *t=((UILabel*)s).text;
-                if(t.length && ([t containsString:@"回个心"]||[t containsString:@"赞"]||[t containsString:@"鼓掌"]||[t containsString:@"比心"]||[t containsString:@"黑脸"])){
-                    NSMutableArray *anc=[NSMutableArray array];
-                    UIView *p=v; int g=0;
-                    while(p && g<7){ [anc addObject:[NSString stringWithFormat:@"%@ %.0fx%.0f", NSStringFromClass([p class]), p.bounds.size.width, p.bounds.size.height]]; p=p.superview; g++; }
-                    [lines addObject:[NSString stringWithFormat:@"文字[%@]位于 %@\n  ^%@", t, NSStringFromClass([v class]), [anc componentsJoinedByString:@">"]]];
-                    break;
-                }
-            }
-        }
-        for(UIView *s in v.subviews){ if(q.count<900) [q addObject:s]; }
-    }
-    if(!lines.count) [lines addObject:@"(未找到互动文字按钮)"];
-    NSString *tree=[lines componentsJoinedByString:@"\n"];
-    if([g_cvlast isEqualToString:tree]) return; g_cvlast=tree;
-    NSLog(@"[DKQuickReaction]\n%@",tree);
-    if(!g_cv){ g_cv=[[UILabel alloc]init]; g_cv.backgroundColor=[UIColor colorWithWhite:0 alpha:0.85]; g_cv.textColor=[UIColor whiteColor]; g_cv.font=[UIFont monospacedSystemFontOfSize:9 weight:UIFontWeightBold]; g_cv.numberOfLines=0; g_cv.layer.zPosition=100000; [win addSubview:g_cv]; }
-    g_cv.text=tree;
-    CGSize sz=[g_cv sizeThatFits:CGSizeMake(win.bounds.size.width-8,1200)];
-    g_cv.frame=CGRectMake(0,40,win.bounds.size.width,sz.height+4);
+static void hook_lightReplyLayout(id self, SEL _cmd){
+    orig_lightReplyLayout(self,_cmd);
+    @try{
+        // 只清按钮自身背景 + 套玻璃，不动子视图(表情/文字/弧形装饰线)
+        [(UIView*)self setBackgroundColor:[UIColor clearColor]];
+        ((UIView*)self).layer.backgroundColor=[UIColor clearColor].CGColor;
+        DKApplyGlassToCap(self);
+        __weak UIView *ws=self;
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW,(int64_t)(0.3*NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+            @try{ if(ws) DKApplyGlassToCap(ws); }@catch(NSException *e){}
+        });
+    }@catch(NSException *e){}
 }
-static void hook_msgVCDidAppear(id self, SEL _cmd, BOOL animated){
-    orig_msgVCDidAppear(self,_cmd,animated);
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW,(int64_t)(1.2*NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-        @try{
-            UIView *root=[(UIViewController*)self view];
-            UIWindow *win=root.window;
-            if(root && win) DKFindQuickReaction(root, win);
-        }@catch(NSException *e){}
-    });
 }
 
 // 清面板自身及子树所有背景(深浅都清，保留文字/图标contentLayer)，让玻璃完全透出
