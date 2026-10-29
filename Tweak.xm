@@ -655,17 +655,29 @@ static void hook_lightReplyLayout(id self, SEL _cmd){
         [(UIView*)self setBackgroundColor:[UIColor clearColor]];
         ((UIView*)self).layer.backgroundColor=[UIColor clearColor].CGColor;
         DKApplyGlassToCap(self, YES);
-        // 拐弯箭头(白色回复箭头)=消息cell内AWEIMUserInteractionLabel(互动标签)，单独套玻璃
-        UIView *cell=nil; UIView *p=self;
-        while(p){ if(fabs(p.bounds.size.width-402)<1 && fabs(p.bounds.size.height-160)<1){ cell=p; break; } p=p.superview; }
-        if(cell){
-            for(UIView *s in cell.subviews){
-                if([NSStringFromClass([s class]) isEqualToString:@"AWEIMUserInteractionLabel"]){
-                    [s setBackgroundColor:[UIColor clearColor]];
-                    s.layer.backgroundColor=[UIColor clearColor].CGColor;
-                    DKApplyGlassToCap(s, NO);
-                }
+        // [调试] dump 回个心按钮→window 整条父链+每级子视图, 找白色拐弯箭头
+        NSMutableArray *lines=[NSMutableArray array];
+        UIView *cur=self; int depth=0;
+        while(cur && depth<14){
+            NSString *bg=(cur.backgroundColor==nil||cur.backgroundColor==[UIColor clearColor])?@"clear":@"BGCOLOR";
+            [lines addObject:[NSString stringWithFormat:@"[%d]%@ bg%@ %@", depth, NSStringFromClass([cur class]), bg, NSStringFromCGRect(cur.frame)]];
+            for(UIView *ss in cur.subviews){
+                NSString *img=[ss isKindOfClass:[UIImageView class]]?@"[IMG]":@"";
+                NSString *txt=@"";
+                if([ss isKindOfClass:[UILabel class]]) txt=[NSString stringWithFormat:@" txt=%@", ((UILabel*)ss).text];
+                NSString *ssbg=(ss.backgroundColor==nil||ss.backgroundColor==[UIColor clearColor])?@"clear":@"BGCOLOR";
+                [lines addObject:[NSString stringWithFormat:@"   -%@%@ bg%@ %@%@", NSStringFromClass([ss class]), img, ssbg, NSStringFromCGRect(ss.frame), txt]];
             }
+            cur=cur.superview; depth++;
+        }
+        NSString *tree=[lines componentsJoinedByString:@"\n"];
+        NSLog(@"[DKParent]\n%@",tree);
+        UIWindow *w=self.window; if(!w) w=[[[UIApplication sharedApplication] windows] lastObject];
+        if(w){
+            if(!g_dumpLbl){ g_dumpLbl=[[UILabel alloc]init]; g_dumpLbl.backgroundColor=[UIColor colorWithWhite:0 alpha:0.85]; g_dumpLbl.textColor=[UIColor whiteColor]; g_dumpLbl.font=[UIFont monospacedSystemFontOfSize:9 weight:UIFontWeightBold]; g_dumpLbl.numberOfLines=0; g_dumpLbl.layer.zPosition=100000; [w addSubview:g_dumpLbl]; }
+            g_dumpLbl.text=tree;
+            CGSize sz=[g_dumpLbl sizeThatFits:CGSizeMake(w.bounds.size.width-8,1500)];
+            g_dumpLbl.frame=CGRectMake(0,40,w.bounds.size.width,sz.height+4);
         }
         __weak UIView *ws=self;
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW,(int64_t)(0.3*NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
