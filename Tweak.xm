@@ -607,9 +607,10 @@ static void (*orig_lightReplyLayout)(id,SEL);
 static void hook_lightReplyLayout(id self, SEL _cmd);
 static void (*orig_presenterBtnLayout)(id,SEL);
 static void hook_presenterBtnLayout(id self, SEL _cmd);
-static UILabel *g_dumpLbl=nil;
-static void (*orig_pendantLayout)(id,SEL);
-static void hook_pendantLayout(id self, SEL _cmd);
+static void (*orig_pendantGroupLayout)(id,SEL);
+static void hook_pendantGroupLayout(id self, SEL _cmd);
+static void (*orig_pendantEmojiLayout)(id,SEL);
+static void hook_pendantEmojiLayout(id self, SEL _cmd);
 static void DKInstallBubbleHooks(void){
     Class bubble = NSClassFromString(@"AWEIMMessageBubbleGradientView");
     if (bubble && !orig_bubbleLayoutSubviews) {
@@ -648,10 +649,15 @@ static void DKInstallBubbleHooks(void){
     if (pb && !orig_presenterBtnLayout) {
         MSHookMessageEx(pb, sel_registerName("layoutSubviews"), (IMP)hook_presenterBtnLayout, (IMP*)&orig_presenterBtnLayout);
     }
-    // [调试] hook表情回复挂件容器, 递归dump后代定位zh互动按钮类
-    Class pd = NSClassFromString(@"AWEIMMessageEmoticonReplyPendantView");
-    if (pd && !orig_pendantLayout) {
-        MSHookMessageEx(pd, sel_registerName("layoutSubviews"), (IMP)hook_pendantLayout, (IMP*)&orig_pendantLayout);
+    // 表情回复挂件: 左段(红心+文字)AWEIMMessagePropertyPendantGroupView 玻璃
+    Class pg = NSClassFromString(@"AWEIMMessagePropertyPendantGroupView");
+    if (pg && !orig_pendantGroupLayout) {
+        MSHookMessageEx(pg, sel_registerName("layoutSubviews"), (IMP)hook_pendantGroupLayout, (IMP*)&orig_pendantGroupLayout);
+    }
+    // 表情回复挂件: 右段(笑脸)AWEIMMessagePropertyPendantAddMoreEmojiView 玻璃
+    Class em = NSClassFromString(@"AWEIMMessagePropertyPendantAddMoreEmojiView");
+    if (em && !orig_pendantEmojiLayout) {
+        MSHookMessageEx(em, sel_registerName("layoutSubviews"), (IMP)hook_pendantEmojiLayout, (IMP*)&orig_pendantEmojiLayout);
     }
 }
 
@@ -681,33 +687,36 @@ static void hook_presenterBtnLayout(id self, SEL _cmd){
         });
     }@catch(NSException *e){}
 }
-// [调试] dump发送者名标签所在消息cell的子视图+子子视图, 定位zh消息互动按钮类
-static void dumpPendantTree(UIView *v, NSString *pfx, NSMutableArray *lines, int depth){
-    if(!v||depth>6) return;
-    NSString *img=[v isKindOfClass:[UIImageView class]]?@"[IMG]":@"";
-    NSString *txt=@"";
-    if([v isKindOfClass:[UILabel class]]) txt=[NSString stringWithFormat:@" txt=%@", ((UILabel*)v).text];
-    NSString *bg=(v.backgroundColor==nil||v.backgroundColor==[UIColor clearColor])?@"clear":@"BG";
-    [lines addObject:[NSString stringWithFormat:@"%@%@%@ bg%@ %@%@", pfx, NSStringFromClass([v class]), img, bg, NSStringFromCGRect(v.frame), txt]];
-    for(UIView *s in v.subviews) dumpPendantTree(s,[pfx stringByAppendingString:@"  "],lines,depth+1);
-}
-// [调试] dump表情回复挂件容器全部后代, 定位zh"来日方长"互动按钮类
-static void hook_pendantLayout(id self, SEL _cmd){
-    orig_pendantLayout(self,_cmd);
+// 表情回复挂件左段(红心+文字)AWEIMMessagePropertyPendantGroupView 清透玻璃
+static void hook_pendantGroupLayout(id self, SEL _cmd){
+    orig_pendantGroupLayout(self,_cmd);
     @try{
-        UIView *v=(UIView*)self;
-        NSMutableArray *lines=[NSMutableArray array];
-        [lines addObject:@"== 表情回复挂件全层级 =="];
-        dumpPendantTree(v,@"",lines,0);
-        NSString *tree=[lines componentsJoinedByString:@"\n"];
-        NSLog(@"[PENDANT]\n%@",tree);
-        UIWindow *w=v.window; if(!w) w=[[[UIApplication sharedApplication] windows] lastObject];
-        if(w){
-            if(!g_dumpLbl){ g_dumpLbl=[[UILabel alloc]init]; g_dumpLbl.backgroundColor=[UIColor colorWithWhite:0 alpha:0.85]; g_dumpLbl.textColor=[UIColor whiteColor]; g_dumpLbl.font=[UIFont monospacedSystemFontOfSize:8 weight:UIFontWeightBold]; g_dumpLbl.numberOfLines=0; g_dumpLbl.layer.zPosition=100000; [w addSubview:g_dumpLbl]; }
-            g_dumpLbl.text=tree;
-            CGSize sz=[g_dumpLbl sizeThatFits:CGSizeMake(w.bounds.size.width-8,1600)];
-            g_dumpLbl.frame=CGRectMake(0,36,w.bounds.size.width,sz.height+4);
+        [(UIView*)self setBackgroundColor:[UIColor clearColor]];
+        ((UIView*)self).layer.backgroundColor=[UIColor clearColor].CGColor;
+        // 清子视图分隔线等非clear背景, 保留红心图标(UIImageView)与文字(YYLabel)
+        for(UIView *s in [(UIView*)self subviews]){
+            if([s isKindOfClass:[UIImageView class]] || [s isKindOfClass:[UILabel class]]) continue;
+            s.backgroundColor=[UIColor clearColor];
+            s.layer.backgroundColor=[UIColor clearColor].CGColor;
         }
+        DKApplyGlassToCap(self, YES);
+        __weak UIView *ws=self;
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW,(int64_t)(0.3*NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+            @try{ if(ws){ DKApplyGlassToCap(ws, YES); } }@catch(NSException *e){}
+        });
+    }@catch(NSException *e){}
+}
+// 表情回复挂件右段(笑脸)AWEIMMessagePropertyPendantAddMoreEmojiView 清透玻璃
+static void hook_pendantEmojiLayout(id self, SEL _cmd){
+    orig_pendantEmojiLayout(self,_cmd);
+    @try{
+        [(UIView*)self setBackgroundColor:[UIColor clearColor]];
+        ((UIView*)self).layer.backgroundColor=[UIColor clearColor].CGColor;
+        DKApplyGlassToCap(self, YES);
+        __weak UIView *ws=self;
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW,(int64_t)(0.3*NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+            @try{ if(ws){ DKApplyGlassToCap(ws, YES); } }@catch(NSException *e){}
+        });
     }@catch(NSException *e){}
 }
 // 清面板自身及子树所有背景(深浅都清，保留文字/图标contentLayer)，让玻璃完全透出
