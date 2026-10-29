@@ -689,29 +689,51 @@ static void hook_lightReplyLayout(id self, SEL _cmd){
         });
     }@catch(NSException *e){}
 }
-// [调试] hook互动标签AWEIMUserInteractionLabel: dump文字/帧/是否有图片, 确认它是不是白色拐弯箭头
+// [调试] hook互动标签AWEIMUserInteractionLabel: dump所在消息cell的父链+全部子视图, 找白色拐弯箭头
 static void hook_uiLabelLayout(id self, SEL _cmd){
     orig_uiLabelLayout(self,_cmd);
     @try{
         UIView *v=(UIView*)self;
-        NSString *txt=@"";
-        if([v respondsToSelector:@selector(text)]) txt=[v performSelector:@selector(text)];
-        if([v respondsToSelector:@selector(attributedText)] && [v performSelector:@selector(attributedText)])
-            txt=[NSString stringWithFormat:@"%@|attr=%@",txt,[[v performSelector:@selector(attributedText)] string]];
-        BOOL hasImg=NO;
-        for(UIView *ss in v.subviews){ if([ss isKindOfClass:[UIImageView class]]) hasImg=YES; }
         UIView *cell=nil; UIView *p=v;
         while(p){ if(fabs(p.bounds.size.width-402)<1 && fabs(p.bounds.size.height-160)<1){ cell=p; break; } p=p.superview; }
-        NSString *info=[NSString stringWithFormat:@"[互动标签] %@ frame=%@ txt='%@' img=%d hidden=%d alpha=%.2f%@",
-            NSStringFromClass([v class]), NSStringFromCGRect(v.frame), txt, hasImg, v.hidden, v.alpha, cell?@"":@"(无402x160cell)"];
-        NSLog(@"[UIOL]\n%@",info);
+        NSMutableArray *lines=[NSMutableArray array];
+        if(cell){
+            [lines addObject:[NSString stringWithFormat:@"== 消息cell %@ %@ ==", NSStringFromClass([cell class]), NSStringFromCGRect(cell.frame)]];
+            // 消息cell 全部子视图(标UIImageView/UILabel/背景色)
+            for(UIView *s in cell.subviews){
+                NSString *img=[s isKindOfClass:[UIImageView class]]?@"[IMG]":@"";
+                NSString *txt=@"";
+                if([s isKindOfClass:[UILabel class]]) txt=[NSString stringWithFormat:@" txt=%@", ((UILabel*)s).text];
+                NSString *bg=(s.backgroundColor==nil||s.backgroundColor==[UIColor clearColor])?@"clear":@"BG";
+                NSMutableString *ln=[NSMutableString stringWithFormat:@"   -%@%@ bg%@ %@%@", NSStringFromClass([s class]), img, bg, NSStringFromCGRect(s.frame), txt];
+                // 子视图的UIImageView/白底
+                for(UIView *ss in s.subviews){
+                    NSString *ssimg=[ss isKindOfClass:[UIImageView class]]?@"[IMG]":@"";
+                    NSString *sstxt=@"";
+                    if([ss isKindOfClass:[UILabel class]]) sstxt=[NSString stringWithFormat:@" txt=%@", ((UILabel*)ss).text];
+                    [ln appendFormat:@" | [%@%@ %@%@]", NSStringFromClass([ss class]), ssimg, NSStringFromCGRect(ss.frame), sstxt];
+                }
+                [lines addObject:ln];
+            }
+            // 消息cell 父链(到window)
+            UIView *pc=cell; int d=0;
+            while(pc && d<14){
+                NSString *bg=(pc.backgroundColor==nil||pc.backgroundColor==[UIColor clearColor])?@"clear":@"BG";
+                [lines addObject:[NSString stringWithFormat:@"   [父%d]%@ bg%@ %@", d, NSStringFromClass([pc class]), bg, NSStringFromCGRect(pc.frame)]];
+                pc=pc.superview; d++;
+            }
+        } else {
+            [lines addObject:@"(互动标签不在402x160 cell)"];
+        }
+        NSString *tree=[lines componentsJoinedByString:@"\n"];
+        NSLog(@"[UICELL]\n%@",tree);
         UIWindow *w=v.window;
         if(!w) w=[[[UIApplication sharedApplication] windows] lastObject];
         if(w){
-            if(!g_dumpLbl){ g_dumpLbl=[[UILabel alloc]init]; g_dumpLbl.backgroundColor=[UIColor colorWithWhite:0 alpha:0.85]; g_dumpLbl.textColor=[UIColor whiteColor]; g_dumpLbl.font=[UIFont monospacedSystemFontOfSize:10 weight:UIFontWeightBold]; g_dumpLbl.numberOfLines=0; g_dumpLbl.layer.zPosition=100000; [w addSubview:g_dumpLbl]; }
-            g_dumpLbl.text=info;
-            CGSize sz=[g_dumpLbl sizeThatFits:CGSizeMake(w.bounds.size.width-8,1500)];
-            g_dumpLbl.frame=CGRectMake(0,40,w.bounds.size.width,sz.height+4);
+            if(!g_dumpLbl){ g_dumpLbl=[[UILabel alloc]init]; g_dumpLbl.backgroundColor=[UIColor colorWithWhite:0 alpha:0.85]; g_dumpLbl.textColor=[UIColor whiteColor]; g_dumpLbl.font=[UIFont monospacedSystemFontOfSize:8 weight:UIFontWeightBold]; g_dumpLbl.numberOfLines=0; g_dumpLbl.layer.zPosition=100000; [w addSubview:g_dumpLbl]; }
+            g_dumpLbl.text=tree;
+            CGSize sz=[g_dumpLbl sizeThatFits:CGSizeMake(w.bounds.size.width-8,1600)];
+            g_dumpLbl.frame=CGRectMake(0,36,w.bounds.size.width,sz.height+4);
         }
     }@catch(NSException *e){}
 }
