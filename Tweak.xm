@@ -826,7 +826,7 @@ __attribute__((unused)) static NSString* DKColorDesc(UIColor *c){
     if(comp[3]<0.02f) return @"clear";
     return [NSString stringWithFormat:@"r%.0f,g%.0f,b%.0f,a%.2f",comp[0]*255,comp[1]*255,comp[2]*255,comp[3]];
 }
-// [调试] dump"回个心"按钮所在消息cell(402x160 AWEIMGestureView)的子视图: frame+背景色+文字, 定位上方"拐弯箭头"回复箭头按钮
+// [调试] dump"回个心"所在消息cell子树(深度3), 标出UIImageView(箭头图)与CAShapeLayer(弧形线), 定位上方"拐弯箭头"
 __attribute__((unused)) static void DKFindArrowStructure(UIView *btn, UIWindow *win){
     if(!btn||!win) return;
     UIView *cell=nil; UIView *p=btn;
@@ -834,18 +834,26 @@ __attribute__((unused)) static void DKFindArrowStructure(UIView *btn, UIWindow *
     NSMutableArray *lines=[NSMutableArray array];
     if(!cell){ [lines addObject:@"(未找到402x160消息容器)"]; }
     else {
-        for(UIView *s in cell.subviews){
-            NSMutableString *ln=[NSMutableString stringWithFormat:@"%@ bg[%@] @(%d,%d) %.0fx%.0f", NSStringFromClass([s class]),DKColorDesc(s.backgroundColor),(int)s.frame.origin.x,(int)s.frame.origin.y,s.bounds.size.width,s.bounds.size.height];
-            [lines addObject:ln];
-            for(UIView *ss in s.subviews){
-                NSString *txt=@"";
-                if([ss isKindOfClass:[UILabel class]]) txt=[NSString stringWithFormat:@" text=%@", ((UILabel*)ss).text];
-                [lines addObject:[NSString stringWithFormat:@"   [%@ bg%@ @(%d,%d)%.0fx%.0f%@]", NSStringFromClass([ss class]),DKColorDesc(ss.backgroundColor),(int)ss.frame.origin.x,(int)ss.frame.origin.y,ss.bounds.size.width,ss.bounds.size.height,txt]];
+        NSMutableArray *q=[NSMutableArray arrayWithObject:@[cell,@(0)]];
+        int qi=0; int cnt=0;
+        while(qi<(int)q.count && cnt<70){
+            NSArray *ent=q[qi++]; UIView *v=ent[0]; int dep=[ent[1] intValue];
+            NSString *ind=[@"" stringByPaddingToLength:dep*2 withString:@" " startingAtIndex:0];
+            NSMutableString *ln=[NSMutableString stringWithFormat:@"%@%@ bg[%@] @(%d,%d)%.0fx%.0f", ind, NSStringFromClass([v class]), DKColorDesc(v.backgroundColor),(int)v.frame.origin.x,(int)v.frame.origin.y,v.bounds.size.width,v.bounds.size.height];
+            if([v isKindOfClass:[UIImageView class]]) [ln appendString:@" [IMG]"];
+            for(CALayer *sl in v.layer.sublayers){
+                [ln appendFormat:@" <%@>", NSStringFromClass([sl class])];
+                if([sl isKindOfClass:[CAShapeLayer class]]){
+                    CAShapeLayer *sh=(CAShapeLayer*)sl;
+                    const CGFloat *f=CGColorGetComponents(sh.fillColor); const CGFloat *s=CGColorGetComponents(sh.strokeColor);
+                    if(f&&f[3]>0.02f) [ln appendFormat:@" fill(%d,%d)",(int)(f[0]*255),(int)(f[1]*255)];
+                    if(s&&s[3]>0.02f) [ln appendFormat:@" stroke(%d,%d,%d)",(int)(s[0]*255),(int)(s[1]*255),(int)(s[2]*255)];
+                    [ln appendString:@" [SHAPE]"];
+                }
             }
-            NSMutableString *ll=[NSMutableString stringWithFormat:@"   层:"];
-            for(CALayer *sl in s.layer.sublayers)
-                [ll appendFormat:@" %@", NSStringFromClass([sl class])];
-            [lines addObject:ll];
+            [lines addObject:ln];
+            if(dep<3) for(UIView *ss in v.subviews){ if(cnt<70) [q addObject:@[ss,@(dep+1)]]; }
+            cnt++;
         }
     }
     NSString *tree=[lines componentsJoinedByString:@"\n"];
