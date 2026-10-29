@@ -817,7 +817,16 @@ static void DKInstallBubbleHooks(void){
     }
 }
 
-// [调试] dump"回个心"按钮所在消息cell(402x160 AWEIMGestureView)的全部子视图: frame原点+子视图+layer, 定位上方"拐弯箭头"回复箭头按钮
+// 描述UIColor近似颜色(找黄色拐弯箭头)
+__attribute__((unused)) static NSString* DKColorDesc(UIColor *c){
+    if(!c) return @"nil";
+    if(c==[UIColor clearColor]) return @"clear";
+    const CGFloat *comp=CGColorGetComponents(c.CGColor);
+    if(!comp) return @"?";
+    if(comp[3]<0.02f) return @"clear";
+    return [NSString stringWithFormat:@"r%.0f,g%.0f,b%.0f,a%.2f",comp[0]*255,comp[1]*255,comp[2]*255,comp[3]];
+}
+// [调试] dump"回个心"按钮所在消息cell(402x160 AWEIMGestureView)的子视图: frame+背景色+文字, 定位上方"拐弯箭头"回复箭头按钮
 __attribute__((unused)) static void DKFindArrowStructure(UIView *btn, UIWindow *win){
     if(!btn||!win) return;
     UIView *cell=nil; UIView *p=btn;
@@ -826,13 +835,16 @@ __attribute__((unused)) static void DKFindArrowStructure(UIView *btn, UIWindow *
     if(!cell){ [lines addObject:@"(未找到402x160消息容器)"]; }
     else {
         for(UIView *s in cell.subviews){
-            NSMutableString *ln=[NSMutableString stringWithFormat:@"%@ @(%d,%d) %.0fx%.0f 子视图:", NSStringFromClass([s class]),(int)s.frame.origin.x,(int)s.frame.origin.y,s.bounds.size.width,s.bounds.size.height];
-            for(UIView *ss in s.subviews)
-                [ln appendFormat:@" [%@@(%d,%d)%.0fx%.0f]", NSStringFromClass([ss class]),(int)ss.frame.origin.x,(int)ss.frame.origin.y,ss.bounds.size.width,ss.bounds.size.height];
+            NSMutableString *ln=[NSMutableString stringWithFormat:@"%@ bg[%@] @(%d,%d) %.0fx%.0f", NSStringFromClass([s class]),DKColorDesc(s.backgroundColor),(int)s.frame.origin.x,(int)s.frame.origin.y,s.bounds.size.width,s.bounds.size.height];
             [lines addObject:ln];
+            for(UIView *ss in s.subviews){
+                NSString *txt=@"";
+                if([ss isKindOfClass:[UILabel class]]) txt=[NSString stringWithFormat:@" text=%@", ((UILabel*)ss).text];
+                [lines addObject:[NSString stringWithFormat:@"   [%@ bg%@ @(%d,%d)%.0fx%.0f%@]", NSStringFromClass([ss class]),DKColorDesc(ss.backgroundColor),(int)ss.frame.origin.x,(int)ss.frame.origin.y,ss.bounds.size.width,ss.bounds.size.height,txt]];
+            }
             NSMutableString *ll=[NSMutableString stringWithFormat:@"   层:"];
             for(CALayer *sl in s.layer.sublayers)
-                [ll appendFormat:@" %@(%.0fx%.0f)", NSStringFromClass([sl class]), sl.bounds.size.width, sl.bounds.size.height];
+                [ll appendFormat:@" %@", NSStringFromClass([sl class])];
             [lines addObject:ll];
         }
     }
