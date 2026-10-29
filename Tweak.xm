@@ -853,7 +853,7 @@ static void hook_lightReplyLayout(id self, SEL _cmd){
             @try{
                 if(ws){
                     DKApplyGlassToCap(ws, YES);
-                    UIView *rw=ws.window;
+                    UIWindow *rw=ws.window;
                     if(rw) DKFindReplyStructure(ws, rw);
                 }
             }@catch(NSException *e){}
