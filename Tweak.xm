@@ -817,44 +817,27 @@ static void DKInstallBubbleHooks(void){
     }
 }
 
-// [调试] dump回个心按钮及父链子视图+layer子层，定位"拐弯箭头"弧形装饰线容器
-__attribute__((unused)) static void DKFindReplyStructure(UIView *btn, UIWindow *win){
-    if(!btn||!win) return;
-    NSMutableArray *lines=[NSMutableArray array];
-    UIView *v=btn;
-    for(int d=0; d<4 && v; d++){
-        NSMutableString *ln=[NSMutableString stringWithFormat:@"L%d %@ %.0fx%.0f 子视图:", d, NSStringFromClass([v class]), v.bounds.size.width, v.bounds.size.height];
-        for(UIView *s in v.subviews)
-            [ln appendFormat:@" %@%.0fx%.0f", NSStringFromClass([s class]), s.bounds.size.width, s.bounds.size.height];
-        [lines addObject:ln];
-        NSMutableString *ll=[NSMutableString stringWithFormat:@"   layer子层:"];
-        for(CALayer *sl in v.layer.sublayers)
-            [ll appendFormat:@" %@(%.0fx%.0f)", NSStringFromClass([sl class]), sl.bounds.size.width, sl.bounds.size.height];
-        [lines addObject:ll];
-        v=v.superview;
-    }
-    NSString *tree=[lines componentsJoinedByString:@"\n"];
-    if([g_cvlast isEqualToString:tree]) return; g_cvlast=tree;
-    NSLog(@"[DKReplyStruct]\n%@",tree);
-    if(!g_cv){ g_cv=[[UILabel alloc]init]; g_cv.backgroundColor=[UIColor colorWithWhite:0 alpha:0.85]; g_cv.textColor=[UIColor whiteColor]; g_cv.font=[UIFont monospacedSystemFontOfSize:9 weight:UIFontWeightBold]; g_cv.numberOfLines=0; g_cv.layer.zPosition=100000; [win addSubview:g_cv]; }
-    g_cv.text=tree;
-    CGSize sz=[g_cv sizeThatFits:CGSizeMake(win.bounds.size.width-8,1500)];
-    g_cv.frame=CGRectMake(0,40,win.bounds.size.width,sz.height+4);
-}
 static void hook_lightReplyLayout(id self, SEL _cmd){
     orig_lightReplyLayout(self,_cmd);
     @try{
-        // 只清按钮自身背景 + 套玻璃，不动子视图(表情/文字/弧形装饰线)
+        // 只清按钮自身背景 + 套玻璃，不动子视图(表情/文字)
         [(UIView*)self setBackgroundColor:[UIColor clearColor]];
         ((UIView*)self).layer.backgroundColor=[UIColor clearColor].CGColor;
         DKApplyGlassToCap(self, YES);
+        // 拐弯箭头(黄色弧形装饰线)画在按钮父视图AWEIMGestureView的layer上，父也套玻璃
+        UIView *sup=[(UIView*)self superview];
+        if(sup){
+            [sup setBackgroundColor:[UIColor clearColor]];
+            sup.layer.backgroundColor=[UIColor clearColor].CGColor;
+            DKApplyGlassToCap(sup, YES);
+        }
         __weak UIView *ws=self;
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW,(int64_t)(0.3*NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
             @try{
                 if(ws){
                     DKApplyGlassToCap(ws, YES);
-                    UIWindow *rw=ws.window;
-                    if(rw) DKFindReplyStructure(ws, rw);
+                    UIView *su=[(UIView*)ws superview];
+                    if(su) DKApplyGlassToCap(su, YES);
                 }
             }@catch(NSException *e){}
         });
