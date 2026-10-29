@@ -830,7 +830,6 @@ static void hook_lightReplyLayout(id self, SEL _cmd){
         });
     }@catch(NSException *e){}
 }
-}
 
 // 清面板自身及子树所有背景(深浅都清，保留文字/图标contentLayer)，让玻璃完全透出
 __attribute__((unused)) static void DKClearPanelBackgroundsAll(UIView *panel){
