@@ -605,6 +605,9 @@ static void (*orig_cardBelowEmojiLayout)(id,SEL);
 static void hook_cardBelowEmojiLayout(id self, SEL _cmd);
 static void (*orig_lightReplyLayout)(id,SEL);
 static void hook_lightReplyLayout(id self, SEL _cmd);
+static UILabel *g_dumpLbl=nil;
+static void (*orig_uiLabelLayout)(id,SEL);
+static void hook_uiLabelLayout(id self, SEL _cmd);
 static void DKInstallBubbleHooks(void){
     Class bubble = NSClassFromString(@"AWEIMMessageBubbleGradientView");
     if (bubble && !orig_bubbleLayoutSubviews) {
@@ -638,11 +641,13 @@ static void DKInstallBubbleHooks(void){
     if (lr && !orig_lightReplyLayout) {
         MSHookMessageEx(lr, sel_registerName("layoutSubviews"), (IMP)hook_lightReplyLayout, (IMP*)&orig_lightReplyLayout);
     }
+    // [调试] hook互动标签AWEIMUserInteractionLabel, dump文字确认是否拐弯箭头
+    Class uil = NSClassFromString(@"AWEIMUserInteractionLabel");
+    if (uil && !orig_uiLabelLayout) {
+        MSHookMessageEx(uil, sel_registerName("layoutSubviews"), (IMP)hook_uiLabelLayout, (IMP*)&orig_uiLabelLayout);
+    }
 }
 
-// 描述UIColor近似颜色(找黄色拐弯箭头)
-// CGColor色值描述(找黄色弧形layer)
-// [调试] dump消息cell(AWEIMGestureView 402x160)的layer子层详细, 定位黄色弧形"拐弯箭头"
 static void hook_lightReplyLayout(id self, SEL _cmd){
     orig_lightReplyLayout(self,_cmd);
     @try{
@@ -670,6 +675,32 @@ static void hook_lightReplyLayout(id self, SEL _cmd){
                 }
             }@catch(NSException *e){}
         });
+    }@catch(NSException *e){}
+}
+// [调试] hook互动标签AWEIMUserInteractionLabel: dump文字/帧/是否有图片, 确认它是不是白色拐弯箭头
+static void hook_uiLabelLayout(id self, SEL _cmd){
+    orig_uiLabelLayout(self,_cmd);
+    @try{
+        UIView *v=(UIView*)self;
+        NSString *txt=@"";
+        if([v respondsToSelector:@selector(text)]) txt=[v performSelector:@selector(text)];
+        if([v respondsToSelector:@selector(attributedText)] && [v performSelector:@selector(attributedText)])
+            txt=[NSString stringWithFormat:@"%@|attr=%@",txt,[[v performSelector:@selector(attributedText)] string]];
+        BOOL hasImg=NO;
+        for(UIView *ss in v.subviews){ if([ss isKindOfClass:[UIImageView class]]) hasImg=YES; }
+        UIView *cell=nil; UIView *p=v;
+        while(p){ if(fabs(p.bounds.size.width-402)<1 && fabs(p.bounds.size.height-160)<1){ cell=p; break; } p=p.superview; }
+        NSString *info=[NSString stringWithFormat:@"[互动标签] %@ frame=%@ txt='%@' img=%d hidden=%d alpha=%.2f%@",
+            NSStringFromClass([v class]), NSStringFromCGRect(v.frame), txt, hasImg, v.hidden, v.alpha, cell?@"":@"(无402x160cell)"];
+        NSLog(@"[UIOL]\n%@",info);
+        UIWindow *w=v.window;
+        if(!w) w=[[[UIApplication sharedApplication] windows] lastObject];
+        if(w){
+            if(!g_dumpLbl){ g_dumpLbl=[[UILabel alloc]init]; g_dumpLbl.backgroundColor=[UIColor colorWithWhite:0 alpha:0.85]; g_dumpLbl.textColor=[UIColor whiteColor]; g_dumpLbl.font=[UIFont monospacedSystemFontOfSize:10 weight:UIFontWeightBold]; g_dumpLbl.numberOfLines=0; g_dumpLbl.layer.zPosition=100000; [w addSubview:g_dumpLbl]; }
+            g_dumpLbl.text=info;
+            CGSize sz=[g_dumpLbl sizeThatFits:CGSizeMake(w.bounds.size.width-8,1500)];
+            g_dumpLbl.frame=CGRectMake(0,40,w.bounds.size.width,sz.height+4);
+        }
     }@catch(NSException *e){}
 }
 
