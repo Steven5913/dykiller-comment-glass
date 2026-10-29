@@ -573,7 +573,7 @@ __attribute__((unused)) static void DKApplyGlassToCap(UIView *panel){
         if (objc_getAssociatedObject(sl,&kDKGlassGradKey)) [sl removeFromSuperlayer];
     UIVisualEffect *eff=DKBubbleGlassEffect(); if(!eff) return;
     panel.clipsToBounds=YES;
-    CGFloat radius=MIN(panel.bounds.size.width,panel.bounds.size.height)*0.45f;
+    CGFloat radius=MIN(panel.bounds.size.width,panel.bounds.size.height)*0.30f;
     if (radius>26) radius=26;
     if (radius<10) radius=10;
     panel.layer.cornerRadius=radius;
