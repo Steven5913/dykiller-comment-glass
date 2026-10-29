@@ -558,8 +558,8 @@ static void DKApplyGlassToPanel(UIView *panel){
     panel.layer.borderColor=[UIColor colorWithWhite:1.0 alpha:0.25].CGColor;
     panel.layer.borderWidth=0.5;
 }
-// 胶囊玻璃(快捷回复表情小胶囊)：ultraThin模糊 + 淡白高光(0.06)增强玻璃质感、不遮文字图标
-__attribute__((unused)) static void DKApplyGlassToCap(UIView *panel){
+// 胶囊玻璃(快捷回复表情小胶囊/回个心互动按钮)：ultraThin模糊 + 淡白高光(0.06)增强玻璃质感、不遮文字图标；halfH=YES 圆角按高度一半
+__attribute__((unused)) static void DKApplyGlassToCap(UIView *panel, BOOL halfH){
     if (!panel) return;
     if (panel.bounds.size.width<10 || panel.bounds.size.height<10) return;
     // 只清胶囊自身背景，绝不动子视图(图标/文字)
@@ -573,7 +573,7 @@ __attribute__((unused)) static void DKApplyGlassToCap(UIView *panel){
         if (objc_getAssociatedObject(sl,&kDKGlassGradKey)) [sl removeFromSuperlayer];
     UIVisualEffect *eff=DKBubbleGlassEffect(); if(!eff) return;
     panel.clipsToBounds=YES;
-    CGFloat radius=MIN(panel.bounds.size.width,panel.bounds.size.height)*0.30f;
+    CGFloat radius = halfH ? (panel.bounds.size.height*0.5f) : (MIN(panel.bounds.size.width,panel.bounds.size.height)*0.30f);
     if (radius>26) radius=26;
     if (radius<10) radius=10;
     panel.layer.cornerRadius=radius;
@@ -817,16 +817,46 @@ static void DKInstallBubbleHooks(void){
     }
 }
 
+// [调试] dump回个心按钮及父链子视图+layer子层，定位"拐弯箭头"弧形装饰线容器
+__attribute__((unused)) static void DKFindReplyStructure(UIView *btn, UIWindow *win){
+    if(!btn||!win) return;
+    NSMutableArray *lines=[NSMutableArray array];
+    UIView *v=btn;
+    for(int d=0; d<4 && v; d++){
+        NSMutableString *ln=[NSMutableString stringWithFormat:@"L%d %@ %.0fx%.0f 子视图:", d, NSStringFromClass([v class]), v.bounds.size.width, v.bounds.size.height];
+        for(UIView *s in v.subviews)
+            [ln appendFormat:@" %@%.0fx%.0f", NSStringFromClass([s class]), s.bounds.size.width, s.bounds.size.height];
+        [lines addObject:ln];
+        NSMutableString *ll=[NSMutableString stringWithFormat:@"   layer子层:"];
+        for(CALayer *sl in v.layer.sublayers)
+            [ll appendFormat:@" %@(%.0fx%.0f)", NSStringFromClass([sl class]), sl.bounds.size.width, sl.bounds.size.height];
+        [lines addObject:ll];
+        v=v.superview;
+    }
+    NSString *tree=[lines componentsJoinedByString:@"\n"];
+    if([g_cvlast isEqualToString:tree]) return; g_cvlast=tree;
+    NSLog(@"[DKReplyStruct]\n%@",tree);
+    if(!g_cv){ g_cv=[[UILabel alloc]init]; g_cv.backgroundColor=[UIColor colorWithWhite:0 alpha:0.85]; g_cv.textColor=[UIColor whiteColor]; g_cv.font=[UIFont monospacedSystemFontOfSize:9 weight:UIFontWeightBold]; g_cv.numberOfLines=0; g_cv.layer.zPosition=100000; [win addSubview:g_cv]; }
+    g_cv.text=tree;
+    CGSize sz=[g_cv sizeThatFits:CGSizeMake(win.bounds.size.width-8,1500)];
+    g_cv.frame=CGRectMake(0,40,win.bounds.size.width,sz.height+4);
+}
 static void hook_lightReplyLayout(id self, SEL _cmd){
     orig_lightReplyLayout(self,_cmd);
     @try{
         // 只清按钮自身背景 + 套玻璃，不动子视图(表情/文字/弧形装饰线)
         [(UIView*)self setBackgroundColor:[UIColor clearColor]];
         ((UIView*)self).layer.backgroundColor=[UIColor clearColor].CGColor;
-        DKApplyGlassToCap(self);
+        DKApplyGlassToCap(self, YES);
         __weak UIView *ws=self;
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW,(int64_t)(0.3*NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-            @try{ if(ws) DKApplyGlassToCap(ws); }@catch(NSException *e){}
+            @try{
+                if(ws){
+                    DKApplyGlassToCap(ws, YES);
+                    UIView *rw=ws.window;
+                    if(rw) DKFindReplyStructure(ws, rw);
+                }
+            }@catch(NSException *e){}
         });
     }@catch(NSException *e){}
 }
@@ -877,7 +907,7 @@ static void hook_cardBelowEmojiLayout(id self, SEL _cmd){
                     // 只清胶囊自身背景 + 套玻璃，子视图(图标/文字)完全不动
                     cap.backgroundColor=[UIColor clearColor];
                     cap.layer.backgroundColor=[UIColor clearColor].CGColor;
-                    DKApplyGlassToCap(cap);
+                    DKApplyGlassToCap(cap, NO);
                 }@catch(NSException *e){}
             }
         }
@@ -888,7 +918,7 @@ static void hook_cardBelowEmojiLayout(id self, SEL _cmd){
                 // 延迟只保证每个胶囊玻璃存在(防重复)，不再递归清背景(避免清掉玻璃/文字)
                 for(UIView *cap in [(UIView*)ws subviews]){
                     if(cap.bounds.size.width>=40 && cap.bounds.size.height>=40){
-                        @try{ DKApplyGlassToCap(cap); }@catch(NSException *e){}
+                        @try{ DKApplyGlassToCap(cap, NO); }@catch(NSException *e){}
                     }
                 }
             }@catch(NSException *e){}
