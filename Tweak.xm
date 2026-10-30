@@ -612,8 +612,8 @@ static void hook_pendantGroupLayout(id self, SEL _cmd);
 static void (*orig_pendantEmojiLayout)(id,SEL);
 static void hook_pendantEmojiLayout(id self, SEL _cmd);
 static UILabel *g_dumpLbl=nil;
-static void (*orig_tabBarLayout)(id,SEL);
-static void hook_tabBarLayout(id self, SEL _cmd);
+static void (*orig_anyLayout)(id,SEL);
+static void hook_anyLayout(id self, SEL _cmd);
 static void DKInstallBubbleHooks(void){
     Class bubble = NSClassFromString(@"AWEIMMessageBubbleGradientView");
     if (bubble && !orig_bubbleLayoutSubviews) {
@@ -662,10 +662,9 @@ static void DKInstallBubbleHooks(void){
     if (emCls && !orig_pendantEmojiLayout) {
         MSHookMessageEx(emCls, sel_registerName("layoutSubviews"), (IMP)hook_pendantEmojiLayout, (IMP*)&orig_pendantEmojiLayout);
     }
-    // 隐藏抖音底栏顶部1px黑线layer(40.9.0 修复)
-    Class tbc = NSClassFromString(@"AWENormalModeTabBarBlurView");
-    if (tbc && !orig_tabBarLayout) {
-        MSHookMessageEx(tbc, sel_registerName("layoutSubviews"), (IMP)hook_tabBarLayout, (IMP*)&orig_tabBarLayout);
+    // 隐藏抖音底栏顶部1px黑线layer(40.9.0 修复) - 通用hook所有UIView触发
+    if (!orig_anyLayout) {
+        MSHookMessageEx([UIView class], sel_registerName("layoutSubviews"), (IMP)hook_anyLayout, (IMP*)&orig_anyLayout);
     }
 }
 
@@ -736,40 +735,49 @@ static void showDumpLbl(UIView *v, NSString *tree){
     g_dumpLbl.frame=CGRectMake(0,30,w.bounds.size.width,MIN(sz.height+4,w.bounds.size.height-40));
 }
 // 隐藏抖音底栏顶部1px全宽黑线layer(40.9.0修复)
-static void hook_tabBarLayout(id self, SEL _cmd){
-    orig_tabBarLayout(self,_cmd);
-    static CFAbsoluteTime last=0;
-    CFAbsoluteTime now=CFAbsoluteTimeGetCurrent();
-    if(now-last<1.0) return; last=now;
+// 通用hook: 节流扫描并清除抖音底栏顶部1px全宽黑线layer(40.9.0修复)
+static void hook_anyLayout(id self, SEL _cmd){
+    orig_anyLayout(self,_cmd);
     @try{
-        UIView *bar=(UIView*)self;
-        UIWindow *w=bar.window; if(!w) w=[[[UIApplication sharedApplication] windows] lastObject];
+        static CFAbsoluteTime last=0;
+        CFAbsoluteTime now=CFAbsoluteTimeGetCurrent();
+        if(now-last<1.5) return; last=now;
+        UIWindow *w=[self window]; if(!w) w=[[[UIApplication sharedApplication] windows] lastObject];
         if(!w) return;
+        // 动态定位底栏 AWENormalModeTabBarBlurView
+        __block UIView *bar=nil;
+        __block __weak void (^fv)(UIView*);
+        void (^bf)(UIView*)=^(UIView*v){
+            if(bar) return;
+            NSString *cn=NSStringFromClass([v class])?:@"";
+            if([cn hasPrefix:@"AWENormalModeTabBarBlurView"]){ bar=v; return; }
+            for(UIView *s in v.subviews) bf(s);
+        };
+        fv=bf;
+        bf(w);
+        if(!bar) return;
         CGRect barAbs=[bar.superview convertRect:bar.frame toView:w];
         CGFloat topY=barAbs.origin.y;
         if(topY<60) return;
+        // 扫描window layer树, 清除底栏顶部那条全宽细条layer
         __block int hidden=0;
-        __block __weak void (^wscan)(CALayer*,UIView*,int);
-        void (^blk)(CALayer*,UIView*,int)=^(CALayer *ln, UIView *host, int d){
+        __block __weak void (^wscan)(CALayer*,int);
+        void (^blk)(CALayer*,int)=^(CALayer *ln, int d){
             if(!ln||d>14||hidden>12) return;
-            CGRect abs=[host.layer convertRect:ln.frame toLayer:w.layer];
-            // 底栏顶部那条全宽细条layer(黑线)
+            CGRect abs=[ln.superlayer convertRect:ln.frame toLayer:w.layer];
             if(abs.origin.y>=topY-3.0 && abs.origin.y<topY-0.1 && abs.size.width>=380 && abs.size.height<=2.5){
                 ln.opacity=0.0f;
                 ln.backgroundColor=[UIColor clearColor].CGColor;
                 hidden++;
             }
-            for(CALayer *sl in ln.sublayers) wscan(sl,host,d+1);
+            for(CALayer *sl in ln.sublayers) wscan(sl,d+1);
         };
         wscan=blk;
-        UIView *root=bar;
-        while(root.superview && ![root.superview isKindOfClass:[UIWindow class]]) root=root.superview;
-        wscan(root.layer,root,0);
-        for(UIView *sv in root.subviews) wscan(sv.layer,sv,0);
+        wscan(w.layer,0);
         if(hidden>0){
             NSString *msg=[NSString stringWithFormat:@"[黑线清除] hidden=%d topY=%.1f",hidden,topY];
             NSLog(@"%@",msg);
-            showDumpLbl(bar,msg);
+            showDumpLbl((UIView*)self,msg);
         }
     }@catch(NSException *e){}
 }
