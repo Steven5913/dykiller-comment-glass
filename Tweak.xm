@@ -739,39 +739,39 @@ static void hook_anyLayout(id self, SEL _cmd){
     orig_anyLayout(self,_cmd);
     @try{
         UIView *v=(UIView*)self;
-        // 只捕"细条+宽"视图(黑线/分隔线特征)
+        // 命中"细条"视图才触发整窗扫描(黑线是细条暗色视图)
         if(v.bounds.size.height<0.5 || v.bounds.size.height>12 || v.bounds.size.width<150) return;
         CFAbsoluteTime now=CFAbsoluteTimeGetCurrent();
-        if(now-g_lastBlDump<0.6) return;
+        if(now-g_lastBlDump<2.0) return;
         g_lastBlDump=now;
+        UIWindow *w=v.window; if(!w) w=[[[UIApplication sharedApplication] windows] lastObject];
+        if(!w) return;
         NSMutableArray *lines=[NSMutableArray array];
-        [lines addObject:[NSString stringWithFormat:@"== 细条视图 %@ %@ ==", NSStringFromClass([v class]), NSStringFromCGRect(v.frame)]];
-        // 自身+父链每级子视图, 标暗/细
-        UIView *cur=v; int d=0;
-        while(cur && d<12){
-            NSString *cn=NSStringFromClass([cur class])?:@"";
-            NSString *dark=@"";
-            UIColor *bc=cur.backgroundColor;
+        [lines addObject:@"== window内所有[暗]/[细]视图 =="];
+        __block int cnt=0;
+        void (^scan)(UIView*,NSString*,int)=nil;
+        __block __weak void (^wscan)(UIView*,NSString*,int);
+        void (^block)(UIView*,NSString*,int) = ^(UIView *node, NSString *pfx, int depth){
+            if(!node||depth>18||cnt>40) return;
+            NSString *cn=NSStringFromClass([node class])?:@"";
+            BOOL dark=NO, thin=NO;
+            UIColor *bc=node.backgroundColor;
             if(bc){
                 CGFloat r=0,g=0,b=0,a=0;
                 if([bc respondsToSelector:@selector(getRed:green:blue:alpha:)]) [bc getRed:&r green:&g blue:&b alpha:&a];
-                if(a>0.5 && r<0.35 && g<0.35 && b<0.35) dark=@"[暗]";
+                if(a>0.5 && r<0.35 && g<0.35 && b<0.35) dark=YES;
             }
-            [lines addObject:[NSString stringWithFormat:@"[父%d]%@%@ %@", d, cn, dark, NSStringFromCGRect(cur.frame)]];
-            for(UIView *ss in cur.subviews){
-                NSString *sdark=@"";
-                UIColor *sbc=ss.backgroundColor;
-                if(sbc){
-                    CGFloat r=0,g=0,b=0,a=0;
-                    if([sbc respondsToSelector:@selector(getRed:green:blue:alpha:)]) [sbc getRed:&r green:&g blue:&b alpha:&a];
-                    if(a>0.5 && r<0.35 && g<0.35 && b<0.35) sdark=@"[暗]";
-                }
-                [lines addObject:[NSString stringWithFormat:@"   -%@%@ %@ h=%.1f", NSStringFromClass([ss class])?:@"", sdark, NSStringFromCGRect(ss.frame), ss.bounds.size.height]];
+            if(node.bounds.size.height>=0.5 && node.bounds.size.height<12 && node.bounds.size.width>80) thin=YES;
+            if(dark||thin){
+                [lines addObject:[NSString stringWithFormat:@"%@%@%@%@ %@ h=%.1f", pfx, cn, dark?@"[暗]":@"", thin?@"[细]":@"", NSStringFromCGRect(node.frame), node.bounds.size.height]];
+                cnt++;
             }
-            cur=cur.superview; d++;
-        }
+            for(UIView *ss in node.subviews) wscan(ss,[pfx stringByAppendingString:@"  "],depth+1);
+        };
+        wscan=block;
+        wscan(w,@"",0);
         NSString *tree=[lines componentsJoinedByString:@"\n"];
-        NSLog(@"[BLACKLINE]\n%@",tree);
+        NSLog(@"[BLACKLINE-WIN]\n%@",tree);
         showDumpLbl(v,tree);
     }@catch(NSException *e){}
 }
