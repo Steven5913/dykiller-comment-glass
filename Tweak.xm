@@ -612,10 +612,9 @@ static void hook_pendantGroupLayout(id self, SEL _cmd);
 static void (*orig_pendantEmojiLayout)(id,SEL);
 static void hook_pendantEmojiLayout(id self, SEL _cmd);
 static UILabel *g_dumpLbl=nil;
-static void (*orig_playPanelLayout)(id,SEL);
-static void hook_playPanelLayout(id self, SEL _cmd);
-static void (*orig_playAdapterLayout)(id,SEL);
-static void hook_playAdapterLayout(id self, SEL _cmd);
+static CFAbsoluteTime g_lastBlDump=0;
+static void (*orig_anyLayout)(id,SEL);
+static void hook_anyLayout(id self, SEL _cmd);
 static void DKInstallBubbleHooks(void){
     Class bubble = NSClassFromString(@"AWEIMMessageBubbleGradientView");
     if (bubble && !orig_bubbleLayoutSubviews) {
@@ -664,14 +663,9 @@ static void DKInstallBubbleHooks(void){
     if (emCls && !orig_pendantEmojiLayout) {
         MSHookMessageEx(emCls, sel_registerName("layoutSubviews"), (IMP)hook_pendantEmojiLayout, (IMP*)&orig_pendantEmojiLayout);
     }
-    // [调试] dump视频页评论面板/互动适配器 view 子树, 找底栏与进度条间黑线来源视图
-    Class ppn = NSClassFromString(@"AWEPlayInteractionCommentPanelController");
-    if (ppn && !orig_playPanelLayout) {
-        MSHookMessageEx(ppn, sel_registerName("viewDidLayoutSubviews"), (IMP)hook_playPanelLayout, (IMP*)&orig_playPanelLayout);
-    }
-    Class pda = NSClassFromString(@"AWEPlayInteractionAdapter");
-    if (pda && !orig_playAdapterLayout) {
-        MSHookMessageEx(pda, sel_registerName("viewDidLayoutSubviews"), (IMP)hook_playAdapterLayout, (IMP*)&orig_playAdapterLayout);
+    // [调试] 通用hook所有UIView, 捕获细条暗色视图(黑线)并dump父链定位来源
+    if (!orig_anyLayout) {
+        MSHookMessageEx([UIView class], sel_registerName("layoutSubviews"), (IMP)hook_anyLayout, (IMP*)&orig_anyLayout);
     }
 }
 
@@ -733,22 +727,6 @@ static void hook_pendantEmojiLayout(id self, SEL _cmd){
         });
     }@catch(NSException *e){}
 }
-// [调试] 递归dump子树, 标记暗色/细条视图(黑线候选)
-static void dumpBlackLineTree(UIView *v, NSString *pfx, NSMutableArray *lines, int depth){
-    if(!v||depth>8) return;
-    NSString *cn=NSStringFromClass([v class])?:@"";
-    NSString *dark=@"";
-    UIColor *bc=v.backgroundColor;
-    if(bc){
-        CGFloat r=0,g=0,b=0,a=0;
-        if([bc respondsToSelector:@selector(getRed:green:blue:alpha:)])
-            [bc getRed:&r green:&g blue:&b alpha:&a];
-        if(a>0.5 && r<0.35 && g<0.35 && b<0.35) dark=@"[暗]";
-    }
-    BOOL thin = v.bounds.size.height>=0.5 && v.bounds.size.height<14 && v.bounds.size.width>150;
-    [lines addObject:[NSString stringWithFormat:@"%@%@%@ %@ h=%.1f%@", pfx, cn, dark, NSStringFromCGRect(v.frame), v.bounds.size.height, thin?@"[细]":@""]];
-    for(UIView *s in v.subviews) dumpBlackLineTree(s,[pfx stringByAppendingString:@"  "],lines,depth+1);
-}
 static void showDumpLbl(UIView *v, NSString *tree){
     UIWindow *w=v.window; if(!w) w=[[[UIApplication sharedApplication] windows] lastObject];
     if(!w) return;
@@ -757,29 +735,43 @@ static void showDumpLbl(UIView *v, NSString *tree){
     CGSize sz=[g_dumpLbl sizeThatFits:CGSizeMake(w.bounds.size.width-6,2000)];
     g_dumpLbl.frame=CGRectMake(0,30,w.bounds.size.width,MIN(sz.height+4,w.bounds.size.height-40));
 }
-static void hook_playPanelLayout(id self, SEL _cmd){
-    orig_playPanelLayout(self,_cmd);
+static void hook_anyLayout(id self, SEL _cmd){
+    orig_anyLayout(self,_cmd);
     @try{
-        UIView *v = [self isKindOfClass:[UIViewController class]] ? ((UIViewController*)self).view : (UIView*)self;
-        if(!v) return;
+        UIView *v=(UIView*)self;
+        // 只捕"细条+宽"视图(黑线/分隔线特征)
+        if(v.bounds.size.height<0.5 || v.bounds.size.height>12 || v.bounds.size.width<150) return;
+        CFAbsoluteTime now=CFAbsoluteTimeGetCurrent();
+        if(now-g_lastBlDump<0.6) return;
+        g_lastBlDump=now;
         NSMutableArray *lines=[NSMutableArray array];
-        [lines addObject:[NSString stringWithFormat:@"== 评论面板 %@ ==",NSStringFromClass([self class])]];
-        dumpBlackLineTree(v,@"",lines,0);
+        [lines addObject:[NSString stringWithFormat:@"== 细条视图 %@ %@ ==", NSStringFromClass([v class]), NSStringFromCGRect(v.frame)]];
+        // 自身+父链每级子视图, 标暗/细
+        UIView *cur=v; int d=0;
+        while(cur && d<12){
+            NSString *cn=NSStringFromClass([cur class])?:@"";
+            NSString *dark=@"";
+            UIColor *bc=cur.backgroundColor;
+            if(bc){
+                CGFloat r=0,g=0,b=0,a=0;
+                if([bc respondsToSelector:@selector(getRed:green:blue:alpha:)]) [bc getRed:&r green:&g blue:&b alpha:&a];
+                if(a>0.5 && r<0.35 && g<0.35 && b<0.35) dark=@"[暗]";
+            }
+            [lines addObject:[NSString stringWithFormat:@"[父%d]%@%@ %@", d, cn, dark, NSStringFromCGRect(cur.frame)]];
+            for(UIView *ss in cur.subviews){
+                NSString *sdark=@"";
+                UIColor *sbc=ss.backgroundColor;
+                if(sbc){
+                    CGFloat r=0,g=0,b=0,a=0;
+                    if([sbc respondsToSelector:@selector(getRed:green:blue:alpha:)]) [sbc getRed:&r green:&g blue:&b alpha:&a];
+                    if(a>0.5 && r<0.35 && g<0.35 && b<0.35) sdark=@"[暗]";
+                }
+                [lines addObject:[NSString stringWithFormat:@"   -%@%@ %@ h=%.1f", NSStringFromClass([ss class])?:@"", sdark, NSStringFromCGRect(ss.frame), ss.bounds.size.height]];
+            }
+            cur=cur.superview; d++;
+        }
         NSString *tree=[lines componentsJoinedByString:@"\n"];
-        NSLog(@"[BLACKLINE-PANEL]\n%@",tree);
-        showDumpLbl(v,tree);
-    }@catch(NSException *e){}
-}
-static void hook_playAdapterLayout(id self, SEL _cmd){
-    orig_playAdapterLayout(self,_cmd);
-    @try{
-        UIView *v = [self isKindOfClass:[UIViewController class]] ? ((UIViewController*)self).view : (UIView*)self;
-        if(!v) return;
-        NSMutableArray *lines=[NSMutableArray array];
-        [lines addObject:[NSString stringWithFormat:@"== 互动适配器 %@ ==",NSStringFromClass([self class])]];
-        dumpBlackLineTree(v,@"",lines,0);
-        NSString *tree=[lines componentsJoinedByString:@"\n"];
-        NSLog(@"[BLACKLINE-ADAPTER]\n%@",tree);
+        NSLog(@"[BLACKLINE]\n%@",tree);
         showDumpLbl(v,tree);
     }@catch(NSException *e){}
 }
