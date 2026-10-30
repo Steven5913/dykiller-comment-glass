@@ -735,23 +735,21 @@ static void showDumpLbl(UIView *v, NSString *tree){
     g_dumpLbl.frame=CGRectMake(0,30,w.bounds.size.width,MIN(sz.height+4,w.bounds.size.height-40));
 }
 // 隐藏抖音底栏顶部1px全宽黑线layer(40.9.0修复)
-// 通用hook: 节流扫描并清除抖音底栏顶部1px全宽黑线layer(40.9.0修复)
-static void hook_anyLayout(id self, SEL _cmd){
-    orig_anyLayout(self,_cmd);
+// 异步清除抖音底栏顶部1px全宽黑线layer(40.9.0修复, 防layout内遍历崩溃)
+static void DKClearBlackLine(UIView *anchor){
     @try{
-        static CFAbsoluteTime last=0;
-        CFAbsoluteTime now=CFAbsoluteTimeGetCurrent();
-        if(now-last<1.5) return; last=now;
-        UIWindow *w=[self window]; if(!w) w=[[[UIApplication sharedApplication] windows] lastObject];
+        UIWindow *w=anchor.window; if(!w) w=[[[UIApplication sharedApplication] windows] lastObject];
         if(!w) return;
         // 动态定位底栏 AWENormalModeTabBarBlurView
         __block UIView *bar=nil;
         __block __weak void (^fv)(UIView*);
         void (^bf)(UIView*)=^(UIView*v){
-            if(bar) return;
-            NSString *cn=NSStringFromClass([v class])?:@"";
-            if([cn hasPrefix:@"AWENormalModeTabBarBlurView"]){ bar=v; return; }
-            for(UIView *s in v.subviews) bf(s);
+            if(bar||!v) return;
+            @try{
+                NSString *cn=NSStringFromClass([v class])?:@"";
+                if([cn hasPrefix:@"AWENormalModeTabBarBlurView"]){ bar=v; return; }
+                for(UIView *s in v.subviews) bf(s);
+            }@catch(NSException *e){}
         };
         fv=bf;
         bf(w);
@@ -763,22 +761,40 @@ static void hook_anyLayout(id self, SEL _cmd){
         __block int hidden=0;
         __block __weak void (^wscan)(CALayer*,int);
         void (^blk)(CALayer*,int)=^(CALayer *ln, int d){
-            if(!ln||d>14||hidden>12) return;
-            CGRect abs=[ln.superlayer convertRect:ln.frame toLayer:w.layer];
-            if(abs.origin.y>=topY-3.0 && abs.origin.y<topY-0.1 && abs.size.width>=380 && abs.size.height<=2.5){
-                ln.opacity=0.0f;
-                ln.backgroundColor=[UIColor clearColor].CGColor;
-                hidden++;
-            }
-            for(CALayer *sl in ln.sublayers) wscan(sl,d+1);
+            if(!ln||d>15||hidden>12) return;
+            @try{
+                CALayer *sl=ln.superlayer;
+                if(sl){
+                    CGRect abs=[sl convertRect:ln.frame toLayer:w.layer];
+                    if(abs.origin.y>=topY-3.0 && abs.origin.y<topY-0.1 && abs.size.width>=380 && abs.size.height<=2.5){
+                        ln.opacity=0.0f;
+                        ln.backgroundColor=[UIColor clearColor].CGColor;
+                        hidden++;
+                    }
+                }
+                for(CALayer *ss in ln.sublayers) wscan(ss,d+1);
+            }@catch(NSException *e){}
         };
         wscan=blk;
         wscan(w.layer,0);
         if(hidden>0){
             NSString *msg=[NSString stringWithFormat:@"[黑线清除] hidden=%d topY=%.1f",hidden,topY];
             NSLog(@"%@",msg);
-            showDumpLbl((UIView*)self,msg);
+            showDumpLbl(anchor,msg);
         }
+    }@catch(NSException *e){}
+}
+// 通用hook: 仅记录触发时机, 真正清除异步到主队列空闲执行(避免layout内崩溃)
+static void hook_anyLayout(id self, SEL _cmd){
+    orig_anyLayout(self,_cmd);
+    @try{
+        static CFAbsoluteTime last=0;
+        CFAbsoluteTime now=CFAbsoluteTimeGetCurrent();
+        if(now-last<1.5) return; last=now;
+        __weak UIView *wv=(UIView*)self;
+        dispatch_async(dispatch_get_main_queue(), ^{
+            if(wv) DKClearBlackLine(wv);
+        });
     }@catch(NSException *e){}
 }
 // 清面板自身及子树所有背景(深浅都清，保留文字/图标contentLayer)，让玻璃完全透出
