@@ -611,6 +611,11 @@ static void (*orig_pendantGroupLayout)(id,SEL);
 static void hook_pendantGroupLayout(id self, SEL _cmd);
 static void (*orig_pendantEmojiLayout)(id,SEL);
 static void hook_pendantEmojiLayout(id self, SEL _cmd);
+static UILabel *g_dumpLbl=nil;
+static void (*orig_playPanelLayout)(id,SEL);
+static void hook_playPanelLayout(id self, SEL _cmd);
+static void (*orig_playAdapterLayout)(id,SEL);
+static void hook_playAdapterLayout(id self, SEL _cmd);
 static void DKInstallBubbleHooks(void){
     Class bubble = NSClassFromString(@"AWEIMMessageBubbleGradientView");
     if (bubble && !orig_bubbleLayoutSubviews) {
@@ -658,6 +663,15 @@ static void DKInstallBubbleHooks(void){
     Class emCls = NSClassFromString(@"AWEIMMessagePropertyPendantAddMoreEmojiView");
     if (emCls && !orig_pendantEmojiLayout) {
         MSHookMessageEx(emCls, sel_registerName("layoutSubviews"), (IMP)hook_pendantEmojiLayout, (IMP*)&orig_pendantEmojiLayout);
+    }
+    // [调试] dump视频页评论面板/互动适配器子树, 找底栏与进度条间黑线来源视图
+    Class ppn = NSClassFromString(@"AWEPlayInteractionCommentPanelController");
+    if (ppn && !orig_playPanelLayout) {
+        MSHookMessageEx(ppn, sel_registerName("layoutSubviews"), (IMP)hook_playPanelLayout, (IMP*)&orig_playPanelLayout);
+    }
+    Class pda = NSClassFromString(@"AWEPlayInteractionAdapter");
+    if (pda && !orig_playAdapterLayout) {
+        MSHookMessageEx(pda, sel_registerName("layoutSubviews"), (IMP)hook_playAdapterLayout, (IMP*)&orig_playAdapterLayout);
     }
 }
 
@@ -717,6 +731,52 @@ static void hook_pendantEmojiLayout(id self, SEL _cmd){
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW,(int64_t)(0.3*NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
             @try{ if(ws){ DKApplyGlassToCap(ws, NO); } }@catch(NSException *e){}
         });
+    }@catch(NSException *e){}
+}
+// [调试] 递归dump子树, 标记暗色/细条视图(黑线候选)
+static void dumpBlackLineTree(UIView *v, NSString *pfx, NSMutableArray *lines, int depth){
+    if(!v||depth>8) return;
+    NSString *cn=NSStringFromClass([v class])?:@"";
+    NSString *dark=@"";
+    UIColor *bc=v.backgroundColor;
+    if(bc){
+        CGFloat r=0,g=0,b=0,a=0;
+        if([bc respondsToSelector:@selector(getRed:green:blue:alpha:)])
+            [bc getRed:&r green:&g blue:&b alpha:&a];
+        if(a>0.5 && r<0.35 && g<0.35 && b<0.35) dark=@"[暗]";
+    }
+    BOOL thin = v.bounds.size.height>=0.5 && v.bounds.size.height<14 && v.bounds.size.width>150;
+    [lines addObject:[NSString stringWithFormat:@"%@%@%@ %@ h=%.1f%@", pfx, cn, dark, NSStringFromCGRect(v.frame), v.bounds.size.height, thin?@"[细]":@""]];
+    for(UIView *s in v.subviews) dumpBlackLineTree(s,[pfx stringByAppendingString:@"  "],lines,depth+1);
+}
+static void showDumpLbl(UIView *v, NSString *tree){
+    UIWindow *w=v.window; if(!w) w=[[[UIApplication sharedApplication] windows] lastObject];
+    if(!w) return;
+    if(!g_dumpLbl){ g_dumpLbl=[[UILabel alloc]init]; g_dumpLbl.backgroundColor=[UIColor colorWithWhite:0 alpha:0.85]; g_dumpLbl.textColor=[UIColor whiteColor]; g_dumpLbl.font=[UIFont monospacedSystemFontOfSize:7 weight:UIFontWeightBold]; g_dumpLbl.numberOfLines=0; g_dumpLbl.layer.zPosition=100000; [w addSubview:g_dumpLbl]; }
+    g_dumpLbl.text=tree;
+    CGSize sz=[g_dumpLbl sizeThatFits:CGSizeMake(w.bounds.size.width-6,2000)];
+    g_dumpLbl.frame=CGRectMake(0,30,w.bounds.size.width,MIN(sz.height+4,w.bounds.size.height-40));
+}
+static void hook_playPanelLayout(id self, SEL _cmd){
+    orig_playPanelLayout(self,_cmd);
+    @try{
+        NSMutableArray *lines=[NSMutableArray array];
+        [lines addObject:[NSString stringWithFormat:@"== 评论面板 %@ ==",NSStringFromClass([self class])]];
+        dumpBlackLineTree((UIView*)self,@"",lines,0);
+        NSString *tree=[lines componentsJoinedByString:@"\n"];
+        NSLog(@"[BLACKLINE-PANEL]\n%@",tree);
+        showDumpLbl((UIView*)self,tree);
+    }@catch(NSException *e){}
+}
+static void hook_playAdapterLayout(id self, SEL _cmd){
+    orig_playAdapterLayout(self,_cmd);
+    @try{
+        NSMutableArray *lines=[NSMutableArray array];
+        [lines addObject:[NSString stringWithFormat:@"== 互动适配器 %@ ==",NSStringFromClass([self class])]];
+        dumpBlackLineTree((UIView*)self,@"",lines,0);
+        NSString *tree=[lines componentsJoinedByString:@"\n"];
+        NSLog(@"[BLACKLINE-ADAPTER]\n%@",tree);
+        showDumpLbl((UIView*)self,tree);
     }@catch(NSException *e){}
 }
 // 清面板自身及子树所有背景(深浅都清，保留文字/图标contentLayer)，让玻璃完全透出
