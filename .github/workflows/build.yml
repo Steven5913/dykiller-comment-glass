@@ -6,7 +6,7 @@ on:
 
 jobs:
   build:
-    runs-on: macos-14
+    runs-on: ubuntu-latest
     env:
       THEOS: ${{ github.workspace }}/theos
 
@@ -14,22 +14,29 @@ jobs:
       - name: Checkout 工程
         uses: actions/checkout@v4
 
-      - name: 安装 Theos
+      - name: 安装依赖与 Theos (Linux 交叉编译)
         run: |
+          sudo apt-get update
+          sudo apt-get install -y clang build-essential ldid curl xz-utils
           git clone --depth=1 https://github.com/theos/theos "$THEOS"
-          # 拉取 vendor（libsubstrate 等链接库）
           git -C "$THEOS" submodule update --init --depth 1 vendor || true
           (cd "$THEOS/vendor" && git submodule update --init --depth 1) || true
-          # ldid：Theos 签名 dylib 必需
-          brew install ldid || true
-          # 使用 macOS runner 自带 Xcode 的 iOS SDK，避免下载几 GB 的 theos/sdks
-          echo "SYSROOT=$(xcrun --sdk iphoneos --show-sdk-path)" >> "$GITHUB_ENV"
-          echo "SDKVERSION=$(xcrun --sdk iphoneos --show-sdk-version)" >> "$GITHUB_ENV"
-          which ldid || echo "ldid 仍未找到"
+          # 下载 iPhoneOS SDK (含 arm64e)。theos/sdks release 的 asset 名形如 iPhoneOS<ver>.sdk.tar.xz
+          mkdir -p "$THEOS/sdks"
+          cd "$THEOS/sdks"
+          RELEASE=$(curl -fsSL https://api.github.com/repos/theos/sdks/releases/latest | grep -oE 'iPhoneOS[0-9]+\\.[0-9]+\\.sdk\\.tar\\.xz' | head -1)
+          echo "SDK_ASSET=$RELEASE"
+          curl -fsSL -o sdk.tar.xz "https://github.com/theos/sdks/releases/latest/download/$RELEASE"
+          ls -la
+          tar -xf sdk.tar.xz || true
+          echo "===== sdks ====="
+          ls "$THEOS/sdks"
 
       - name: 编译（生成 arm64e dylib）
         run: |
           export PATH="$THEOS/bin:$PATH"
+          export SDKVERSION=$(ls "$THEOS/sdks" | grep -oE '[0-9]+\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)' | head -1)
+          echo "SDK=$SDKVERSION"
           make clean || true
           make
           echo "===== 产物 ====="
@@ -38,14 +45,8 @@ jobs:
       - name: 收集产物
         run: |
           mkdir -p out/arm64e out/arm64
-          # 单独收集各架构切片
           cp .theos/obj/debug/arm64e/ForceDYKillerPrefs.dylib out/arm64e/ 2>/dev/null || true
           cp .theos/obj/debug/arm64/ForceDYKillerPrefs.dylib  out/arm64/  2>/dev/null || true
-          # lipo 合并成 fat（arm64 + arm64e）
-          lipo -create \
-              .theos/obj/debug/arm64/ForceDYKillerPrefs.dylib \
-              .theos/obj/debug/arm64e/ForceDYKillerPrefs.dylib \
-              -output out/ForceDYKillerPrefs-fat.dylib 2>/dev/null || true
           echo "===== 产物 ====="
           find out -type f -exec file {} \;
 
