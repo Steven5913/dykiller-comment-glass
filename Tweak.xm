@@ -612,9 +612,8 @@ static void hook_pendantGroupLayout(id self, SEL _cmd);
 static void (*orig_pendantEmojiLayout)(id,SEL);
 static void hook_pendantEmojiLayout(id self, SEL _cmd);
 static UILabel *g_dumpLbl=nil;
-static CFAbsoluteTime g_lastBlDump=0;
-static void (*orig_anyLayout)(id,SEL);
-static void hook_anyLayout(id self, SEL _cmd);
+static void (*orig_tabBarLayout)(id,SEL);
+static void hook_tabBarLayout(id self, SEL _cmd);
 static void DKInstallBubbleHooks(void){
     Class bubble = NSClassFromString(@"AWEIMMessageBubbleGradientView");
     if (bubble && !orig_bubbleLayoutSubviews) {
@@ -663,9 +662,10 @@ static void DKInstallBubbleHooks(void){
     if (emCls && !orig_pendantEmojiLayout) {
         MSHookMessageEx(emCls, sel_registerName("layoutSubviews"), (IMP)hook_pendantEmojiLayout, (IMP*)&orig_pendantEmojiLayout);
     }
-    // [调试] 通用hook所有UIView, 捕获细条暗色视图(黑线)并dump父链定位来源
-    if (!orig_anyLayout) {
-        MSHookMessageEx([UIView class], sel_registerName("layoutSubviews"), (IMP)hook_anyLayout, (IMP*)&orig_anyLayout);
+    // 隐藏抖音底栏顶部1px黑线layer(40.9.0 修复)
+    Class tbc = NSClassFromString(@"AWENormalModeTabBarBlurView");
+    if (tbc && !orig_tabBarLayout) {
+        MSHookMessageEx(tbc, sel_registerName("layoutSubviews"), (IMP)hook_tabBarLayout, (IMP*)&orig_tabBarLayout);
     }
 }
 
@@ -735,55 +735,42 @@ static void showDumpLbl(UIView *v, NSString *tree){
     CGSize sz=[g_dumpLbl sizeThatFits:CGSizeMake(w.bounds.size.width-6,2000)];
     g_dumpLbl.frame=CGRectMake(0,30,w.bounds.size.width,MIN(sz.height+4,w.bounds.size.height-40));
 }
-static void hook_anyLayout(id self, SEL _cmd){
-    orig_anyLayout(self,_cmd);
+// 隐藏抖音底栏顶部1px全宽黑线layer(40.9.0修复)
+static void hook_tabBarLayout(id self, SEL _cmd){
+    orig_tabBarLayout(self,_cmd);
+    static CFAbsoluteTime last=0;
+    CFAbsoluteTime now=CFAbsoluteTimeGetCurrent();
+    if(now-last<1.0) return; last=now;
     @try{
-        UIView *v=(UIView*)self;
-        // 命中"细条"视图才触发整窗扫描(黑线是细条暗色视图)
-        if(v.bounds.size.height<0.5 || v.bounds.size.height>12 || v.bounds.size.width<150) return;
-        CFAbsoluteTime now=CFAbsoluteTimeGetCurrent();
-        if(now-g_lastBlDump<2.0) return;
-        g_lastBlDump=now;
-        UIWindow *w=v.window; if(!w) w=[[[UIApplication sharedApplication] windows] lastObject];
+        UIView *bar=(UIView*)self;
+        UIWindow *w=bar.window; if(!w) w=[[[UIApplication sharedApplication] windows] lastObject];
         if(!w) return;
-        NSMutableArray *lines=[NSMutableArray array];
-        [lines addObject:@"== window [暗]view + [细]layer =="];
-        __block int cnt=0;
-        __block __weak void (^wscan)(UIView*,NSString*,int);
-        __block __weak void (^lscan)(CALayer*,UIView*,NSString*,int);
-        void (^lblock)(CALayer*,UIView*,NSString*,int) = ^(CALayer *ln, UIView *ref, NSString *pfx, int depth){
-            if(!ln||depth>12||cnt>70) return;
-            // 细条暗色 layer(黑线候选)
-            if(ln.bounds.size.height>=0.5 && ln.bounds.size.height<12 && ln.bounds.size.width>80){
-                CGRect abs = [ref.layer convertRect:ln.frame toLayer:w.layer];
-                [lines addObject:[NSString stringWithFormat:@"%@[L]%@ h=%.1f abs=%@ in %@ rel=%@", pfx, NSStringFromClass([ln class])?:@"?", ln.bounds.size.height, NSStringFromCGRect(abs), NSStringFromClass([ref class])?:@"?", NSStringFromCGRect(ln.frame)]];
-                cnt++;
+        CGRect barAbs=[bar.superview convertRect:bar.frame toView:w];
+        CGFloat topY=barAbs.origin.y;
+        if(topY<60) return;
+        __block int hidden=0;
+        __block __weak void (^wscan)(CALayer*,UIView*,int);
+        void (^blk)(CALayer*,UIView*,int)=^(CALayer *ln, UIView *host, int d){
+            if(!ln||d>14||hidden>12) return;
+            CGRect abs=[host.layer convertRect:ln.frame toLayer:w.layer];
+            // 底栏顶部那条全宽细条layer(黑线)
+            if(abs.origin.y>=topY-3.0 && abs.origin.y<topY-0.1 && abs.size.width>=380 && abs.size.height<=2.5){
+                ln.opacity=0.0f;
+                ln.backgroundColor=[UIColor clearColor].CGColor;
+                hidden++;
             }
-            for(CALayer *sl in ln.sublayers) lscan(sl,ref,[pfx stringByAppendingString:@"  "],depth+1);
+            for(CALayer *sl in ln.sublayers) wscan(sl,host,d+1);
         };
-        void (^block)(UIView*,NSString*,int) = ^(UIView *node, NSString *pfx, int depth){
-            if(!node||depth>18||cnt>70) return;
-            NSString *cn=NSStringFromClass([node class])?:@"";
-            BOOL dark=NO;
-            UIColor *bc=node.backgroundColor;
-            if(bc){
-                CGFloat r=0,g=0,b=0,a=0;
-                if([bc respondsToSelector:@selector(getRed:green:blue:alpha:)]) [bc getRed:&r green:&g blue:&b alpha:&a];
-                if(a>0.5 && r<0.35 && g<0.35 && b<0.35) dark=YES;
-            }
-            if(dark){
-                CGRect abs=[node.superview convertRect:node.frame toView:w];
-                [lines addObject:[NSString stringWithFormat:@"%@[V]%@ %@", pfx, cn, NSStringFromCGRect(abs)]];
-                cnt++;
-            }
-            lblock(node.layer,node,[pfx stringByAppendingString:@"  "],0);
-            for(UIView *ss in node.subviews) wscan(ss,[pfx stringByAppendingString:@"  "],depth+1);
-        };
-        wscan=block; lscan=lblock;
-        wscan(w,@"",0);
-        NSString *tree=[lines componentsJoinedByString:@"\n"];
-        NSLog(@"[BLACKLINE-WIN]\n%@",tree);
-        showDumpLbl(v,tree);
+        wscan=blk;
+        UIView *root=bar;
+        while(root.superview && ![root.superview isKindOfClass:[UIWindow class]]) root=root.superview;
+        wscan(root.layer,root,0);
+        for(UIView *sv in root.subviews) wscan(sv.layer,sv,0);
+        if(hidden>0){
+            NSString *msg=[NSString stringWithFormat:@"[黑线清除] hidden=%d topY=%.1f",hidden,topY];
+            NSLog(@"%@",msg);
+            showDumpLbl(bar,msg);
+        }
     }@catch(NSException *e){}
 }
 // 清面板自身及子树所有背景(深浅都清，保留文字/图标contentLayer)，让玻璃完全透出
