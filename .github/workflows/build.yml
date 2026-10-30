@@ -21,25 +21,28 @@ jobs:
           sudo curl -fsSL -o /usr/local/bin/ldid https://github.com/itsnebulalol/ldid/releases/latest/download/ldid_linux_x86_64
           sudo chmod +x /usr/local/bin/ldid
           which ldid || echo "ldid 下载失败"
+          # Theos
           git clone --depth=1 https://github.com/theos/theos "$THEOS"
           git -C "$THEOS" submodule update --init --depth 1 vendor || true
           (cd "$THEOS/vendor" && git submodule update --init --depth 1) || true
-          # 下载 iPhoneOS SDK (含 arm64e)。theos/sdks release 的 asset 名形如 iPhoneOS<ver>.sdk.tar.xz
+          # Linux iOS 交叉工具链 (Theos 官方)
+          mkdir -p "$THEOS/toolchain"
+          curl -fsSL -o /tmp/tc.tar.xz https://github.com/L1ghtmann/llvm-project/releases/latest/download/iOSToolchain-x86_64.tar.xz
+          tar -xf /tmp/tc.tar.xz -C "$THEOS/toolchain"
+          echo "===== toolchain ====="
+          ls "$THEOS/toolchain"
+          ls "$THEOS/toolchain/linux/iphone/bin" 2>/dev/null | head
+          # iPhoneOS SDK 16.5 (支持 arm64e)
           mkdir -p "$THEOS/sdks"
-          cd "$THEOS/sdks"
-          RELEASE=$(curl -fsSL https://api.github.com/repos/theos/sdks/releases/latest | grep -oE 'iPhoneOS[0-9]+\.[0-9]+\.sdk\.tar\.xz' | head -1)
-          echo "SDK_ASSET=$RELEASE"
-          curl -fsSL -o sdk.tar.xz "https://github.com/theos/sdks/releases/latest/download/$RELEASE"
-          ls -la
-          tar -xf sdk.tar.xz || true
+          curl -fsSL -o /tmp/sdk.tar.xz https://github.com/theos/sdks/releases/latest/download/iPhoneOS16.5.sdk.tar.xz
+          tar -xf /tmp/sdk.tar.xz -C "$THEOS/sdks"
           echo "===== sdks ====="
           ls "$THEOS/sdks"
 
       - name: 编译（生成 arm64e dylib）
         run: |
           export PATH="$THEOS/bin:$PATH"
-          export SDKVERSION=$(ls "$THEOS/sdks" | grep -oE '[0-9]+\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)' | head -1)
-          echo "SDK=$SDKVERSION"
+          export SDKVERSION=16.5
           make clean || true
           make
           echo "===== 产物 ====="
