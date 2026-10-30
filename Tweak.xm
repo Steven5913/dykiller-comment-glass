@@ -664,14 +664,14 @@ static void DKInstallBubbleHooks(void){
     if (emCls && !orig_pendantEmojiLayout) {
         MSHookMessageEx(emCls, sel_registerName("layoutSubviews"), (IMP)hook_pendantEmojiLayout, (IMP*)&orig_pendantEmojiLayout);
     }
-    // [调试] dump视频页评论面板/互动适配器子树, 找底栏与进度条间黑线来源视图
+    // [调试] dump视频页评论面板/互动适配器 view 子树, 找底栏与进度条间黑线来源视图
     Class ppn = NSClassFromString(@"AWEPlayInteractionCommentPanelController");
     if (ppn && !orig_playPanelLayout) {
-        MSHookMessageEx(ppn, sel_registerName("layoutSubviews"), (IMP)hook_playPanelLayout, (IMP*)&orig_playPanelLayout);
+        MSHookMessageEx(ppn, sel_registerName("viewDidLayoutSubviews"), (IMP)hook_playPanelLayout, (IMP*)&orig_playPanelLayout);
     }
     Class pda = NSClassFromString(@"AWEPlayInteractionAdapter");
     if (pda && !orig_playAdapterLayout) {
-        MSHookMessageEx(pda, sel_registerName("layoutSubviews"), (IMP)hook_playAdapterLayout, (IMP*)&orig_playAdapterLayout);
+        MSHookMessageEx(pda, sel_registerName("viewDidLayoutSubviews"), (IMP)hook_playAdapterLayout, (IMP*)&orig_playAdapterLayout);
     }
 }
 
@@ -760,23 +760,27 @@ static void showDumpLbl(UIView *v, NSString *tree){
 static void hook_playPanelLayout(id self, SEL _cmd){
     orig_playPanelLayout(self,_cmd);
     @try{
+        UIView *v = [self isKindOfClass:[UIViewController class]] ? ((UIViewController*)self).view : (UIView*)self;
+        if(!v) return;
         NSMutableArray *lines=[NSMutableArray array];
         [lines addObject:[NSString stringWithFormat:@"== 评论面板 %@ ==",NSStringFromClass([self class])]];
-        dumpBlackLineTree((UIView*)self,@"",lines,0);
+        dumpBlackLineTree(v,@"",lines,0);
         NSString *tree=[lines componentsJoinedByString:@"\n"];
         NSLog(@"[BLACKLINE-PANEL]\n%@",tree);
-        showDumpLbl((UIView*)self,tree);
+        showDumpLbl(v,tree);
     }@catch(NSException *e){}
 }
 static void hook_playAdapterLayout(id self, SEL _cmd){
     orig_playAdapterLayout(self,_cmd);
     @try{
+        UIView *v = [self isKindOfClass:[UIViewController class]] ? ((UIViewController*)self).view : (UIView*)self;
+        if(!v) return;
         NSMutableArray *lines=[NSMutableArray array];
         [lines addObject:[NSString stringWithFormat:@"== 互动适配器 %@ ==",NSStringFromClass([self class])]];
-        dumpBlackLineTree((UIView*)self,@"",lines,0);
+        dumpBlackLineTree(v,@"",lines,0);
         NSString *tree=[lines componentsJoinedByString:@"\n"];
         NSLog(@"[BLACKLINE-ADAPTER]\n%@",tree);
-        showDumpLbl((UIView*)self,tree);
+        showDumpLbl(v,tree);
     }@catch(NSException *e){}
 }
 // 清面板自身及子树所有背景(深浅都清，保留文字/图标contentLayer)，让玻璃完全透出
