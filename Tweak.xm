@@ -756,7 +756,7 @@ static void hook_anyLayout(id self, SEL _cmd){
             // 细条暗色 layer(黑线候选)
             if(ln.bounds.size.height>=0.5 && ln.bounds.size.height<12 && ln.bounds.size.width>80){
                 CGRect abs = [ref.layer convertRect:ln.frame toLayer:w.layer];
-                [lines addObject:[NSString stringWithFormat:@"%@[L]%@ h=%.1f abs=%@", pfx, NSStringFromClass([ln class])?:@"?", ln.bounds.size.height, NSStringFromCGRect(abs)]];
+                [lines addObject:[NSString stringWithFormat:@"%@[L]%@ h=%.1f abs=%@ in %@ rel=%@", pfx, NSStringFromClass([ln class])?:@"?", ln.bounds.size.height, NSStringFromCGRect(abs), NSStringFromClass([ref class])?:@"?", NSStringFromCGRect(ln.frame)]];
                 cnt++;
             }
             for(CALayer *sl in ln.sublayers) lscan(sl,ref,[pfx stringByAppendingString:@"  "],depth+1);
