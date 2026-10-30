@@ -749,7 +749,6 @@ static void hook_anyLayout(id self, SEL _cmd){
         NSMutableArray *lines=[NSMutableArray array];
         [lines addObject:@"== window内所有[暗]/[细]视图 =="];
         __block int cnt=0;
-        void (^scan)(UIView*,NSString*,int)=nil;
         __block __weak void (^wscan)(UIView*,NSString*,int);
         void (^block)(UIView*,NSString*,int) = ^(UIView *node, NSString *pfx, int depth){
             if(!node||depth>18||cnt>40) return;
