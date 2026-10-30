@@ -17,7 +17,10 @@ jobs:
       - name: 安装依赖与 Theos (Linux 交叉编译)
         run: |
           sudo apt-get update
-          sudo apt-get install -y clang build-essential ldid curl xz-utils
+          sudo apt-get install -y clang build-essential curl xz-utils
+          sudo curl -fsSL -o /usr/local/bin/ldid https://github.com/itsnebulalol/ldid/releases/latest/download/ldid_linux_x86_64
+          sudo chmod +x /usr/local/bin/ldid
+          which ldid || echo "ldid 下载失败"
           git clone --depth=1 https://github.com/theos/theos "$THEOS"
           git -C "$THEOS" submodule update --init --depth 1 vendor || true
           (cd "$THEOS/vendor" && git submodule update --init --depth 1) || true
