@@ -747,27 +747,39 @@ static void hook_anyLayout(id self, SEL _cmd){
         UIWindow *w=v.window; if(!w) w=[[[UIApplication sharedApplication] windows] lastObject];
         if(!w) return;
         NSMutableArray *lines=[NSMutableArray array];
-        [lines addObject:@"== window内所有[暗]/[细]视图 =="];
+        [lines addObject:@"== window [暗]view + [细]layer =="];
         __block int cnt=0;
         __block __weak void (^wscan)(UIView*,NSString*,int);
+        __block __weak void (^lscan)(CALayer*,UIView*,NSString*,int);
+        void (^lblock)(CALayer*,UIView*,NSString*,int) = ^(CALayer *ln, UIView *ref, NSString *pfx, int depth){
+            if(!ln||depth>12||cnt>70) return;
+            // 细条暗色 layer(黑线候选)
+            if(ln.bounds.size.height>=0.5 && ln.bounds.size.height<12 && ln.bounds.size.width>80){
+                CGRect abs = [ref.layer convertRect:ln.frame toLayer:w.layer];
+                [lines addObject:[NSString stringWithFormat:@"%@[L]%@ h=%.1f abs=%@", pfx, NSStringFromClass([ln class])?:@"?", ln.bounds.size.height, NSStringFromCGRect(abs)]];
+                cnt++;
+            }
+            for(CALayer *sl in ln.sublayers) lscan(sl,ref,[pfx stringByAppendingString:@"  "],depth+1);
+        };
         void (^block)(UIView*,NSString*,int) = ^(UIView *node, NSString *pfx, int depth){
-            if(!node||depth>18||cnt>40) return;
+            if(!node||depth>18||cnt>70) return;
             NSString *cn=NSStringFromClass([node class])?:@"";
-            BOOL dark=NO, thin=NO;
+            BOOL dark=NO;
             UIColor *bc=node.backgroundColor;
             if(bc){
                 CGFloat r=0,g=0,b=0,a=0;
                 if([bc respondsToSelector:@selector(getRed:green:blue:alpha:)]) [bc getRed:&r green:&g blue:&b alpha:&a];
                 if(a>0.5 && r<0.35 && g<0.35 && b<0.35) dark=YES;
             }
-            if(node.bounds.size.height>=0.5 && node.bounds.size.height<12 && node.bounds.size.width>80) thin=YES;
-            if(dark||thin){
-                [lines addObject:[NSString stringWithFormat:@"%@%@%@%@ %@ h=%.1f", pfx, cn, dark?@"[暗]":@"", thin?@"[细]":@"", NSStringFromCGRect(node.frame), node.bounds.size.height]];
+            if(dark){
+                CGRect abs=[node.superview convertRect:node.frame toView:w];
+                [lines addObject:[NSString stringWithFormat:@"%@[V]%@ %@", pfx, cn, NSStringFromCGRect(abs)]];
                 cnt++;
             }
+            lblock(node.layer,node,[pfx stringByAppendingString:@"  "],0);
             for(UIView *ss in node.subviews) wscan(ss,[pfx stringByAppendingString:@"  "],depth+1);
         };
-        wscan=block;
+        wscan=block; lscan=lblock;
         wscan(w,@"",0);
         NSString *tree=[lines componentsJoinedByString:@"\n"];
         NSLog(@"[BLACKLINE-WIN]\n%@",tree);
