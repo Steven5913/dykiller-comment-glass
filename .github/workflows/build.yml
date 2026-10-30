@@ -24,7 +24,7 @@ jobs:
           # 下载 iPhoneOS SDK (含 arm64e)。theos/sdks release 的 asset 名形如 iPhoneOS<ver>.sdk.tar.xz
           mkdir -p "$THEOS/sdks"
           cd "$THEOS/sdks"
-          RELEASE=$(curl -fsSL https://api.github.com/repos/theos/sdks/releases/latest | grep -oE 'iPhoneOS[0-9]+\\.[0-9]+\\.sdk\\.tar\\.xz' | head -1)
+          RELEASE=$(curl -fsSL https://api.github.com/repos/theos/sdks/releases/latest | grep -oE 'iPhoneOS[0-9]+\.[0-9]+\.sdk\.tar\.xz' | head -1)
           echo "SDK_ASSET=$RELEASE"
           curl -fsSL -o sdk.tar.xz "https://github.com/theos/sdks/releases/latest/download/$RELEASE"
           ls -la
@@ -35,7 +35,7 @@ jobs:
       - name: 编译（生成 arm64e dylib）
         run: |
           export PATH="$THEOS/bin:$PATH"
-          export SDKVERSION=$(ls "$THEOS/sdks" | grep -oE '[0-9]+\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)' | head -1)
+          export SDKVERSION=$(ls "$THEOS/sdks" | grep -oE '[0-9]+\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)' | head -1)
           echo "SDK=$SDKVERSION"
           make clean || true
           make
