@@ -620,6 +620,7 @@ static void hook_barMove(id self, SEL _cmd);
 static IMP orig_addDivider=nil;
 static BOOL g_dividerHooked=NO;
 static void hook_addDivider(id self, SEL _cmd, UIView *view, CGFloat y);
+static void DKInstallDividerBlock(void);
 static void DKInstallBubbleHooks(void){
     Class bubble = NSClassFromString(@"AWEIMMessageBubbleGradientView");
     if (bubble && !orig_bubbleLayoutSubviews) {
@@ -676,23 +677,36 @@ static void DKInstallBubbleHooks(void){
         if (!orig_barMove) MSHookMessageEx(barCls, sel_registerName("didMoveToWindow"), (IMP)hook_barMove, (IMP*)&orig_barMove);
     }
     // 源头拦截 siwenjiajia 的 addBottomAreaDividerInView:y: (黑线=它画的底栏顶部1px分隔线)
-    // 遍历稳定类注册表(非view树,安全), 找响应该方法的所有类, 替换实现为空(不画)
+    // 不能构造阶段遍历类(会触发+initialize加载Metal死锁), 延迟到app启动后再做
     if(!g_dividerHooked){
         g_dividerHooked=YES;
-        SEL ds=sel_registerName("addBottomAreaDividerInView:y:");
-        int nc=objc_getClassList(NULL,0);
-        Class *cb=(Class*)malloc(sizeof(Class)*(nc?nc:64));
-        nc=objc_getClassList(cb,(unsigned)nc);
-        for(int i=0;i<nc;i++){
-            if(!cb[i]) continue;
-            Method m=class_getInstanceMethod(cb[i],ds);
-            if(m && (void*)method_getImplementation(m)!=(void*)hook_addDivider){
-                if(!orig_addDivider) orig_addDivider=method_getImplementation(m);
-                method_setImplementation(m,(IMP)hook_addDivider);
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW,(int64_t)(1.5*NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+            DKInstallDividerBlock();
+        });
+    }
+}
+
+// 遍历类表, 拦截 addBottomAreaDividerInView:y: (用class_copyMethodList, 不触发+initialize)
+static void DKInstallDividerBlock(void){
+    SEL ds=sel_registerName("addBottomAreaDividerInView:y:");
+    int nc=objc_getClassList(NULL,0);
+    if(nc<=0) return;
+    Class *cb=(Class*)malloc(sizeof(Class)*(size_t)nc);
+    nc=objc_getClassList(cb,(unsigned)nc);
+    for(int i=0;i<nc;i++){
+        Class c=cb[i]; if(!c) continue;
+        unsigned int cnt=0;
+        Method *ms=class_copyMethodList(c,&cnt);
+        for(unsigned int j=0;j<cnt;j++){
+            if(method_getName(ms[j])==ds){
+                if(!orig_addDivider) orig_addDivider=method_getImplementation(ms[j]);
+                method_setImplementation(ms[j],(IMP)hook_addDivider);
+                break;
             }
         }
-        free(cb);
+        if(ms) free(ms);
     }
+    free(cb);
 }
 
 // 拦截分隔线绘制: 直接不调用orig, 让黑线layer根本不创建
