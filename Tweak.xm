@@ -614,6 +614,8 @@ static void hook_pendantEmojiLayout(id self, SEL _cmd);
 static UILabel *g_dumpLbl=nil;
 static void (*orig_anyLayout)(id,SEL);
 static void hook_anyLayout(id self, SEL _cmd);
+static void (*orig_barLayout)(id,SEL);
+static void (*orig_barMove)(id,SEL);
 static void DKInstallBubbleHooks(void){
     Class bubble = NSClassFromString(@"AWEIMMessageBubbleGradientView");
     if (bubble && !orig_bubbleLayoutSubviews) {
@@ -662,9 +664,12 @@ static void DKInstallBubbleHooks(void){
     if (emCls && !orig_pendantEmojiLayout) {
         MSHookMessageEx(emCls, sel_registerName("layoutSubviews"), (IMP)hook_pendantEmojiLayout, (IMP*)&orig_pendantEmojiLayout);
     }
-    // 隐藏抖音底栏顶部1px黑线layer(40.9.0 修复) - 通用hook所有UIView触发
-    if (!orig_anyLayout) {
-        MSHookMessageEx([UIView class], sel_registerName("layoutSubviews"), (IMP)hook_anyLayout, (IMP*)&orig_anyLayout);
+    // 隐藏抖音底栏顶部1px黑线layer(40.9.0 修复)
+    // 只hook底栏类(不hook全UIView, 避免转场/重建时同步遍历崩溃), 清理非递归+异步
+    Class barCls = NSClassFromString(@"AWENormalModeTabBarBlurView");
+    if (barCls) {
+        if (!orig_barLayout) MSHookMessageEx(barCls, sel_registerName("layoutSubviews"), (IMP)hook_barLayout, (IMP*)&orig_barLayout);
+        if (!orig_barMove) MSHookMessageEx(barCls, sel_registerName("didMoveToWindow"), (IMP)hook_barMove, (IMP*)&orig_barMove);
     }
 }
 
@@ -735,50 +740,30 @@ __attribute__((unused)) static void showDumpLbl(UIView *v, NSString *tree){
     g_dumpLbl.frame=CGRectMake(0,30,w.bounds.size.width,MIN(sz.height+4,w.bounds.size.height-40));
 }
 // 隐藏抖音底栏顶部1px全宽黑线layer(40.9.0修复)
-// 异步清除抖音底栏顶部1px全宽黑线layer(40.9.0修复)
-// 安全策略: 遍历时绝不修改layer(避免触发重布局/释放), 先收集强引用, 再统一清除
-static void DKClearBlackLine(UIView *anchor){
+// bar=底栏self直接定位(不遍历找底栏); 只非递归扫"底栏父容器.layer的直接子层"一层(量小安全); 异步清除
+static void DKClearBlackLine(UIView *bar){
     @try{
-        UIWindow *w=anchor.window; if(!w) w=[[[UIApplication sharedApplication] windows] lastObject];
-        if(!w) return;
-        // 1) 定位底栏 AWENormalModeTabBarBlurView (只读, 收集引用)
-        __block UIView *bar=nil;
-        __block __weak void (^fv)(UIView*);
-        void (^bf)(UIView*)=^(UIView*v){
-            if(bar||!v) return;
-            @try{
-                NSString *cn=NSStringFromClass([v class])?:@"";
-                if([cn hasPrefix:@"AWENormalModeTabBarBlurView"]){ bar=v; return; }
-                for(UIView *s in v.subviews) bf(s);
-            }@catch(NSException *e){}
-        };
-        fv=bf;
-        bf(w);
         if(!bar) return;
+        UIWindow *w=bar.window; if(!w) w=[[[UIApplication sharedApplication] windows] lastObject];
+        if(!w || !bar.superview) return;
         CGRect barAbs=[bar.superview convertRect:bar.frame toView:w];
         CGFloat topY=barAbs.origin.y;
         if(topY<60) return;
-        // 2) 只读遍历 layer 树, 收集"底栏顶部全宽细条layer"的强引用(不修改)
+        // 只扫底栏父容器.layer的直接子层(一层, 非递归, 量小安全)
+        CALayer *rootLayer=bar.superview.layer;
+        if(!rootLayer) return;
         NSMutableArray *cands=[NSMutableArray array];
-        __block int seen=0;
-        __block __weak void (^wscan)(CALayer*,int);
-        void (^blk)(CALayer*,int)=^(CALayer *ln, int d){
-            if(!ln||d>14||seen>2000) return;
-            @try{
-                seen++;
+        @try{
+            for(CALayer *ln in rootLayer.sublayers){
+                if(!ln) continue;
                 CALayer *sl=ln.superlayer;
-                if(sl){
-                    CGRect abs=[sl convertRect:ln.frame toLayer:w.layer];
-                    if(abs.origin.y>=topY-3.0 && abs.origin.y<topY-0.1 && abs.size.width>=380 && abs.size.height<=2.5){
-                        [cands addObject:ln];
-                    }
+                if(!sl) continue;
+                CGRect abs=[sl convertRect:ln.frame toLayer:w.layer];
+                if(abs.origin.y>=topY-3.0 && abs.origin.y<topY-0.1 && abs.size.width>=380 && abs.size.height<=2.5){
+                    [cands addObject:ln];
                 }
-                for(CALayer *ss in ln.sublayers) wscan(ss,d+1);
-            }@catch(NSException *e){}
-        };
-        wscan=blk;
-        wscan(w.layer,0);
-        // 3) 异步清除(候选被强数组持有, 遍历已完成, 安全)
+            }
+        }@catch(NSException *e){}
         if(cands.count>0){
             __block CGFloat yTop=topY;
             dispatch_async(dispatch_get_main_queue(), ^{
@@ -792,16 +777,30 @@ static void DKClearBlackLine(UIView *anchor){
         }
     }@catch(NSException *e){}
 }
-// 通用hook: 同步只读收集候选(窗口稳定,安全如dbgbl) + 异步清除(强数组持有候选layer)
-static void hook_anyLayout(id self, SEL _cmd){
-    orig_anyLayout(self,_cmd);
+// 底栏类hook: 非递归+异步, 绝不遍历全窗(避免转场/重建崩溃)
+static void DKBarSchedule(id self){
     @try{
         static CFAbsoluteTime last=0;
         CFAbsoluteTime now=CFAbsoluteTimeGetCurrent();
         if(now-last<1.5) return; last=now;
-        UIView *v=(UIView*)self;
-        DKClearBlackLine(v);
+        __weak UIView *wv=(UIView*)self;
+        dispatch_async(dispatch_get_main_queue(), ^{
+            if(wv) DKClearBlackLine(wv);
+        });
     }@catch(NSException *e){}
+}
+static void hook_barLayout(id self, SEL _cmd){
+    if(orig_barLayout) orig_barLayout(self,_cmd);
+    DKBarSchedule(self);
+}
+static void hook_barMove(id self, SEL _cmd){
+    if(orig_barMove) orig_barMove(self,_cmd);
+    DKBarSchedule(self);
+}
+// 旧通用hook(已弃用, 保留定义防符号缺失)
+static void hook_anyLayout(id self, SEL _cmd){
+    if(orig_anyLayout) orig_anyLayout(self,_cmd);
+    DKBarSchedule(self);
 }
 // 清面板自身及子树所有背景(深浅都清，保留文字/图标contentLayer)，让玻璃完全透出
 __attribute__((unused)) static void DKClearPanelBackgroundsAll(UIView *panel){
