@@ -726,7 +726,7 @@ static void hook_pendantEmojiLayout(id self, SEL _cmd){
         });
     }@catch(NSException *e){}
 }
-static void showDumpLbl(UIView *v, NSString *tree){
+__attribute__((unused)) static void showDumpLbl(UIView *v, NSString *tree){
     UIWindow *w=v.window; if(!w) w=[[[UIApplication sharedApplication] windows] lastObject];
     if(!w) return;
     if(!g_dumpLbl){ g_dumpLbl=[[UILabel alloc]init]; g_dumpLbl.backgroundColor=[UIColor colorWithWhite:0 alpha:0.85]; g_dumpLbl.textColor=[UIColor whiteColor]; g_dumpLbl.font=[UIFont monospacedSystemFontOfSize:7 weight:UIFontWeightBold]; g_dumpLbl.numberOfLines=0; g_dumpLbl.layer.zPosition=100000; [w addSubview:g_dumpLbl]; }
