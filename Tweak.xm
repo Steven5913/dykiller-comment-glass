@@ -612,8 +612,6 @@ static void hook_pendantGroupLayout(id self, SEL _cmd);
 static void (*orig_pendantEmojiLayout)(id,SEL);
 static void hook_pendantEmojiLayout(id self, SEL _cmd);
 static UILabel *g_dumpLbl=nil;
-static void (*orig_anyLayout)(id,SEL);
-static void hook_anyLayout(id self, SEL _cmd);
 static void (*orig_barLayout)(id,SEL);
 static void (*orig_barMove)(id,SEL);
 static void hook_barLayout(id self, SEL _cmd);
@@ -797,11 +795,6 @@ static void hook_barLayout(id self, SEL _cmd){
 }
 static void hook_barMove(id self, SEL _cmd){
     if(orig_barMove) orig_barMove(self,_cmd);
-    DKBarSchedule(self);
-}
-// 旧通用hook(已弃用, 保留定义防符号缺失)
-static void hook_anyLayout(id self, SEL _cmd){
-    if(orig_anyLayout) orig_anyLayout(self,_cmd);
     DKBarSchedule(self);
 }
 // 清面板自身及子树所有背景(深浅都清，保留文字/图标contentLayer)，让玻璃完全透出
