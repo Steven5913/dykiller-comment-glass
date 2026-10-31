@@ -783,7 +783,8 @@ __attribute__((unused)) static void showDumpLbl(UIView *v, NSString *tree){
     g_dumpLbl.frame=CGRectMake(0,30,w.bounds.size.width,MIN(sz.height+4,w.bounds.size.height-40));
 }
 // 隐藏抖音底栏顶部1px全宽黑线layer(40.9.0修复)
-// bar=底栏self直接定位(不遍历找底栏); 只非递归扫"底栏父容器.layer的直接子层"一层(量小安全); 异步清除
+// bar=底栏self直接定位; 从bar向上遍历祖先容器链, 对每级容器的layer做浅层(深度<=5)扫描
+// 黑线宿主=视频页根容器(底栏的高层祖先), 不从bar.superview单一容器扫; 全程限定祖先链, 不碰整窗
 static void DKClearBlackLine(UIView *bar){
     @try{
         if(!bar) return;
@@ -792,28 +793,33 @@ static void DKClearBlackLine(UIView *bar){
         CGRect barAbs=[bar.superview convertRect:bar.frame toView:w];
         CGFloat topY=barAbs.origin.y;
         if(topY<60) return;
-        // 只从底栏父容器.layer开始递归扫(深度<=8, 不碰整窗, 量可控安全), 收集候选强引用
-        CALayer *rootLayer=bar.superview.layer;
-        if(!rootLayer) return;
         NSMutableArray *cands=[NSMutableArray array];
         __block int seen=0;
-        __block __weak void (^wscan)(CALayer*,int);
-        void (^blk)(CALayer*,int)=^(CALayer *ln, int d){
-            if(!ln||d>8||seen>1500||cands.count>10) return;
-            @try{
-                seen++;
-                CALayer *sl=ln.superlayer;
-                if(sl){
-                    CGRect abs=[sl convertRect:ln.frame toLayer:w.layer];
-                    if(abs.origin.y>=topY-3.0 && abs.origin.y<topY-0.1 && abs.size.width>=380 && abs.size.height<=2.5){
-                        [cands addObject:ln];
-                    }
-                }
-                for(CALayer *ss in ln.sublayers) wscan(ss,d+1);
-            }@catch(NSException *e){}
-        };
-        wscan=blk;
-        wscan(rootLayer,0);
+        // 从bar向上最多6级祖先, 每级.layer做深度<=5扫描
+        UIView *cur=bar;
+        for(int hop=0; hop<=6 && cur; hop++){
+            CALayer *rootLayer=cur.layer;
+            if(rootLayer){
+                __block __weak void (^wscan)(CALayer*,int);
+                void (^blk)(CALayer*,int)=^(CALayer *ln, int d){
+                    if(!ln||d>5||seen>1800||cands.count>10) return;
+                    @try{
+                        seen++;
+                        CALayer *sl=ln.superlayer;
+                        if(sl){
+                            CGRect abs=[sl convertRect:ln.frame toLayer:w.layer];
+                            if(abs.origin.y>=topY-3.0 && abs.origin.y<topY-0.1 && abs.size.width>=380 && abs.size.height<=2.5){
+                                [cands addObject:ln];
+                            }
+                        }
+                        for(CALayer *ss in ln.sublayers) wscan(ss,d+1);
+                    }@catch(NSException *e){}
+                };
+                wscan=blk;
+                wscan(rootLayer,0);
+            }
+            cur=cur.superview;
+        }
         if(cands.count>0){
             __block CGFloat yTop=topY;
             dispatch_async(dispatch_get_main_queue(), ^{
