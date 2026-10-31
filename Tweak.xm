@@ -778,28 +778,29 @@ static void DKClearBlackLine(UIView *anchor){
         };
         wscan=blk;
         wscan(w.layer,0);
-        // 3) 统一清除(此时候选被强数组持有, 遍历已完成, 不会在遍历中触发释放)
-        int hidden=0;
-        for(CALayer *ln in cands){
-            @try{ ln.opacity=0.0f; ln.backgroundColor=[UIColor clearColor].CGColor; hidden++; }
-            @catch(NSException *e){}
-        }
-        if(hidden>0){
-            NSLog(@"[黑线清除] hidden=%d topY=%.1f seen=%d",hidden,topY,seen);
+        // 3) 异步清除(候选被强数组持有, 遍历已完成, 安全)
+        if(cands.count>0){
+            __block CGFloat yTop=topY;
+            dispatch_async(dispatch_get_main_queue(), ^{
+                int hidden=0;
+                for(CALayer *ln in cands){
+                    @try{ ln.opacity=0.0f; ln.backgroundColor=[UIColor clearColor].CGColor; hidden++; }
+                    @catch(NSException *e){}
+                }
+                if(hidden>0) NSLog(@"[黑线清除] hidden=%d topY=%.1f",hidden,yTop);
+            });
         }
     }@catch(NSException *e){}
 }
-// 通用hook: 仅记录触发时机, 真正清除异步到主队列空闲执行(避免layout内崩溃)
+// 通用hook: 同步只读收集候选(窗口稳定,安全如dbgbl) + 异步清除(强数组持有候选layer)
 static void hook_anyLayout(id self, SEL _cmd){
     orig_anyLayout(self,_cmd);
     @try{
         static CFAbsoluteTime last=0;
         CFAbsoluteTime now=CFAbsoluteTimeGetCurrent();
         if(now-last<1.5) return; last=now;
-        __weak UIView *wv=(UIView*)self;
-        dispatch_async(dispatch_get_main_queue(), ^{
-            if(wv) DKClearBlackLine(wv);
-        });
+        UIView *v=(UIView*)self;
+        DKClearBlackLine(v);
     }@catch(NSException *e){}
 }
 // 清面板自身及子树所有背景(深浅都清，保留文字/图标contentLayer)，让玻璃完全透出
