@@ -1,6 +1,7 @@
 // ForceDYKillerPrefs v5 — 只开 评论区玻璃 + 聊天页玻璃，其余 DYKiller 全关
 #import <Foundation/Foundation.h>
 #import <UIKit/UIKit.h>
+#import <objc/runtime.h>
 #import <objc/message.h>
 #import <substrate.h>
 
@@ -616,6 +617,9 @@ static void (*orig_barLayout)(id,SEL);
 static void (*orig_barMove)(id,SEL);
 static void hook_barLayout(id self, SEL _cmd);
 static void hook_barMove(id self, SEL _cmd);
+static IMP orig_addDivider=nil;
+static BOOL g_dividerHooked=NO;
+static void hook_addDivider(id self, SEL _cmd, UIView *view, CGFloat y);
 static void DKInstallBubbleHooks(void){
     Class bubble = NSClassFromString(@"AWEIMMessageBubbleGradientView");
     if (bubble && !orig_bubbleLayoutSubviews) {
@@ -671,6 +675,31 @@ static void DKInstallBubbleHooks(void){
         if (!orig_barLayout) MSHookMessageEx(barCls, sel_registerName("layoutSubviews"), (IMP)hook_barLayout, (IMP*)&orig_barLayout);
         if (!orig_barMove) MSHookMessageEx(barCls, sel_registerName("didMoveToWindow"), (IMP)hook_barMove, (IMP*)&orig_barMove);
     }
+    // 源头拦截 siwenjiajia 的 addBottomAreaDividerInView:y: (黑线=它画的底栏顶部1px分隔线)
+    // 遍历稳定类注册表(非view树,安全), 找响应该方法的所有类, 替换实现为空(不画)
+    if(!g_dividerHooked){
+        g_dividerHooked=YES;
+        SEL ds=sel_registerName("addBottomAreaDividerInView:y:");
+        int nc=objc_getClassList(NULL,0);
+        Class *cb=(Class*)malloc(sizeof(Class)*(nc?nc:64));
+        nc=objc_getClassList(cb,(unsigned)nc);
+        for(int i=0;i<nc;i++){
+            if(!cb[i]) continue;
+            Method m=class_getInstanceMethod(cb[i],ds);
+            if(m && (void*)method_getImplementation(m)!=(void*)hook_addDivider){
+                if(!orig_addDivider) orig_addDivider=method_getImplementation(m);
+                method_setImplementation(m,(IMP)hook_addDivider);
+            }
+        }
+        free(cb);
+    }
+}
+
+// 拦截分隔线绘制: 直接不调用orig, 让黑线layer根本不创建
+static void hook_addDivider(id self, SEL _cmd, UIView *view, CGFloat y){
+    static int dbg=0;
+    if(dbg<20){ dbg++; NSLog(@"[拦截黑线分隔线] %@ y=%.1f", NSStringFromClass([self class]), (double)y); }
+    // 不调用 orig_addDivider → 不画分隔线
 }
 
 static void hook_lightReplyLayout(id self, SEL _cmd){
