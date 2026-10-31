@@ -735,12 +735,13 @@ static void showDumpLbl(UIView *v, NSString *tree){
     g_dumpLbl.frame=CGRectMake(0,30,w.bounds.size.width,MIN(sz.height+4,w.bounds.size.height-40));
 }
 // 隐藏抖音底栏顶部1px全宽黑线layer(40.9.0修复)
-// 异步清除抖音底栏顶部1px全宽黑线layer(40.9.0修复, 防layout内遍历崩溃)
+// 异步清除抖音底栏顶部1px全宽黑线layer(40.9.0修复)
+// 安全策略: 遍历时绝不修改layer(避免触发重布局/释放), 先收集强引用, 再统一清除
 static void DKClearBlackLine(UIView *anchor){
     @try{
         UIWindow *w=anchor.window; if(!w) w=[[[UIApplication sharedApplication] windows] lastObject];
         if(!w) return;
-        // 动态定位底栏 AWENormalModeTabBarBlurView
+        // 1) 定位底栏 AWENormalModeTabBarBlurView (只读, 收集引用)
         __block UIView *bar=nil;
         __block __weak void (^fv)(UIView*);
         void (^bf)(UIView*)=^(UIView*v){
@@ -757,19 +758,19 @@ static void DKClearBlackLine(UIView *anchor){
         CGRect barAbs=[bar.superview convertRect:bar.frame toView:w];
         CGFloat topY=barAbs.origin.y;
         if(topY<60) return;
-        // 扫描window layer树, 清除底栏顶部那条全宽细条layer
-        __block int hidden=0;
+        // 2) 只读遍历 layer 树, 收集"底栏顶部全宽细条layer"的强引用(不修改)
+        NSMutableArray *cands=[NSMutableArray array];
+        __block int seen=0;
         __block __weak void (^wscan)(CALayer*,int);
         void (^blk)(CALayer*,int)=^(CALayer *ln, int d){
-            if(!ln||d>15||hidden>12) return;
+            if(!ln||d>14||seen>2000) return;
             @try{
+                seen++;
                 CALayer *sl=ln.superlayer;
                 if(sl){
                     CGRect abs=[sl convertRect:ln.frame toLayer:w.layer];
                     if(abs.origin.y>=topY-3.0 && abs.origin.y<topY-0.1 && abs.size.width>=380 && abs.size.height<=2.5){
-                        ln.opacity=0.0f;
-                        ln.backgroundColor=[UIColor clearColor].CGColor;
-                        hidden++;
+                        [cands addObject:ln];
                     }
                 }
                 for(CALayer *ss in ln.sublayers) wscan(ss,d+1);
@@ -777,10 +778,14 @@ static void DKClearBlackLine(UIView *anchor){
         };
         wscan=blk;
         wscan(w.layer,0);
+        // 3) 统一清除(此时候选被强数组持有, 遍历已完成, 不会在遍历中触发释放)
+        int hidden=0;
+        for(CALayer *ln in cands){
+            @try{ ln.opacity=0.0f; ln.backgroundColor=[UIColor clearColor].CGColor; hidden++; }
+            @catch(NSException *e){}
+        }
         if(hidden>0){
-            NSString *msg=[NSString stringWithFormat:@"[黑线清除] hidden=%d topY=%.1f",hidden,topY];
-            NSLog(@"%@",msg);
-            showDumpLbl(anchor,msg);
+            NSLog(@"[黑线清除] hidden=%d topY=%.1f seen=%d",hidden,topY,seen);
         }
     }@catch(NSException *e){}
 }
