@@ -616,6 +616,8 @@ static void (*orig_anyLayout)(id,SEL);
 static void hook_anyLayout(id self, SEL _cmd);
 static void (*orig_barLayout)(id,SEL);
 static void (*orig_barMove)(id,SEL);
+static void hook_barLayout(id self, SEL _cmd);
+static void hook_barMove(id self, SEL _cmd);
 static void DKInstallBubbleHooks(void){
     Class bubble = NSClassFromString(@"AWEIMMessageBubbleGradientView");
     if (bubble && !orig_bubbleLayoutSubviews) {
