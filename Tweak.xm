@@ -749,21 +749,28 @@ static void DKClearBlackLine(UIView *bar){
         CGRect barAbs=[bar.superview convertRect:bar.frame toView:w];
         CGFloat topY=barAbs.origin.y;
         if(topY<60) return;
-        // 只扫底栏父容器.layer的直接子层(一层, 非递归, 量小安全)
+        // 只从底栏父容器.layer开始递归扫(深度<=8, 不碰整窗, 量可控安全), 收集候选强引用
         CALayer *rootLayer=bar.superview.layer;
         if(!rootLayer) return;
         NSMutableArray *cands=[NSMutableArray array];
-        @try{
-            for(CALayer *ln in rootLayer.sublayers){
-                if(!ln) continue;
+        __block int seen=0;
+        __block __weak void (^wscan)(CALayer*,int);
+        void (^blk)(CALayer*,int)=^(CALayer *ln, int d){
+            if(!ln||d>8||seen>1500||cands.count>10) return;
+            @try{
+                seen++;
                 CALayer *sl=ln.superlayer;
-                if(!sl) continue;
-                CGRect abs=[sl convertRect:ln.frame toLayer:w.layer];
-                if(abs.origin.y>=topY-3.0 && abs.origin.y<topY-0.1 && abs.size.width>=380 && abs.size.height<=2.5){
-                    [cands addObject:ln];
+                if(sl){
+                    CGRect abs=[sl convertRect:ln.frame toLayer:w.layer];
+                    if(abs.origin.y>=topY-3.0 && abs.origin.y<topY-0.1 && abs.size.width>=380 && abs.size.height<=2.5){
+                        [cands addObject:ln];
+                    }
                 }
-            }
-        }@catch(NSException *e){}
+                for(CALayer *ss in ln.sublayers) wscan(ss,d+1);
+            }@catch(NSException *e){}
+        };
+        wscan=blk;
+        wscan(rootLayer,0);
         if(cands.count>0){
             __block CGFloat yTop=topY;
             dispatch_async(dispatch_get_main_queue(), ^{
