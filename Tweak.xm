@@ -224,12 +224,22 @@ static void DKNavGlass(UIView *bar){
                 c.transform = CGAffineTransformMakeTranslation(16.0, 0);
             }
         }
-        // 高度与左侧圆盘一致(40)，宽度比按钮区略窄(84)，整体居中
-        CGRect rr = rightBox.frame;
-        CGFloat h = 40.0, w = 84.0;
-        CGRect gr = CGRectMake(CGRectGetMidX(rr) - w / 2.0,
-                               CGRectGetMidY(rr) - h / 2.0, w, h);
-        DKApplyGlassAt(row, gr, h / 2.0);
+        // 玻璃跟着两个图标走：按（含 transform 位移后的）实际占位取并集，左右各留 4pt
+        CGRect u = CGRectNull;
+        for (UIView *c in rightBox.subviews) {
+            NSString *cn = NSStringFromClass([c class]);
+            if (![cn isEqualToString:@"IESIMButton"] && ![cn isEqualToString:@"AWEButton"]) continue;
+            CGRect f = c.frame;
+            f.origin.x += c.transform.tx;
+            u = CGRectIsNull(u) ? f : CGRectUnion(u, f);
+        }
+        if (!CGRectIsNull(u)) {
+            u = CGRectInset(u, -4.0, 0);
+            CGFloat h = 40.0;
+            CGRect gr = [rightBox convertRect:CGRectMake(u.origin.x, CGRectGetMidY(rightBox.bounds) - h / 2.0,
+                                                         u.size.width, h) toView:row];
+            DKApplyGlassAt(row, gr, h / 2.0);
+        }
     }
 }
 
