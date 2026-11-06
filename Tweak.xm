@@ -106,151 +106,6 @@ static void DKApplyDisc(UIView *host, UIView *icon, CGFloat d){
     if (!CGRectEqualToRect(g.frame, r)) g.frame = r;
 }
 
-// ===== 图标风格：移植「奶蛙 / 红果短剧」右侧图标（柔彩双色）=====
-// 与奶蛙完全同一套做法：SF Symbols（systemImageNamed:withConfiguration: 指定磅值/字重）
-// + imageWithTintColor:renderingMode: 单色着染。符号名取自 NaiwaGuo.dylib：
-//   heart / heart.fill、text.bubble、bookmark / bookmark.fill、arrowshape.turn.up.right
-// 配色取自奶蛙「右侧图标」设置页截图：点赞 #E86880 / 评论 #78B8F8 / 收藏 #F0C058 / 分享 #88D0B8
-typedef NS_ENUM(NSInteger, DKIconKind){ DKIconNone = 0, DKIconLike, DKIconComment, DKIconCollect, DKIconShare };
-
-static UIView *DKFindRail(UIView *v);
-
-static DKIconKind DKKindFromName(NSString *name){
-    if (![name isKindOfClass:[NSString class]] || name.length == 0) return DKIconNone;
-    NSString *s = [name lowercaseString];
-    if ([s rangeOfString:@"like"].location != NSNotFound) return DKIconLike;
-    if ([s rangeOfString:@"comment"].location != NSNotFound) return DKIconComment;
-    if ([s rangeOfString:@"collect"].location != NSNotFound) return DKIconCollect;
-    if ([s rangeOfString:@"favorite"].location != NSNotFound) return DKIconCollect;
-    if ([s rangeOfString:@"share"].location != NSNotFound) return DKIconShare;
-    return DKIconNone;
-}
-
-static UIColor *DKHexColor(NSUInteger hex){
-    return [UIColor colorWithRed:((hex >> 16) & 0xFF) / 255.0
-                            green:((hex >> 8) & 0xFF) / 255.0
-                             blue:(hex & 0xFF) / 255.0
-                            alpha:1.0];
-}
-
-static UIColor *DKIconColor(DKIconKind k){
-    switch (k) {
-        case DKIconLike:    return DKHexColor(0xE86880);
-        case DKIconComment: return DKHexColor(0x78B8F8);
-        case DKIconCollect: return DKHexColor(0xF0C058);
-        case DKIconShare:   return DKHexColor(0x88D0B8);
-        default: return [UIColor whiteColor];
-    }
-}
-
-static UIImage *DKIconImage(DKIconKind k, BOOL filled){
-    NSString *sym = nil;
-    switch (k) {
-        case DKIconLike:    sym = filled ? @"heart.fill" : @"heart"; break;
-        case DKIconComment: sym = @"text.bubble"; break;
-        case DKIconCollect: sym = filled ? @"bookmark.fill" : @"bookmark"; break;
-        case DKIconShare:   sym = @"arrowshape.turn.up.right"; break;
-        default: return nil;
-    }
-    UIImage *img = nil;
-    UIImageSymbolConfiguration *cfg = nil;
-    if (@available(iOS 13.0, *)) {
-        cfg = [UIImageSymbolConfiguration configurationWithPointSize:24.0
-                                                             weight:UIImageSymbolWeightMedium];
-        img = [UIImage systemImageNamed:sym withConfiguration:cfg];
-    }
-    if (!img) img = [UIImage imageNamed:sym];
-    if (!img) return nil;
-    // 与奶蛙同一套渲染：符号 + 指定磅值/字重 + 单色着染，AlwaysOriginal 避免被抖音染成白/灰
-    return [img imageWithTintColor:DKIconColor(k) renderingMode:UIImageRenderingModeAlwaysOriginal];
-}
-
-static const void *DKIconAppliedKey = &DKIconAppliedKey;
-
-static UIImageView *DKIconImageView(UIView *btn){
-    UIImageView *iv = nil;
-    @try { iv = (UIImageView *)[btn valueForKey:@"aweImageView"]; } @catch(...) { iv = nil; }
-    if ([iv isKindOfClass:[UIImageView class]]) return iv;
-    @try {
-        UIView *cv = (UIView *)[btn valueForKey:@"containerView"];
-        for (UIView *s in cv.subviews) {
-            if ([s isKindOfClass:[UIImageView class]]) return (UIImageView *)s;
-        }
-    } @catch(...) {}
-    for (UIView *s in btn.subviews) {
-        if ([s isKindOfClass:[UIImageView class]]) return (UIImageView *)s;
-    }
-    return nil;
-}
-
-// 判断抖音当前那张图是「线框」还是「实心」状态：
-// 把图缩画成 24x24 的 alpha 位图，算字形包围盒内的实心像素占比。
-// 线框心/线框书签约 0.1~0.25，实心的明显更大（>0.42）。不依赖资源名，已点赞/已收藏照样认得出。
-static NSMutableDictionary *g_fillCache = nil;
-static BOOL DKImageLooksFilled(UIImage *img){
-    if (!img || !img.CGImage) return NO;
-    if (!g_fillCache) g_fillCache = [NSMutableDictionary dictionary];
-    NSString *k = [NSString stringWithFormat:@"%p", img];
-    NSNumber *cached = g_fillCache[k];
-    if (cached) return cached.boolValue;
-    const int N = 24;
-    unsigned char buf[N * N * 4];
-    memset(buf, 0, sizeof(buf));
-    CGColorSpaceRef cs = CGColorSpaceCreateDeviceRGB();
-    CGContextRef c = CGBitmapContextCreate(buf, N, N, 8, N * 4, cs, kCGImageAlphaPremultipliedLast);
-    CGColorSpaceRelease(cs);
-    if (!c) return NO;
-    CGContextSetInterpolationQuality(c, kCGInterpolationHigh);
-    CGContextDrawImage(c, CGRectMake(0, 0, N, N), img.CGImage);
-    CGContextRelease(c);
-    int minX = N, minY = N, maxX = -1, maxY = -1, solid = 0;
-    for (int y = 0; y < N; y++) {
-        for (int x = 0; x < N; x++) {
-            unsigned char a = buf[(y * N + x) * 4 + 3];
-            if (a > 20) {
-                if (x < minX) minX = x;
-                if (y < minY) minY = y;
-                if (x > maxX) maxX = x;
-                if (y > maxY) maxY = y;
-                if (a > 160) solid++;
-            }
-        }
-    }
-    BOOL filled = NO;
-    if (maxX > minX && maxY > minY) {
-        double area = (double)(maxX - minX + 1) * (double)(maxY - minY + 1);
-        filled = (solid / area) > 0.42;
-    }
-    g_fillCache[k] = @(filled);
-    if (g_fillCache.count > 200) [g_fillCache removeAllObjects];
-    return filled;
-}
-
-// 把抖音原有的白色图标换成奶蛙那套 SF Symbols 图标（只换图，不碰布局与交互）
-static void DKRestyleIcon(UIView *btn){
-    if (!btn) return;
-    NSString *name = nil;
-    @try { name = [btn valueForKey:@"imageNameString"]; } @catch(...) { name = nil; }
-    DKIconKind k = DKKindFromName(name);
-    if (k == DKIconNone) return;
-    UIImageView *iv = DKIconImageView(btn);
-    if (!iv) return;
-    UIImage *cur = iv.image;
-    UIImage *ours = objc_getAssociatedObject(btn, DKIconAppliedKey);
-    if (ours && cur == ours) return; // 还是我们上次设的图，不用重画
-    NSString *low = [name lowercaseString] ?: @"";
-    BOOL on = ([low rangeOfString:@"selected"].location != NSNotFound) ||
-              ([low rangeOfString:@"active"].location != NSNotFound) ||
-              ([low rangeOfString:@".on"].location != NSNotFound);
-    if (!on && (k == DKIconLike || k == DKIconCollect)) on = DKImageLooksFilled(cur);
-    UIImage *img = DKIconImage(k, on);
-    if (!img) return;
-    @try {
-        iv.image = img;
-        objc_setAssociatedObject(btn, DKIconAppliedKey, img, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-    } @catch(...) {}
-}
-
 // ===== 六元素识别 =====
 static BOOL DKIsElementClass(NSString *cn){
     if (!cn) return NO;
@@ -302,7 +157,6 @@ static void DKGlassOne(UIView *v){
             }
         }
         DKApplyDisc(v, icon ?: v, 44.0);
-        DKRestyleIcon(v); // 顺手换成「柔彩双色」图标
     } else if ([cn isEqualToString:@"AWEPlayInteractionUserProfilePictureView"]) {
         // 头像：48x48 圆形头像本体，玻璃盘 56（与音乐唱片同尺寸）
         UIView *icon = nil;
@@ -369,64 +223,6 @@ static void hook_elemLayout(id self, SEL _cmd){
     } @catch (NSException *e) {}
 }
 
-// app 自己重设图标时，清掉「已换过」的标记再重新上色，避免被覆盖回白色原图标
-static void (*orig_setImage)(id, SEL, id);
-static void hook_setImage(id self, SEL _cmd, id img){
-    if (orig_setImage) orig_setImage(self, _cmd, img);
-    @try {
-        objc_setAssociatedObject(self, DKIconAppliedKey, nil, OBJC_ASSOCIATION_COPY_NONATOMIC);
-        UIView *v = (UIView *)self;
-        if (DKFindRail(v)) DKRestyleIcon(v);
-    } @catch (NSException *e) {}
-}
-
-static void (*orig_setImageName)(id, SEL, id);
-static void hook_setImageName(id self, SEL _cmd, id name){
-    if (orig_setImageName) orig_setImageName(self, _cmd, name);
-    @try {
-        objc_setAssociatedObject(self, DKIconAppliedKey, nil, OBJC_ASSOCIATION_COPY_NONATOMIC);
-        UIView *v = (UIView *)self;
-        if (DKFindRail(v)) DKRestyleIcon(v);
-    } @catch (NSException *e) {}
-}
-
-static void (*orig_setImageNameHDR)(id, SEL, id, id);
-static void hook_setImageNameHDR(id self, SEL _cmd, id name, id hdr){
-    if (orig_setImageNameHDR) orig_setImageNameHDR(self, _cmd, name, hdr);
-    @try {
-        objc_setAssociatedObject(self, DKIconAppliedKey, nil, OBJC_ASSOCIATION_COPY_NONATOMIC);
-        UIView *v = (UIView *)self;
-        if (DKFindRail(v)) DKRestyleIcon(v);
-    } @catch (NSException *e) {}
-}
-
-// 模型/状态更新与其它换图路径：统一清标记后重上色（点赞、收藏状态切换走的就是这些路）
-static void DKIconsSettled(id self){
-    @try {
-        objc_setAssociatedObject(self, DKIconAppliedKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-        UIView *v = (UIView *)self;
-        if (DKFindRail(v)) DKRestyleIcon(v);
-    } @catch (NSException *e) {}
-}
-
-static void (*orig_didUpdate)(id, SEL);
-static void hook_didUpdate(id self, SEL _cmd){
-    if (orig_didUpdate) orig_didUpdate(self, _cmd);
-    DKIconsSettled(self);
-}
-
-static void (*orig_setImageScale)(id, SEL, id);
-static void hook_setImageScale(id self, SEL _cmd, id img){
-    if (orig_setImageScale) orig_setImageScale(self, _cmd, img);
-    DKIconsSettled(self);
-}
-
-static void (*orig_setLastImage)(id, SEL, id);
-static void hook_setLastImage(id self, SEL _cmd, id img){
-    if (orig_setLastImage) orig_setLastImage(self, _cmd, img);
-    DKIconsSettled(self);
-}
-
 static void (*orig_railLayout)(id, SEL);
 static void hook_railLayout(id self, SEL _cmd){
     if (orig_railLayout) orig_railLayout(self, _cmd);
@@ -468,20 +264,6 @@ static void DKTryInstall(void){
         Class btn = NSClassFromString(@"AWEFeedVideoButton");
         if (btn && !orig_elemLayout) {
             MSHookMessageEx(btn, sel_registerName("layoutSubviews"), (IMP)hook_elemLayout, (IMP *)&orig_elemLayout);
-        }
-        if (btn) {
-            if (!orig_setImage)
-                MSHookMessageEx(btn, sel_registerName("setImage:"), (IMP)hook_setImage, (IMP *)&orig_setImage);
-            if (!orig_setImageName)
-                MSHookMessageEx(btn, sel_registerName("setImageNameString:"), (IMP)hook_setImageName, (IMP *)&orig_setImageName);
-            if (!orig_setImageNameHDR)
-                MSHookMessageEx(btn, sel_registerName("setImageNameString:hdrColor:"), (IMP)hook_setImageNameHDR, (IMP *)&orig_setImageNameHDR);
-            if (!orig_didUpdate)
-                MSHookMessageEx(btn, sel_registerName("didUpdate"), (IMP)hook_didUpdate, (IMP *)&orig_didUpdate);
-            if (!orig_setImageScale)
-                MSHookMessageEx(btn, sel_registerName("setImageWithScaleAmimation:"), (IMP)hook_setImageScale, (IMP *)&orig_setImageScale);
-            if (!orig_setLastImage)
-                MSHookMessageEx(btn, sel_registerName("setLastImage:"), (IMP)hook_setLastImage, (IMP *)&orig_setLastImage);
         }
         Class avatar = NSClassFromString(@"AWEPlayInteractionUserProfilePictureView");
         if (avatar && !orig_elemLayout) {
