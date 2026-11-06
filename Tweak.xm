@@ -483,14 +483,16 @@ static void DKIMFixParent(UIView *parent){
             if (s.tag == DK_IM_TAG && CGRectEqualToRect(s.frame, fr)) { exist = YES; break; }
         }
         if (!exist) {
+            // 圆角按短边一半，但封顶 22：输入框展开成大面板(386x278)时不能再取 139
             CGFloat rad = MIN(fr.size.width, fr.size.height) / 2.0;
+            if (rad > 22.0) rad = 22.0;
             UIView *mine = DKMakeGlassRect(fr.size.width, fr.size.height, rad);
             mine.tag = DK_IM_TAG;
             mine.frame = fr;
             // 与右侧六键同一套玻璃结构，但把材质层压到 35%：
             // 保留玻璃的折射/高光/描边，同时不让它在深色壁纸上糊成一片白
             for (UIView *sub in mine.subviews) {
-                if ([sub isKindOfClass:[UIVisualEffectView class]]) sub.alpha = 0.6;
+                if ([sub isKindOfClass:[UIVisualEffectView class]]) sub.alpha = 0.55;
             }
             [parent insertSubview:mine belowSubview:o];
             DKUpdateRing(mine);
