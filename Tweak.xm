@@ -128,7 +128,7 @@ static void DKGlassRail(UIView *rail){
         NSString *cn = NSStringFromClass([v class]) ?: @"";
 
         if ([cn isEqualToString:@"AWEFeedVideoButton"]) {
-            // 点赞/评论/收藏/分享：icon 容器 36x36，玻璃盘 48
+            // 点赞/评论/收藏/分享：icon 容器 36x36，玻璃盘 42（底边落在数字上方，不切字）
             UIView *icon = nil;
             @try { icon = (UIView *)[v valueForKey:@"containerView"]; } @catch(...) { icon = nil; }
             if (!icon || ![icon isKindOfClass:[UIView class]] || icon.bounds.size.width < 14) {
@@ -138,15 +138,15 @@ static void DKGlassRail(UIView *rail){
                         s.bounds.size.height >= 24 && s.bounds.size.height <= 48) { icon = s; break; }
                 }
             }
-            DKApplyDisc(v, icon ?: v, 48.0);
+            DKApplyDisc(v, icon ?: v, 42.0);
         } else if ([cn isEqualToString:@"AWEPlayInteractionUserProfilePictureView"]) {
-            // 头像：48x48 圆形头像本体，玻璃盘 60（留 6pt 玻璃边）
+            // 头像：48x48 圆形头像本体，玻璃盘 64（留 8pt 玻璃边）
             UIView *icon = nil;
             for (UIView *s in v.subviews) {
                 if (s.bounds.size.width >= 40 && s.bounds.size.width <= 60 &&
                     s.bounds.size.height >= 40 && s.bounds.size.height <= 60) { icon = s; break; }
             }
-            DKApplyDisc(v, icon ?: v, 60.0);
+            DKApplyDisc(v, icon ?: v, 64.0);
         } else if ([cn isEqualToString:@"AWEMusicCoverButton"]) {
             // 音乐唱片：44x44，玻璃盘 56
             DKApplyDisc(v, v, 56.0);
