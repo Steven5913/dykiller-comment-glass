@@ -217,8 +217,12 @@ static void DKNavGlass(UIView *bar){
         }
     }
     if (rightBox) {
+        // 高度与左侧圆盘一致(40)，宽度比按钮区略窄(88)，整体居中
         CGRect rr = rightBox.frame;
-        DKApplyGlassAt(row, rr, MIN(rr.size.width, rr.size.height) / 2.0);
+        CGFloat h = 40.0, w = 88.0;
+        CGRect gr = CGRectMake(CGRectGetMidX(rr) - w / 2.0,
+                               CGRectGetMidY(rr) - h / 2.0, w, h);
+        DKApplyGlassAt(row, gr, h / 2.0);
     }
 }
 
