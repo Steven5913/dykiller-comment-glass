@@ -219,6 +219,13 @@ static void DKPopoverRecolor(UIView *v){
     if ([v isKindOfClass:[UILabel class]]) {
         ((UILabel *)v).textColor = [UIColor whiteColor];
     }
+    if ([v isKindOfClass:[UIImageView class]]) {
+        UIImageView *iv = (UIImageView *)v;
+        if (iv.image && iv.image.renderingMode != UIImageRenderingModeAlwaysTemplate) {
+            iv.image = [iv.image imageWithRenderingMode:UIImageRenderingModeAlwaysTemplate];
+        }
+        iv.tintColor = [UIColor whiteColor];
+    }
     if (v.frame.size.height > 0.0 && v.frame.size.height <= 1.0 && v.frame.size.width > 20.0) {
         v.backgroundColor = [UIColor colorWithWhite:1.0 alpha:0.18];
     }
@@ -604,6 +611,18 @@ static void hook_navLayout(id self, SEL _cmd){
     @try { DKNavGlass((UIView *)self); } @catch(NSException *e) {}
 }
 
+static void (*orig_pop_setButtons)(id, SEL, id);
+static void hook_pop_setButtons(id self, SEL _cmd, id arr){
+    if (orig_pop_setButtons) orig_pop_setButtons(self, _cmd, arr);
+    @try { DKPopoverGlass((UIView *)self); } @catch(NSException *e) {}
+}
+
+static void (*orig_pop_setContent)(id, SEL, id);
+static void hook_pop_setContent(id self, SEL _cmd, id v){
+    if (orig_pop_setContent) orig_pop_setContent(self, _cmd, v);
+    @try { DKPopoverGlass((UIView *)self); } @catch(NSException *e) {}
+}
+
 static void (*orig_popoverLayout)(id, SEL);
 static void hook_popoverLayout(id self, SEL _cmd){
     if (orig_popoverLayout) orig_popoverLayout(self, _cmd);
@@ -657,8 +676,16 @@ static void DKTryInstall(void){
         }
         // 加号弹窗（消息页右上角加号弹出的小菜单）
         Class pop = NSClassFromString(@"AFDLeftExtensionPopoverSheetView");
-        if (pop && !orig_popoverLayout) {
-            MSHookMessageEx(pop, sel_registerName("layoutSubviews"), (IMP)hook_popoverLayout, (IMP *)&orig_popoverLayout);
+        if (pop) {
+            if (!orig_popoverLayout) {
+                MSHookMessageEx(pop, sel_registerName("layoutSubviews"), (IMP)hook_popoverLayout, (IMP *)&orig_popoverLayout);
+            }
+            if (!orig_pop_setButtons) {
+                MSHookMessageEx(pop, sel_registerName("setActionButtons:"), (IMP)hook_pop_setButtons, (IMP *)&orig_pop_setButtons);
+            }
+            if (!orig_pop_setContent) {
+                MSHookMessageEx(pop, sel_registerName("setContentView:"), (IMP)hook_pop_setContent, (IMP *)&orig_pop_setContent);
+            }
         }
         // 页面级兜底
         Class pi = NSClassFromString(@"AWEPlayInteractionViewController");
