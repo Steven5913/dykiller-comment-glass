@@ -147,6 +147,35 @@ static UIView *DKFindRail(UIView *v){
     return nil;
 }
 
+// 把头像本体统一成 d x d（与音乐唱片 44 一致），圆心保持不动
+static void DKAvatarSize(UIView *btn, CGFloat d){
+    if (!btn || d < 8) return;
+    @try {
+        CGRect f = btn.frame;
+        if (CGRectIsEmpty(f)) return;
+        CGPoint c = CGPointMake(CGRectGetMidX(f), CGRectGetMidY(f));
+        if (fabs((double)f.size.width - (double)d) > 0.5 ||
+            fabs((double)f.size.height - (double)d) > 0.5) {
+            btn.bounds = CGRectMake(0, 0, d, d);
+            btn.frame = CGRectMake(c.x - d / 2.0, c.y - d / 2.0, d, d);
+        }
+        btn.layer.cornerRadius = d / 2.0;
+        btn.layer.masksToBounds = YES;
+        // 里面的头像图片跟着铺满同一个圆
+        for (UIView *s in btn.subviews) {
+            NSString *scn = NSStringFromClass([s class]) ?: @"";
+            if (![scn isEqualToString:@"UIImageView"]) continue;
+            CGRect sf = s.frame;
+            if (fabs((double)sf.size.width - (double)d) > 0.5 ||
+                fabs((double)sf.size.height - (double)d) > 0.5) {
+                s.frame = CGRectMake(0, 0, d, d);
+            }
+            s.layer.cornerRadius = d / 2.0;
+            s.layer.masksToBounds = YES;
+        }
+    } @catch(...) {}
+}
+
 // 去掉视图（及其一层子视图/子图层）上的描边——用来干掉抖音头像那圈细白线
 static void DKClearBorder(UIView *v){
     if (!v) return;
@@ -214,6 +243,8 @@ static void DKGlassOne(UIView *v){
                     s.bounds.size.height >= 36 && s.bounds.size.height <= 60) { icon = s; break; }
             }
         }
+        // 头像统一成 44x44（与音乐唱片同尺寸），圆心不动
+        if (icon) DKAvatarSize(icon, 44.0);
         if (icon) {
             // 用头像本体的绝对矩形直接定圆心，避免二次换算误差
             CGRect btnRect = [icon convertRect:icon.bounds toView:v];
