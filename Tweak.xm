@@ -44,14 +44,14 @@ static UIVisualEffect *DKGlassEffect(void){
     return eff;
 }
 
-// 圆形玻璃盘：玻璃 + 高光 + 描边（与长按倍速一致）
-static UIView *DKMakeDisc(CGFloat d){
-    UIView *host = [[UIView alloc] initWithFrame:CGRectMake(0, 0, d, d)];
+// 玻璃本体（圆盘/胶囊共用同一套配方：长按倍速那套）
+static UIView *DKMakeGlassRect(CGFloat w, CGFloat h, CGFloat radius){
+    UIView *host = [[UIView alloc] initWithFrame:CGRectMake(0, 0, w, h)];
     host.backgroundColor = [UIColor clearColor];
     host.userInteractionEnabled = NO;
     host.tag = DK_TAG;
     host.clipsToBounds = YES;
-    host.layer.cornerRadius = d / 2.0;
+    host.layer.cornerRadius = radius;
 
     UIVisualEffect *eff = DKGlassEffect();
     if (eff) {
@@ -59,13 +59,13 @@ static UIView *DKMakeDisc(CGFloat d){
         vev.frame = host.bounds;
         vev.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
         vev.userInteractionEnabled = NO;
-        vev.layer.cornerRadius = d / 2.0;
+        vev.layer.cornerRadius = radius;
         vev.clipsToBounds = YES;
         [host addSubview:vev];
     }
     CAGradientLayer *gl = [CAGradientLayer layer];
     gl.frame = host.bounds;
-    gl.cornerRadius = d / 2.0;
+    gl.cornerRadius = radius;
     gl.colors = @[(id)[UIColor colorWithWhite:1.0 alpha:0.10].CGColor,
                   (id)[UIColor colorWithWhite:1.0 alpha:0.0].CGColor];
     gl.locations = @[@0.0f, @0.20f];
@@ -76,12 +76,17 @@ static UIView *DKMakeDisc(CGFloat d){
     return host;
 }
 
+// 圆形玻璃盘
+static UIView *DKMakeDisc(CGFloat d){
+    return DKMakeGlassRect(d, d, d / 2.0);
+}
+
 #define DK_RING_NAME @"DKRing20261106"
 // 环形描边：上下白、左右渐隐到无（用竖向三段渐变做 alpha 蒙版）
 static void DKUpdateRing(UIView *g){
     if (!g) return;
-    CGFloat d = g.bounds.size.width;
-    if (d < 8) return;
+    CGFloat mn = MIN(g.bounds.size.width, g.bounds.size.height);
+    if (mn < 6) return;
     CAShapeLayer *ring = nil;
     for (CALayer *l in g.layer.sublayers) {
         if ([l.name isEqualToString:DK_RING_NAME]) { ring = (CAShapeLayer *)l; break; }
@@ -110,8 +115,9 @@ static void DKUpdateRing(UIView *g){
     CALayer *mask = ring.mask;
     if (mask) mask.frame = ring.bounds;
     CGRect rr = CGRectInset(g.bounds, 0.25, 0.25);
+    CGFloat cr = g.layer.cornerRadius - 0.25;
     ring.path = [UIBezierPath bezierPathWithRoundedRect:rr
-                                           cornerRadius:MAX((CGFloat)0.0, rr.size.width / 2.0)].CGPath;
+                                           cornerRadius:MAX((CGFloat)0.0, cr)].CGPath;
     [CATransaction commit];
 }
 
@@ -147,6 +153,33 @@ static void DKApplyDisc(UIView *host, UIView *icon, CGFloat d){
     if (CGRectIsEmpty(iconRect)) return;
     if (isnan(iconRect.origin.x) || isnan(iconRect.origin.y)) return;
     DKApplyDiscAt(host, CGPointMake(CGRectGetMidX(iconRect), CGRectGetMidY(iconRect)), d);
+}
+
+
+
+// 在 host 上铺一块指定矩形、指定圆角的玻璃（同一套配方），用于消息页底部条
+static void DKApplyGlassRect(UIView *host, CGRect rect, CGFloat radius){
+    if (!host || rect.size.width < 8 || rect.size.height < 6) return;
+    UIView *g = nil;
+    for (UIView *sv in host.subviews) {
+        if (sv.tag == DK_TAG) { g = sv; break; }
+    }
+    if (g && (fabs((double)g.bounds.size.width - (double)rect.size.width) > 0.5 ||
+              fabs((double)g.bounds.size.height - (double)rect.size.height) > 0.5)) {
+        [g removeFromSuperview];
+        g = nil;
+    }
+    if (!g) {
+        g = DKMakeGlassRect(rect.size.width, rect.size.height, radius);
+        [host insertSubview:g atIndex:0];
+    }
+    g.layer.cornerRadius = radius;
+    for (UIView *s in g.subviews) s.layer.cornerRadius = radius;
+    for (CALayer *l in g.layer.sublayers) {
+        if ([l isKindOfClass:[CAGradientLayer class]] && ![l.name isEqualToString:DK_RING_NAME]) l.cornerRadius = radius;
+    }
+    if (!CGRectEqualToRect(g.frame, rect)) g.frame = rect;
+    DKUpdateRing(g);
 }
 
 // ===== 六元素识别 =====
@@ -385,6 +418,33 @@ static void hook_elemLayout(id self, SEL _cmd){
     } @catch (NSException *e) {}
 }
 
+// ===== 消息页/视频页底部那排快捷入口：用同一套清透玻璃顶掉别的插件胶囊 =====
+static void (*orig_imCellLayout)(id, SEL);
+static void hook_imCellLayout(id self, SEL _cmd){
+    if (orig_imCellLayout) orig_imCellLayout(self, _cmd);
+    @try {
+        UIView *cell = (UIView *)self;
+        NSString *cn = NSStringFromClass([cell class]) ?: @"";
+        if (![cn isEqualToString:@"AWEIMInputActionBarEntryItemCollectionViewCell"]) return;
+        // 1) 藏掉 DKGlassFlexView 等别的插件玻璃、以及原生 blur 药丸底
+        for (UIView *root in cell.subviews) {
+            for (UIView *s in root.subviews) {
+                NSString *scn = NSStringFromClass([s class]) ?: @"";
+                if ([scn hasPrefix:@"DKGlass"]) { s.hidden = YES; continue; }
+                if ([s isKindOfClass:[UIVisualEffectView class]] && s.tag != DK_TAG) s.hidden = YES;
+            }
+        }
+        @try {
+            UIView *bv = (UIView *)[cell valueForKey:@"blurView"];
+            if (bv && bv.tag != DK_TAG) bv.hidden = YES;
+        } @catch(...) {}
+        // 2) 我们的玻璃胶囊铺满 cell（30 高 → 半径 15 的胶囊）
+        CGFloat h = cell.bounds.size.height;
+        if (h < 12) return;
+        DKApplyGlassRect(cell, cell.bounds, h / 2.0);
+    } @catch(...) {}
+}
+
 // 「日常」彩环：只要它布局一次就再藏起来，防止 app 在刷新时重新显示
 static void (*orig_ringLayout)(id, SEL);
 static void hook_ringLayout(id self, SEL _cmd){
@@ -443,6 +503,10 @@ static void DKTryInstall(void){
             MSHookMessageEx(music, sel_registerName("layoutSubviews"), (IMP)hook_elemLayout, (IMP *)&orig_elemLayout);
         }
         // 竖排兜底
+        Class imCell = NSClassFromString(@"AWEIMInputActionBarEntryItemCollectionViewCell");
+        if (imCell && !orig_imCellLayout) {
+            MSHookMessageEx(imCell, sel_registerName("layoutSubviews"), (IMP)hook_imCellLayout, (IMP *)&orig_imCellLayout);
+        }
         Class btnCls = NSClassFromString(@"AWEButton");
         if (btnCls && !orig_btnLayout) {
             MSHookMessageEx(btnCls, sel_registerName("layoutSubviews"), (IMP)hook_btnLayout, (IMP *)&orig_btnLayout);
