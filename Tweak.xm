@@ -78,21 +78,12 @@ static UIView *DKMakeDisc(CGFloat d){
     return host;
 }
 
-// 在 host 上保证存在一块以 icon 为中心、直径 d 的玻璃盘（只插一次，之后只更新位置）
-static void DKApplyDisc(UIView *host, UIView *icon, CGFloat d){
-    if (!host || !icon || d < 8) return;
+// 在 host 上保证存在一块以 (cx,cy) 为圆心、直径 d 的玻璃盘（只插一次，之后只更新位置）
+static void DKApplyDiscAt(UIView *host, CGPoint center, CGFloat d){
+    if (!host || d < 8) return;
     if (host.bounds.size.width < 16 || host.bounds.size.height < 16) return;
-    CGRect iconRect;
-    if (icon == host) {
-        iconRect = host.bounds;
-    } else {
-        @try { iconRect = [icon convertRect:icon.bounds toView:host]; } @catch(...) { return; }
-    }
-    if (CGRectIsEmpty(iconRect)) return;
-    if (isnan(iconRect.origin.x) || isnan(iconRect.origin.y)) return;
-    CGFloat cx = CGRectGetMidX(iconRect);
-    CGFloat cy = CGRectGetMidY(iconRect);
-    CGRect r = CGRectMake(cx - d / 2.0, cy - d / 2.0, d, d);
+    if (isnan(center.x) || isnan(center.y)) return;
+    CGRect r = CGRectMake(center.x - d / 2.0, center.y - d / 2.0, d, d);
 
     UIView *g = nil;
     for (UIView *sv in host.subviews) {
@@ -104,6 +95,20 @@ static void DKApplyDisc(UIView *host, UIView *icon, CGFloat d){
         [host insertSubview:g atIndex:0];
     }
     if (!CGRectEqualToRect(g.frame, r)) g.frame = r;
+}
+
+// 以 icon 为中心套玻璃盘
+static void DKApplyDisc(UIView *host, UIView *icon, CGFloat d){
+    if (!host || !icon || d < 8) return;
+    CGRect iconRect;
+    if (icon == host) {
+        iconRect = host.bounds;
+    } else {
+        @try { iconRect = [icon convertRect:icon.bounds toView:host]; } @catch(...) { return; }
+    }
+    if (CGRectIsEmpty(iconRect)) return;
+    if (isnan(iconRect.origin.x) || isnan(iconRect.origin.y)) return;
+    DKApplyDiscAt(host, CGPointMake(CGRectGetMidX(iconRect), CGRectGetMidY(iconRect)), d);
 }
 
 // ===== 六元素识别 =====
@@ -142,6 +147,38 @@ static UIView *DKFindRail(UIView *v){
     return nil;
 }
 
+// 去掉视图（及其一层子视图/子图层）上的描边——用来干掉抖音头像那圈细白线
+static void DKClearBorder(UIView *v){
+    if (!v) return;
+    @try {
+        v.layer.borderWidth = 0;
+        for (CALayer *l in v.layer.sublayers) {
+            if (l.borderWidth > 0) l.borderWidth = 0;
+            for (CALayer *ll in l.sublayers) {
+                if (ll.borderWidth > 0) ll.borderWidth = 0;
+            }
+        }
+    } @catch(...) {}
+}
+
+// 头像专治：去掉头像自带白描边、藏掉「日常」彩环、头像这块玻璃不留描边
+static void DKAvatarClean(UIView *host, UIView *btn){
+    DKClearBorder(btn);
+    if (btn) {
+        for (UIView *s in btn.subviews) DKClearBorder(s);
+    }
+    for (UIView *s in host.subviews) {
+        NSString *scn = NSStringFromClass([s class]) ?: @"";
+        // AFDColorRingView / AFDColorRingGradientView / AFDColorRingCircleAnimationView = 日常彩环
+        if ([scn hasPrefix:@"AFDColorRing"]) {
+            s.hidden = YES;
+            for (UIView *c in s.subviews) c.hidden = YES;
+            continue;
+        }
+        if (s.tag == DK_TAG) s.layer.borderWidth = 0; // 头像玻璃不画白描边
+    }
+}
+
 // 单个元素套玻璃
 static void DKGlassOne(UIView *v){
     NSString *cn = NSStringFromClass([v class]) ?: @"";
@@ -158,13 +195,33 @@ static void DKGlassOne(UIView *v){
         }
         DKApplyDisc(v, icon ?: v, 44.0);
     } else if ([cn isEqualToString:@"AWEPlayInteractionUserProfilePictureView"]) {
-        // 头像：48x48 圆形头像本体，玻璃盘 56（与音乐唱片同尺寸）
+        // 头像：多数视频 48x48、少部分 44x44；玻璃盘 56（与音乐唱片同尺寸）
+        // 圆心必须取头像本体（AWEButton），跳过我们自己插的玻璃与「日常」彩环，
+        // 否则会把玻璃自己当圆心，越摆越偏（29.44 之前部分视频不同心就是这个原因）
         UIView *icon = nil;
         for (UIView *s in v.subviews) {
-            if (s.bounds.size.width >= 40 && s.bounds.size.width <= 60 &&
-                s.bounds.size.height >= 40 && s.bounds.size.height <= 60) { icon = s; break; }
+            if (s.tag == DK_TAG) continue;
+            NSString *scn = NSStringFromClass([s class]) ?: @"";
+            if ([scn hasPrefix:@"AFDColorRing"]) continue;
+            if ([scn isEqualToString:@"AWEButton"]) { icon = s; break; }
         }
-        DKApplyDisc(v, icon ?: v, 56.0);
+        if (!icon) {
+            for (UIView *s in v.subviews) {
+                if (s.tag == DK_TAG) continue;
+                NSString *scn = NSStringFromClass([s class]) ?: @"";
+                if ([scn hasPrefix:@"AFDColorRing"]) continue;
+                if (s.bounds.size.width >= 36 && s.bounds.size.width <= 60 &&
+                    s.bounds.size.height >= 36 && s.bounds.size.height <= 60) { icon = s; break; }
+            }
+        }
+        if (icon) {
+            // 用头像本体的绝对矩形直接定圆心，避免二次换算误差
+            CGRect btnRect = [icon convertRect:icon.bounds toView:v];
+            DKApplyDiscAt(v, CGPointMake(CGRectGetMidX(btnRect), CGRectGetMidY(btnRect)), 56.0);
+        } else {
+            DKApplyDisc(v, v, 56.0);
+        }
+        DKAvatarClean(v, icon);
     } else if ([cn isEqualToString:@"AWEMusicCoverButton"]) {
         // 音乐唱片：44x44，玻璃盘 56
         DKApplyDisc(v, v, 56.0);
@@ -223,6 +280,13 @@ static void hook_elemLayout(id self, SEL _cmd){
     } @catch (NSException *e) {}
 }
 
+// 「日常」彩环：只要它布局一次就再藏起来，防止 app 在刷新时重新显示
+static void (*orig_ringLayout)(id, SEL);
+static void hook_ringLayout(id self, SEL _cmd){
+    if (orig_ringLayout) orig_ringLayout(self, _cmd);
+    @try { ((UIView *)self).hidden = YES; } @catch(...) {}
+}
+
 static void (*orig_railLayout)(id, SEL);
 static void hook_railLayout(id self, SEL _cmd){
     if (orig_railLayout) orig_railLayout(self, _cmd);
@@ -274,6 +338,10 @@ static void DKTryInstall(void){
             MSHookMessageEx(music, sel_registerName("layoutSubviews"), (IMP)hook_elemLayout, (IMP *)&orig_elemLayout);
         }
         // 竖排兜底
+        Class ring = NSClassFromString(@"AFDColorRingView");
+        if (ring && !orig_ringLayout) {
+            MSHookMessageEx(ring, sel_registerName("layoutSubviews"), (IMP)hook_ringLayout, (IMP *)&orig_ringLayout);
+        }
         Class rail = NSClassFromString(@"AWEElementStackView");
         if (rail && !orig_railLayout) {
             MSHookMessageEx(rail, sel_registerName("layoutSubviews"), (IMP)hook_railLayout, (IMP *)&orig_railLayout);
