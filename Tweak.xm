@@ -420,87 +420,83 @@ static void hook_elemLayout(id self, SEL _cmd){
 }
 
 // ===== 底部输入栏五个胶囊：玩法 / 输入框 / 语音 / 表情 / 加号 =====
-// 四个按钮 = AWEIMInputVC*BadgeButton（44x44）；输入框 = IESIMGrowingTextView（胶囊，宽度截止到语音前）
-static void DKGlassIMButton(UIView *b){
-    for (UIView *s in b.subviews) {
-        if (s.tag == DK_TAG) continue;
-        NSString *scn = NSStringFromClass([s class]) ?: @"";
-        if ([scn hasPrefix:@"DKGlass"]) { s.hidden = YES; continue; }
-        if ([s isKindOfClass:[UIVisualEffectView class]] && s.tag != DK_TAG) s.hidden = YES;
+// 做法：把别的插件画的胶囊(DKGlassFlexView)按原矩形 1:1 换成我们自己的清透玻璃
+#define DK_IM_TAG 20261107
+
+static BOOL DKIsOursGlass(UIView *v){
+    if (!v) return NO;
+    if (v.tag == DK_TAG || v.tag == DK_IM_TAG) return YES;
+    UIView *p1 = v.superview, *p2 = p1 ? p1.superview : nil;
+    if (p1 && (p1.tag == DK_TAG || p1.tag == DK_IM_TAG)) return YES;
+    if (p2 && (p2.tag == DK_TAG || p2.tag == DK_IM_TAG)) return YES;
+    return NO;
+}
+
+static void DKIMFixParent(UIView *parent){
+    if (!parent) return;
+    NSMutableArray *frames = [NSMutableArray array];
+    NSMutableArray *others = [NSMutableArray array];
+    for (UIView *s in parent.subviews) {
+        NSString *cn = NSStringFromClass([s class]) ?: @"";
+        if ([cn hasPrefix:@"DKGlass"]) {
+            CGRect f = s.frame;
+            if (f.size.width >= 24 && f.size.height >= 20) {
+                [frames addObject:[NSValue valueWithCGRect:f]];
+                [others addObject:s];
+            }
+        }
     }
-    CGRect bb = b.bounds;
-    if (bb.size.width < 16 || bb.size.height < 16) return;
-    CGFloat d = MIN(bb.size.width, bb.size.height);
-    DKApplyDiscAt(b, CGPointMake(CGRectGetMidX(bb), CGRectGetMidY(bb)), d);
+    for (UIView *s in parent.subviews) {
+        if (s.tag != DK_IM_TAG) continue;
+        BOOL keep = NO;
+        for (NSValue *v in frames) {
+            if (CGRectEqualToRect([v CGRectValue], s.frame)) { keep = YES; break; }
+        }
+        if (!keep) [s removeFromSuperview];
+    }
+    NSUInteger i = 0;
+    for (UIView *o in others) {
+        CGRect fr = [frames[i] CGRectValue];
+        i++;
+        o.hidden = YES;
+        BOOL exist = NO;
+        for (UIView *s in parent.subviews) {
+            if (s.tag == DK_IM_TAG && CGRectEqualToRect(s.frame, fr)) { exist = YES; break; }
+        }
+        if (!exist) {
+            CGFloat rad = MIN(fr.size.width, fr.size.height) / 2.0;
+            UIView *mine = DKMakeGlassRect(fr.size.width, fr.size.height, rad);
+            mine.tag = DK_IM_TAG;
+            mine.frame = fr;
+            [parent insertSubview:mine belowSubview:o];
+            DKUpdateRing(mine);
+        }
+    }
 }
 
-static void (*orig_imBtnLayout)(id, SEL);
-static void (*orig_imBtn2Layout)(id, SEL);
-static void hook_imBtnLayout(id self, SEL _cmd){
-    if (orig_imBtnLayout) orig_imBtnLayout(self, _cmd);
-    @try { DKGlassIMButton((UIView *)self); } @catch(...) {}
-}
-
-// 整条输入栏：先把这一条里别的插件/原生的模糊层全关掉，再画五个独立胶囊
-static void DKGlassIMBar(UIViewController *vc){
-    UIView *view = vc.view;
-    if (!view) return;
-    NSMutableArray *btns = [NSMutableArray array];
-    UIView *tv = nil;
-    NSMutableArray *stack = [NSMutableArray arrayWithObject:view];
+static void DKIMScan(UIView *root){
+    if (!root) return;
+    NSMutableArray *stack = [NSMutableArray arrayWithObject:root];
     int guard = 0;
-    while (stack.count > 0 && guard < 700) {
+    while (stack.count > 0 && guard < 800) {
         guard++;
         UIView *v = stack.lastObject;
         [stack removeLastObject];
-        if (v.tag == DK_TAG) continue;  // 自家玻璃，连子树一起跳过
-        NSString *cn = NSStringFromClass([v class]) ?: @"";
-        if ([cn rangeOfString:@"BadgeButton"].location != NSNotFound) [btns addObject:v];
-        if (!tv && [cn isEqualToString:@"IESIMGrowingTextView"]) tv = v;
-        if ([v isKindOfClass:[UIVisualEffectView class]] && v.tag != DK_TAG) v.hidden = YES;
-        for (UIView *s in v.subviews) [stack addObject:s];
-    }
-
-    for (UIView *b in btns) DKGlassIMButton(b);
-
-    if (!tv) return;
-    CGRect tvr = [tv convertRect:tv.bounds toView:view];
-    if (tvr.size.height < 20) return;
-    CGFloat right = tvr.size.width;
-    for (UIView *b in btns) {
-        CGRect br = [b convertRect:b.bounds toView:view];
-        CGFloat dx = br.origin.x - tvr.origin.x;
-        if (dx > 20 && dx < right) right = dx - 6;
-    }
-    CGFloat left = 0;
-    for (UIView *b in btns) {
-        CGRect br = [b convertRect:b.bounds toView:view];
-        CGFloat mx = CGRectGetMaxX(br) - tvr.origin.x + 6;
-        if (mx < tvr.size.width * 0.5 && mx > left) left = mx;
-    }
-    CGFloat w = right - left;
-    if (w < 60) { left = 0; w = MAX((CGFloat)60, right); }
-
-    // 输入框底下还有同尺寸的原生药丸底/毛玻璃，一并藏掉，只留我们的清透玻璃
-    UIView *root = tv.superview;
-    for (int k = 0; k < 5 && root; k++) {
-        for (UIView *s in root.subviews) {
-            if (s == tv || s.tag == DK_TAG || s.hidden) continue;
-            if ([s isKindOfClass:[UIVisualEffectView class]]) { s.hidden = YES; continue; }
-            CGRect sr = s.frame;
-            if (fabs((double)sr.size.width - (double)tvr.size.width) < 8 &&
-                fabs((double)sr.size.height - (double)tvr.size.height) < 8) s.hidden = YES;
+        DKIMFixParent(v);
+        for (UIView *s in v.subviews) {
+            if ([s isKindOfClass:[UIVisualEffectView class]] && !DKIsOursGlass(s)) s.hidden = YES;
+            [stack addObject:s];
         }
-        root = root.superview;
     }
-
-    DKApplyGlassRect(tv, CGRectMake(left, 0, w, tvr.size.height), tvr.size.height / 2.0);
 }
 
 static void (*orig_imInputLayout)(id, SEL);
 static void hook_imInputLayout(id self, SEL _cmd){
     if (orig_imInputLayout) orig_imInputLayout(self, _cmd);
-    @try { DKGlassIMBar((UIViewController *)self); } @catch(...) {}
+    @try {
+        UIView *rootView = ((UIViewController *)self).view;
+        if (rootView) DKIMScan(rootView);
+    } @catch(...) {}
 }
 
 // 「日常」彩环：只要它布局一次就再藏起来，防止 app 在刷新时重新显示
@@ -561,14 +557,6 @@ static void DKTryInstall(void){
             MSHookMessageEx(music, sel_registerName("layoutSubviews"), (IMP)hook_elemLayout, (IMP *)&orig_elemLayout);
         }
         // 竖排兜底
-        Class imBadge = NSClassFromString(@"AWEIMInputVCBadgeButton");
-        if (imBadge && !orig_imBtnLayout) {
-            MSHookMessageEx(imBadge, sel_registerName("layoutSubviews"), (IMP)hook_imBtnLayout, (IMP *)&orig_imBtnLayout);
-        }
-        Class imBadge2 = NSClassFromString(@"AWEIMInputVCUnhighlightedBadgeButton");
-        if (imBadge2 && !orig_imBtn2Layout) {
-            MSHookMessageEx(imBadge2, sel_registerName("layoutSubviews"), (IMP)hook_imBtnLayout, (IMP *)&orig_imBtn2Layout);
-        }
         Class imVC = NSClassFromString(@"IESIMInputViewController");
         if (imVC && !orig_imInputLayout) {
             MSHookMessageEx(imVC, sel_registerName("viewDidLayoutSubviews"), (IMP)hook_imInputLayout, (IMP *)&orig_imInputLayout);
