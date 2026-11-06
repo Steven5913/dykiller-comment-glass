@@ -106,6 +106,211 @@ static void DKApplyDisc(UIView *host, UIView *icon, CGFloat d){
     if (!CGRectEqualToRect(g.frame, r)) g.frame = r;
 }
 
+// ===== 图标风格：移植「奶蛙 / 红果短剧」右侧图标（柔彩双色）=====
+// 奶蛙那套是闭源 dylib 里用 UIBezierPath 现画的矢量图标（无图片资源），
+// 这里按它的配色与形态重绘同一套：未选中=线框，已选中=实心，柔彩双色（主色+提亮色）。
+//   点赞 #E86880 / 评论 #78B8F8 / 收藏 #F0C058 / 分享 #88D0B8
+typedef NS_ENUM(NSInteger, DKIconKind){ DKIconNone = 0, DKIconLike, DKIconComment, DKIconCollect, DKIconShare };
+
+static UIView *DKFindRail(UIView *v);
+
+static DKIconKind DKKindFromName(NSString *name){
+    if (![name isKindOfClass:[NSString class]] || name.length == 0) return DKIconNone;
+    NSString *s = [name lowercaseString];
+    if ([s rangeOfString:@"like"].location != NSNotFound) return DKIconLike;
+    if ([s rangeOfString:@"comment"].location != NSNotFound) return DKIconComment;
+    if ([s rangeOfString:@"collect"].location != NSNotFound) return DKIconCollect;
+    if ([s rangeOfString:@"favorite"].location != NSNotFound) return DKIconCollect;
+    if ([s rangeOfString:@"share"].location != NSNotFound) return DKIconShare;
+    return DKIconNone;
+}
+
+static UIColor *DKHexColor(NSUInteger hex){
+    return [UIColor colorWithRed:((hex >> 16) & 0xFF) / 255.0
+                            green:((hex >> 8) & 0xFF) / 255.0
+                             blue:(hex & 0xFF) / 255.0
+                            alpha:1.0];
+}
+
+static UIColor *DKIconColor(DKIconKind k){
+    switch (k) {
+        case DKIconLike:    return DKHexColor(0xE86880);
+        case DKIconComment: return DKHexColor(0x78B8F8);
+        case DKIconCollect: return DKHexColor(0xF0C058);
+        case DKIconShare:   return DKHexColor(0x88D0B8);
+        default: return [UIColor whiteColor];
+    }
+}
+
+// 柔彩第二色：同色相提亮
+static UIColor *DKSoften(UIColor *c){
+    CGFloat r = 0, g = 0, b = 0, a = 1;
+    if (![c getRed:&r green:&g blue:&b alpha:&a]) return c;
+    return [UIColor colorWithRed:MIN(1.0, r + 0.30) green:MIN(1.0, g + 0.30) blue:MIN(1.0, b + 0.30) alpha:a];
+}
+
+static UIBezierPath *DKHeartPath(void){
+    UIBezierPath *p = [UIBezierPath bezierPath];
+    [p moveToPoint:CGPointMake(17, 29.5)];
+    [p addCurveToPoint:CGPointMake(2.6, 12.2) controlPoint1:CGPointMake(12.4, 25.4) controlPoint2:CGPointMake(2.6, 20.4)];
+    [p addCurveToPoint:CGPointMake(11.4, 4.2) controlPoint1:CGPointMake(2.6, 6.8) controlPoint2:CGPointMake(6.4, 4.2)];
+    [p addCurveToPoint:CGPointMake(17, 7.4) controlPoint1:CGPointMake(14.4, 4.2) controlPoint2:CGPointMake(16.2, 5.4)];
+    [p addCurveToPoint:CGPointMake(22.6, 4.2) controlPoint1:CGPointMake(17.8, 5.4) controlPoint2:CGPointMake(19.6, 4.2)];
+    [p addCurveToPoint:CGPointMake(31.4, 12.2) controlPoint1:CGPointMake(27.6, 4.2) controlPoint2:CGPointMake(31.4, 6.8)];
+    [p addCurveToPoint:CGPointMake(17, 29.5) controlPoint1:CGPointMake(31.4, 20.4) controlPoint2:CGPointMake(21.6, 25.4)];
+    [p closePath];
+    p.lineJoinStyle = kCGLineJoinRound;
+    return p;
+}
+
+static UIBezierPath *DKBubblePath(void){
+    UIBezierPath *p = [UIBezierPath bezierPathWithRoundedRect:CGRectMake(3.2, 5.6, 27.6, 19.2) cornerRadius:6.4];
+    UIBezierPath *tail = [UIBezierPath bezierPath];
+    [tail moveToPoint:CGPointMake(11.6, 24.4)];
+    [tail addLineToPoint:CGPointMake(11.6, 29.6)];
+    [tail addLineToPoint:CGPointMake(17.4, 24.4)];
+    [tail closePath];
+    [p appendPath:tail];
+    p.lineJoinStyle = kCGLineJoinRound;
+    return p;
+}
+
+static UIBezierPath *DKBookmarkPath(void){
+    UIBezierPath *p = [UIBezierPath bezierPath];
+    [p moveToPoint:CGPointMake(8.6, 4.6)];
+    [p addLineToPoint:CGPointMake(25.4, 4.6)];
+    [p addLineToPoint:CGPointMake(25.4, 29.4)];
+    [p addLineToPoint:CGPointMake(17.0, 23.4)];
+    [p addLineToPoint:CGPointMake(8.6, 29.4)];
+    [p closePath];
+    p.lineJoinStyle = kCGLineJoinRound;
+    return p;
+}
+
+static void DKPaperPlaneParts(UIBezierPath **outWing, UIBezierPath **outTail){
+    UIBezierPath *w = [UIBezierPath bezierPath];
+    [w moveToPoint:CGPointMake(30.6, 4.4)];
+    [w addLineToPoint:CGPointMake(3.4, 15.6)];
+    [w addLineToPoint:CGPointMake(15.0, 19.2)];
+    [w closePath];
+    w.lineJoinStyle = kCGLineJoinRound;
+    UIBezierPath *t = [UIBezierPath bezierPath];
+    [t moveToPoint:CGPointMake(30.6, 4.4)];
+    [t addLineToPoint:CGPointMake(15.0, 19.2)];
+    [t addLineToPoint:CGPointMake(13.2, 29.6)];
+    [t closePath];
+    t.lineJoinStyle = kCGLineJoinRound;
+    if (outWing) *outWing = w;
+    if (outTail) *outTail = t;
+}
+
+static void DKGradientFillPath(CGContextRef c, UIBezierPath *p, UIColor *from, UIColor *to){
+    CGContextSaveGState(c);
+    [p addClip];
+    CGColorSpaceRef cs = CGColorSpaceCreateDeviceRGB();
+    NSArray *cols = @[(id)from.CGColor, (id)to.CGColor];
+    CGGradientRef g = CGGradientCreateWithColors(cs, (__bridge CFArrayRef)cols, NULL);
+    if (g) {
+        CGContextDrawLinearGradient(c, g, CGPointMake(0, 0), CGPointMake(0, 34), 0);
+        CGGradientRelease(g);
+    }
+    CGColorSpaceRelease(cs);
+    CGContextRestoreGState(c);
+}
+
+static void DKStrokePath(UIBezierPath *p, UIColor *color, CGFloat width){
+    p.lineWidth = width;
+    p.lineJoinStyle = kCGLineJoinRound;
+    p.lineCapStyle = kCGLineCapRound;
+    [color setStroke];
+    [p stroke];
+}
+
+static UIImage *DKIconImage(DKIconKind k, BOOL filled){
+    CGFloat side = 34.0;
+    UIGraphicsImageRendererFormat *fmt = [UIGraphicsImageRendererFormat defaultFormat];
+    fmt.opaque = NO;
+    UIGraphicsImageRenderer *r = [[UIGraphicsImageRenderer alloc] initWithSize:CGSizeMake(side, side) format:fmt];
+    UIImage *img = [r imageWithActions:^(UIGraphicsImageRendererContext *rc){
+        CGContextRef c = rc.CGContext;
+        UIColor *main = DKIconColor(k);
+        UIColor *soft = DKSoften(main);
+        if (k == DKIconLike) {
+            UIBezierPath *p = DKHeartPath();
+            if (filled) { DKGradientFillPath(c, p, soft, main); DKStrokePath(p, main, 1.0); }
+            else { DKStrokePath(p, main, 2.2); }
+        } else if (k == DKIconComment) {
+            UIBezierPath *p = DKBubblePath();
+            DKStrokePath(p, main, 2.2);
+            [main setFill];
+            CGFloat xs[3] = {10.8, 17.0, 23.2};
+            for (int i = 0; i < 3; i++) {
+                UIBezierPath *dot = [UIBezierPath bezierPathWithOvalInRect:CGRectMake(xs[i] - 1.75, 13.4, 3.5, 3.5)];
+                [dot fill];
+            }
+        } else if (k == DKIconCollect) {
+            UIBezierPath *p = DKBookmarkPath();
+            if (filled) { DKGradientFillPath(c, p, soft, main); DKStrokePath(p, main, 1.0); }
+            else { DKStrokePath(p, main, 2.2); }
+        } else if (k == DKIconShare) {
+            UIBezierPath *w = nil, *t = nil;
+            DKPaperPlaneParts(&w, &t);
+            if (filled) {
+                DKGradientFillPath(c, w, soft, main);
+                DKStrokePath(w, main, 0.8);
+                [main setFill];
+                [t fill];
+            } else {
+                DKStrokePath(w, main, 2.2);
+                DKStrokePath(t, main, 2.2);
+            }
+        }
+    }];
+    return [img imageWithRenderingMode:UIImageRenderingModeAlwaysOriginal];
+}
+
+static const void *DKIconAppliedKey = &DKIconAppliedKey;
+
+static UIImageView *DKIconImageView(UIView *btn){
+    UIImageView *iv = nil;
+    @try { iv = (UIImageView *)[btn valueForKey:@"aweImageView"]; } @catch(...) { iv = nil; }
+    if ([iv isKindOfClass:[UIImageView class]]) return iv;
+    @try {
+        UIView *cv = (UIView *)[btn valueForKey:@"containerView"];
+        for (UIView *s in cv.subviews) {
+            if ([s isKindOfClass:[UIImageView class]]) return (UIImageView *)s;
+        }
+    } @catch(...) {}
+    for (UIView *s in btn.subviews) {
+        if ([s isKindOfClass:[UIImageView class]]) return (UIImageView *)s;
+    }
+    return nil;
+}
+
+// 把抖音原有的白色图标换成柔彩双色图标（只换图，不碰布局与交互）
+static void DKRestyleIcon(UIView *btn){
+    if (!btn) return;
+    NSString *name = nil;
+    @try { name = [btn valueForKey:@"imageNameString"]; } @catch(...) { name = nil; }
+    DKIconKind k = DKKindFromName(name);
+    if (k == DKIconNone) return;
+    NSString *low = [name lowercaseString];
+    BOOL on = ([low rangeOfString:@"selected"].location != NSNotFound) ||
+              ([low rangeOfString:@"active"].location != NSNotFound) ||
+              ([low rangeOfString:@".on"].location != NSNotFound);
+    UIImageView *iv = DKIconImageView(btn);
+    if (!iv) return;
+    NSString *key = [NSString stringWithFormat:@"%ld|%d", (long)k, (int)on];
+    NSString *old = objc_getAssociatedObject(btn, DKIconAppliedKey);
+    if (old && [old isEqualToString:key] && iv.image) return;
+    UIImage *img = DKIconImage(k, on);
+    if (!img) return;
+    @try {
+        iv.image = img;
+        objc_setAssociatedObject(btn, DKIconAppliedKey, key, OBJC_ASSOCIATION_COPY_NONATOMIC);
+    } @catch(...) {}
+}
+
 // ===== 六元素识别 =====
 static BOOL DKIsElementClass(NSString *cn){
     if (!cn) return NO;
@@ -146,7 +351,7 @@ static UIView *DKFindRail(UIView *v){
 static void DKGlassOne(UIView *v){
     NSString *cn = NSStringFromClass([v class]) ?: @"";
     if ([cn isEqualToString:@"AWEFeedVideoButton"]) {
-        // 点赞/评论/收藏/分享：icon 容器 36x36，玻璃盘 46
+        // 点赞/评论/收藏/分享：icon 容器 36x36，玻璃盘 44
         UIView *icon = nil;
         @try { icon = (UIView *)[v valueForKey:@"containerView"]; } @catch(...) { icon = nil; }
         if (!icon || ![icon isKindOfClass:[UIView class]] || icon.bounds.size.width < 14) {
@@ -156,7 +361,8 @@ static void DKGlassOne(UIView *v){
                     s.bounds.size.height >= 24 && s.bounds.size.height <= 48) { icon = s; break; }
             }
         }
-        DKApplyDisc(v, icon ?: v, 46.0);
+        DKApplyDisc(v, icon ?: v, 44.0);
+        DKRestyleIcon(v); // 顺手换成「柔彩双色」图标
     } else if ([cn isEqualToString:@"AWEPlayInteractionUserProfilePictureView"]) {
         // 头像：48x48 圆形头像本体，玻璃盘 56（与音乐唱片同尺寸）
         UIView *icon = nil;
@@ -223,6 +429,37 @@ static void hook_elemLayout(id self, SEL _cmd){
     } @catch (NSException *e) {}
 }
 
+// app 自己重设图标时，清掉「已换过」的标记再重新上色，避免被覆盖回白色原图标
+static void (*orig_setImage)(id, SEL, id);
+static void hook_setImage(id self, SEL _cmd, id img){
+    if (orig_setImage) orig_setImage(self, _cmd, img);
+    @try {
+        objc_setAssociatedObject(self, DKIconAppliedKey, nil, OBJC_ASSOCIATION_COPY_NONATOMIC);
+        UIView *v = (UIView *)self;
+        if (DKFindRail(v)) DKRestyleIcon(v);
+    } @catch (NSException *e) {}
+}
+
+static void (*orig_setImageName)(id, SEL, id);
+static void hook_setImageName(id self, SEL _cmd, id name){
+    if (orig_setImageName) orig_setImageName(self, _cmd, name);
+    @try {
+        objc_setAssociatedObject(self, DKIconAppliedKey, nil, OBJC_ASSOCIATION_COPY_NONATOMIC);
+        UIView *v = (UIView *)self;
+        if (DKFindRail(v)) DKRestyleIcon(v);
+    } @catch (NSException *e) {}
+}
+
+static void (*orig_setImageNameHDR)(id, SEL, id, id);
+static void hook_setImageNameHDR(id self, SEL _cmd, id name, id hdr){
+    if (orig_setImageNameHDR) orig_setImageNameHDR(self, _cmd, name, hdr);
+    @try {
+        objc_setAssociatedObject(self, DKIconAppliedKey, nil, OBJC_ASSOCIATION_COPY_NONATOMIC);
+        UIView *v = (UIView *)self;
+        if (DKFindRail(v)) DKRestyleIcon(v);
+    } @catch (NSException *e) {}
+}
+
 static void (*orig_railLayout)(id, SEL);
 static void hook_railLayout(id self, SEL _cmd){
     if (orig_railLayout) orig_railLayout(self, _cmd);
@@ -264,6 +501,14 @@ static void DKTryInstall(void){
         Class btn = NSClassFromString(@"AWEFeedVideoButton");
         if (btn && !orig_elemLayout) {
             MSHookMessageEx(btn, sel_registerName("layoutSubviews"), (IMP)hook_elemLayout, (IMP *)&orig_elemLayout);
+        }
+        if (btn) {
+            if (!orig_setImage)
+                MSHookMessageEx(btn, sel_registerName("setImage:"), (IMP)hook_setImage, (IMP *)&orig_setImage);
+            if (!orig_setImageName)
+                MSHookMessageEx(btn, sel_registerName("setImageNameString:"), (IMP)hook_setImageName, (IMP *)&orig_setImageName);
+            if (!orig_setImageNameHDR)
+                MSHookMessageEx(btn, sel_registerName("setImageNameString:hdrColor:"), (IMP)hook_setImageNameHDR, (IMP *)&orig_setImageNameHDR);
         }
         Class avatar = NSClassFromString(@"AWEPlayInteractionUserProfilePictureView");
         if (avatar && !orig_elemLayout) {
