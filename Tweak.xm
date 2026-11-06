@@ -47,7 +47,6 @@ static UIVisualEffect *DKGlassEffect(void){
 // 玻璃本体（圆盘/胶囊共用同一套配方：长按倍速那套）
 static UIView *DKMakeGlassRect(CGFloat w, CGFloat h, CGFloat radius){
     UIView *host = [[UIView alloc] initWithFrame:CGRectMake(0, 0, w, h)];
-    UIView *host = [[UIView alloc] initWithFrame:CGRectMake(0, 0, d, d)];
     host.backgroundColor = [UIColor clearColor];
     host.userInteractionEnabled = NO;
     host.tag = DK_TAG;
