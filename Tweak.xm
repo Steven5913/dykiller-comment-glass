@@ -159,7 +159,7 @@ static void DKApplyDisc(UIView *host, UIView *icon, CGFloat d){
 
 
 // 在 host 上铺一块指定矩形、指定圆角的玻璃（同一套配方），用于消息页底部条
-static void DKApplyGlassRect(UIView *host, CGRect rect, CGFloat radius){
+__attribute__((unused)) static void DKApplyGlassRect(UIView *host, CGRect rect, CGFloat radius){
     if (!host || rect.size.width < 8 || rect.size.height < 6) return;
     UIView *g = nil;
     for (UIView *sv in host.subviews) {
