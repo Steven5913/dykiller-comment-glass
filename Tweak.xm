@@ -67,7 +67,7 @@ static UIView *DKMakeGlassRect(CGFloat w, CGFloat h, CGFloat radius){
     CAGradientLayer *gl = [CAGradientLayer layer];
     gl.frame = host.bounds;
     gl.cornerRadius = radius;
-    gl.colors = @[(id)[UIColor colorWithWhite:1.0 alpha:0.10].CGColor,
+    gl.colors = @[(id)[UIColor colorWithWhite:1.0 alpha:0.16].CGColor,
                   (id)[UIColor colorWithWhite:1.0 alpha:0.0].CGColor];
     gl.locations = @[@0.0f, @0.20f];
     gl.startPoint = CGPointMake(0, 0);
@@ -471,18 +471,12 @@ static void DKIMFixParent(UIView *parent){
             UIView *mine = DKMakeGlassRect(fr.size.width, fr.size.height, rad);
             mine.tag = DK_IM_TAG;
             mine.frame = fr;
-            // 拿不到 UIGlassEffect（系统只有模糊材质）时，改成真正透明的一层：
-            // 去掉模糊视效，只留极淡白色底 + 顶部高光 + 描边，保证能透出背后画面
-            BOOL gotGlass = NO;
-            Class glassCls = NSClassFromString(@"UIGlassEffect");
-            for (UIView *sub in mine.subviews) {
-                if ([sub isKindOfClass:[UIVisualEffectView class]]) {
-                    UIVisualEffect *e = ((UIVisualEffectView *)sub).effect;
-                    if (glassCls && [e isKindOfClass:glassCls]) gotGlass = YES;
-                    if (!gotGlass) [sub removeFromSuperview];
-                }
+            // 输入栏这五块一律不用模糊视效：只留半透明白底 + 顶部高光 + 描边，
+            // 保证背后画面原样透出来（不做任何 blur）
+            for (UIView *sub in [mine.subviews copy]) {
+                if ([sub isKindOfClass:[UIVisualEffectView class]]) [sub removeFromSuperview];
             }
-            if (!gotGlass) mine.backgroundColor = [UIColor colorWithWhite:1.0 alpha:0.10];
+            mine.backgroundColor = [UIColor colorWithWhite:1.0 alpha:0.07];
             [parent insertSubview:mine belowSubview:o];
             DKUpdateRing(mine);
         }
