@@ -228,6 +228,20 @@ static void DKPopoverGlass(UIView *sheet){
     content.backgroundColor = [UIColor clearColor];
     content.layer.backgroundColor = [UIColor clearColor].CGColor;
 
+    // 玻璃上黑字看不清：标题统一改白色，图标跟着走白；分隔线改浅白
+    for (UIView *v in content.subviews) {
+        if ([v isKindOfClass:[UIButton class]]) {
+            UIButton *b = (UIButton *)v;
+            [b setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
+            [b setTitleColor:[UIColor colorWithWhite:1.0 alpha:0.55] forState:UIControlStateHighlighted];
+            b.titleLabel.textColor = [UIColor whiteColor];
+            b.tintColor = [UIColor whiteColor];
+        }
+        if (v.frame.size.height > 0.0 && v.frame.size.height <= 1.0) {
+            v.backgroundColor = [UIColor colorWithWhite:1.0 alpha:0.18];
+        }
+    }
+
     CGFloat r = content.layer.cornerRadius;
     if (r <= 2.0) r = 13.0;
     DKApplyGlassAt(content, content.bounds, r);
