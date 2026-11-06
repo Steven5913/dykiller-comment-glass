@@ -107,9 +107,10 @@ static void DKApplyDisc(UIView *host, UIView *icon, CGFloat d){
 }
 
 // ===== 图标风格：移植「奶蛙 / 红果短剧」右侧图标（柔彩双色）=====
-// 奶蛙那套是闭源 dylib 里用 UIBezierPath 现画的矢量图标（无图片资源），
-// 这里按它的配色与形态重绘同一套：未选中=线框，已选中=实心，柔彩双色（主色+提亮色）。
-//   点赞 #E86880 / 评论 #78B8F8 / 收藏 #F0C058 / 分享 #88D0B8
+// 与奶蛙完全同一套做法：SF Symbols（systemImageNamed:withConfiguration: 指定磅值/字重）
+// + imageWithTintColor:renderingMode: 单色着染。符号名取自 NaiwaGuo.dylib：
+//   heart / heart.fill、text.bubble、bookmark / bookmark.fill、arrowshape.turn.up.right
+// 配色取自奶蛙「右侧图标」设置页截图：点赞 #E86880 / 评论 #78B8F8 / 收藏 #F0C058 / 分享 #88D0B8
 typedef NS_ENUM(NSInteger, DKIconKind){ DKIconNone = 0, DKIconLike, DKIconComment, DKIconCollect, DKIconShare };
 
 static UIView *DKFindRail(UIView *v);
@@ -142,131 +143,26 @@ static UIColor *DKIconColor(DKIconKind k){
     }
 }
 
-// 柔彩第二色：同色相提亮
-static UIColor *DKSoften(UIColor *c){
-    CGFloat r = 0, g = 0, b = 0, a = 1;
-    if (![c getRed:&r green:&g blue:&b alpha:&a]) return c;
-    return [UIColor colorWithRed:MIN(1.0, r + 0.30) green:MIN(1.0, g + 0.30) blue:MIN(1.0, b + 0.30) alpha:a];
-}
-
-static UIBezierPath *DKHeartPath(void){
-    UIBezierPath *p = [UIBezierPath bezierPath];
-    [p moveToPoint:CGPointMake(17, 29.5)];
-    [p addCurveToPoint:CGPointMake(2.6, 12.2) controlPoint1:CGPointMake(12.4, 25.4) controlPoint2:CGPointMake(2.6, 20.4)];
-    [p addCurveToPoint:CGPointMake(11.4, 4.2) controlPoint1:CGPointMake(2.6, 6.8) controlPoint2:CGPointMake(6.4, 4.2)];
-    [p addCurveToPoint:CGPointMake(17, 7.4) controlPoint1:CGPointMake(14.4, 4.2) controlPoint2:CGPointMake(16.2, 5.4)];
-    [p addCurveToPoint:CGPointMake(22.6, 4.2) controlPoint1:CGPointMake(17.8, 5.4) controlPoint2:CGPointMake(19.6, 4.2)];
-    [p addCurveToPoint:CGPointMake(31.4, 12.2) controlPoint1:CGPointMake(27.6, 4.2) controlPoint2:CGPointMake(31.4, 6.8)];
-    [p addCurveToPoint:CGPointMake(17, 29.5) controlPoint1:CGPointMake(31.4, 20.4) controlPoint2:CGPointMake(21.6, 25.4)];
-    [p closePath];
-    p.lineJoinStyle = kCGLineJoinRound;
-    return p;
-}
-
-static UIBezierPath *DKBubblePath(void){
-    UIBezierPath *p = [UIBezierPath bezierPathWithRoundedRect:CGRectMake(3.2, 5.6, 27.6, 19.2) cornerRadius:6.4];
-    UIBezierPath *tail = [UIBezierPath bezierPath];
-    [tail moveToPoint:CGPointMake(11.6, 24.4)];
-    [tail addLineToPoint:CGPointMake(11.6, 29.6)];
-    [tail addLineToPoint:CGPointMake(17.4, 24.4)];
-    [tail closePath];
-    [p appendPath:tail];
-    p.lineJoinStyle = kCGLineJoinRound;
-    return p;
-}
-
-static UIBezierPath *DKBookmarkPath(void){
-    UIBezierPath *p = [UIBezierPath bezierPath];
-    [p moveToPoint:CGPointMake(8.6, 4.6)];
-    [p addLineToPoint:CGPointMake(25.4, 4.6)];
-    [p addLineToPoint:CGPointMake(25.4, 29.4)];
-    [p addLineToPoint:CGPointMake(17.0, 23.4)];
-    [p addLineToPoint:CGPointMake(8.6, 29.4)];
-    [p closePath];
-    p.lineJoinStyle = kCGLineJoinRound;
-    return p;
-}
-
-static void DKPaperPlaneParts(UIBezierPath **outWing, UIBezierPath **outTail){
-    UIBezierPath *w = [UIBezierPath bezierPath];
-    [w moveToPoint:CGPointMake(30.6, 4.4)];
-    [w addLineToPoint:CGPointMake(3.4, 15.6)];
-    [w addLineToPoint:CGPointMake(15.0, 19.2)];
-    [w closePath];
-    w.lineJoinStyle = kCGLineJoinRound;
-    UIBezierPath *t = [UIBezierPath bezierPath];
-    [t moveToPoint:CGPointMake(30.6, 4.4)];
-    [t addLineToPoint:CGPointMake(15.0, 19.2)];
-    [t addLineToPoint:CGPointMake(13.2, 29.6)];
-    [t closePath];
-    t.lineJoinStyle = kCGLineJoinRound;
-    if (outWing) *outWing = w;
-    if (outTail) *outTail = t;
-}
-
-static void DKGradientFillPath(CGContextRef c, UIBezierPath *p, UIColor *from, UIColor *to){
-    CGContextSaveGState(c);
-    [p addClip];
-    CGColorSpaceRef cs = CGColorSpaceCreateDeviceRGB();
-    NSArray *cols = @[(id)from.CGColor, (id)to.CGColor];
-    CGGradientRef g = CGGradientCreateWithColors(cs, (__bridge CFArrayRef)cols, NULL);
-    if (g) {
-        CGContextDrawLinearGradient(c, g, CGPointMake(0, 0), CGPointMake(0, 34), 0);
-        CGGradientRelease(g);
-    }
-    CGColorSpaceRelease(cs);
-    CGContextRestoreGState(c);
-}
-
-static void DKStrokePath(UIBezierPath *p, UIColor *color, CGFloat width){
-    p.lineWidth = width;
-    p.lineJoinStyle = kCGLineJoinRound;
-    p.lineCapStyle = kCGLineCapRound;
-    [color setStroke];
-    [p stroke];
-}
-
 static UIImage *DKIconImage(DKIconKind k, BOOL filled){
-    CGFloat side = 34.0;
-    UIGraphicsImageRendererFormat *fmt = [UIGraphicsImageRendererFormat defaultFormat];
-    fmt.opaque = NO;
-    UIGraphicsImageRenderer *r = [[UIGraphicsImageRenderer alloc] initWithSize:CGSizeMake(side, side) format:fmt];
-    UIImage *img = [r imageWithActions:^(UIGraphicsImageRendererContext *rc){
-        CGContextRef c = rc.CGContext;
-        UIColor *main = DKIconColor(k);
-        UIColor *soft = DKSoften(main);
-        if (k == DKIconLike) {
-            UIBezierPath *p = DKHeartPath();
-            if (filled) { DKGradientFillPath(c, p, soft, main); DKStrokePath(p, main, 1.0); }
-            else { DKStrokePath(p, main, 2.2); }
-        } else if (k == DKIconComment) {
-            UIBezierPath *p = DKBubblePath();
-            DKStrokePath(p, main, 2.2);
-            [main setFill];
-            CGFloat xs[3] = {10.8, 17.0, 23.2};
-            for (int i = 0; i < 3; i++) {
-                UIBezierPath *dot = [UIBezierPath bezierPathWithOvalInRect:CGRectMake(xs[i] - 1.75, 13.4, 3.5, 3.5)];
-                [dot fill];
-            }
-        } else if (k == DKIconCollect) {
-            UIBezierPath *p = DKBookmarkPath();
-            if (filled) { DKGradientFillPath(c, p, soft, main); DKStrokePath(p, main, 1.0); }
-            else { DKStrokePath(p, main, 2.2); }
-        } else if (k == DKIconShare) {
-            UIBezierPath *w = nil, *t = nil;
-            DKPaperPlaneParts(&w, &t);
-            if (filled) {
-                DKGradientFillPath(c, w, soft, main);
-                DKStrokePath(w, main, 0.8);
-                [main setFill];
-                [t fill];
-            } else {
-                DKStrokePath(w, main, 2.2);
-                DKStrokePath(t, main, 2.2);
-            }
-        }
-    }];
-    return [img imageWithRenderingMode:UIImageRenderingModeAlwaysOriginal];
+    NSString *sym = nil;
+    switch (k) {
+        case DKIconLike:    sym = filled ? @"heart.fill" : @"heart"; break;
+        case DKIconComment: sym = @"text.bubble"; break;
+        case DKIconCollect: sym = filled ? @"bookmark.fill" : @"bookmark"; break;
+        case DKIconShare:   sym = @"arrowshape.turn.up.right"; break;
+        default: return nil;
+    }
+    UIImage *img = nil;
+    UIImageSymbolConfiguration *cfg = nil;
+    if (@available(iOS 13.0, *)) {
+        cfg = [UIImageSymbolConfiguration configurationWithPointSize:24.0
+                                                             weight:UIImageSymbolWeightMedium];
+        img = [UIImage systemImageNamed:sym withConfiguration:cfg];
+    }
+    if (!img) img = [UIImage imageNamed:sym];
+    if (!img) return nil;
+    // 与奶蛙同一套渲染：符号 + 指定磅值/字重 + 单色着染，AlwaysOriginal 避免被抖音染成白/灰
+    return [img imageWithTintColor:DKIconColor(k) renderingMode:UIImageRenderingModeAlwaysOriginal];
 }
 
 static const void *DKIconAppliedKey = &DKIconAppliedKey;
@@ -287,27 +183,71 @@ static UIImageView *DKIconImageView(UIView *btn){
     return nil;
 }
 
-// 把抖音原有的白色图标换成柔彩双色图标（只换图，不碰布局与交互）
+// 判断抖音当前那张图是「线框」还是「实心」状态：
+// 把图缩画成 24x24 的 alpha 位图，算字形包围盒内的实心像素占比。
+// 线框心/线框书签约 0.1~0.25，实心的明显更大（>0.42）。不依赖资源名，已点赞/已收藏照样认得出。
+static NSMutableDictionary *g_fillCache = nil;
+static BOOL DKImageLooksFilled(UIImage *img){
+    if (!img || !img.CGImage) return NO;
+    if (!g_fillCache) g_fillCache = [NSMutableDictionary dictionary];
+    NSString *k = [NSString stringWithFormat:@"%p", img];
+    NSNumber *cached = g_fillCache[k];
+    if (cached) return cached.boolValue;
+    const int N = 24;
+    unsigned char buf[N * N * 4];
+    memset(buf, 0, sizeof(buf));
+    CGColorSpaceRef cs = CGColorSpaceCreateDeviceRGB();
+    CGContextRef c = CGBitmapContextCreate(buf, N, N, 8, N * 4, cs, kCGImageAlphaPremultipliedLast);
+    CGColorSpaceRelease(cs);
+    if (!c) return NO;
+    CGContextSetInterpolationQuality(c, kCGInterpolationHigh);
+    CGContextDrawImage(c, CGRectMake(0, 0, N, N), img.CGImage);
+    CGContextRelease(c);
+    int minX = N, minY = N, maxX = -1, maxY = -1, solid = 0;
+    for (int y = 0; y < N; y++) {
+        for (int x = 0; x < N; x++) {
+            unsigned char a = buf[(y * N + x) * 4 + 3];
+            if (a > 20) {
+                if (x < minX) minX = x;
+                if (y < minY) minY = y;
+                if (x > maxX) maxX = x;
+                if (y > maxY) maxY = y;
+                if (a > 160) solid++;
+            }
+        }
+    }
+    BOOL filled = NO;
+    if (maxX > minX && maxY > minY) {
+        double area = (double)(maxX - minX + 1) * (double)(maxY - minY + 1);
+        filled = (solid / area) > 0.42;
+    }
+    g_fillCache[k] = @(filled);
+    if (g_fillCache.count > 200) [g_fillCache removeAllObjects];
+    return filled;
+}
+
+// 把抖音原有的白色图标换成奶蛙那套 SF Symbols 图标（只换图，不碰布局与交互）
 static void DKRestyleIcon(UIView *btn){
     if (!btn) return;
     NSString *name = nil;
     @try { name = [btn valueForKey:@"imageNameString"]; } @catch(...) { name = nil; }
     DKIconKind k = DKKindFromName(name);
     if (k == DKIconNone) return;
-    NSString *low = [name lowercaseString];
+    UIImageView *iv = DKIconImageView(btn);
+    if (!iv) return;
+    UIImage *cur = iv.image;
+    UIImage *ours = objc_getAssociatedObject(btn, DKIconAppliedKey);
+    if (ours && cur == ours) return; // 还是我们上次设的图，不用重画
+    NSString *low = [name lowercaseString] ?: @"";
     BOOL on = ([low rangeOfString:@"selected"].location != NSNotFound) ||
               ([low rangeOfString:@"active"].location != NSNotFound) ||
               ([low rangeOfString:@".on"].location != NSNotFound);
-    UIImageView *iv = DKIconImageView(btn);
-    if (!iv) return;
-    NSString *key = [NSString stringWithFormat:@"%ld|%d", (long)k, (int)on];
-    NSString *old = objc_getAssociatedObject(btn, DKIconAppliedKey);
-    if (old && [old isEqualToString:key] && iv.image) return;
+    if (!on && (k == DKIconLike || k == DKIconCollect)) on = DKImageLooksFilled(cur);
     UIImage *img = DKIconImage(k, on);
     if (!img) return;
     @try {
         iv.image = img;
-        objc_setAssociatedObject(btn, DKIconAppliedKey, key, OBJC_ASSOCIATION_COPY_NONATOMIC);
+        objc_setAssociatedObject(btn, DKIconAppliedKey, img, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     } @catch(...) {}
 }
 
@@ -460,6 +400,33 @@ static void hook_setImageNameHDR(id self, SEL _cmd, id name, id hdr){
     } @catch (NSException *e) {}
 }
 
+// 模型/状态更新与其它换图路径：统一清标记后重上色（点赞、收藏状态切换走的就是这些路）
+static void DKIconsSettled(id self){
+    @try {
+        objc_setAssociatedObject(self, DKIconAppliedKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        UIView *v = (UIView *)self;
+        if (DKFindRail(v)) DKRestyleIcon(v);
+    } @catch (NSException *e) {}
+}
+
+static void (*orig_didUpdate)(id, SEL);
+static void hook_didUpdate(id self, SEL _cmd){
+    if (orig_didUpdate) orig_didUpdate(self, _cmd);
+    DKIconsSettled(self);
+}
+
+static void (*orig_setImageScale)(id, SEL, id);
+static void hook_setImageScale(id self, SEL _cmd, id img){
+    if (orig_setImageScale) orig_setImageScale(self, _cmd, img);
+    DKIconsSettled(self);
+}
+
+static void (*orig_setLastImage)(id, SEL, id);
+static void hook_setLastImage(id self, SEL _cmd, id img){
+    if (orig_setLastImage) orig_setLastImage(self, _cmd, img);
+    DKIconsSettled(self);
+}
+
 static void (*orig_railLayout)(id, SEL);
 static void hook_railLayout(id self, SEL _cmd){
     if (orig_railLayout) orig_railLayout(self, _cmd);
@@ -509,6 +476,12 @@ static void DKTryInstall(void){
                 MSHookMessageEx(btn, sel_registerName("setImageNameString:"), (IMP)hook_setImageName, (IMP *)&orig_setImageName);
             if (!orig_setImageNameHDR)
                 MSHookMessageEx(btn, sel_registerName("setImageNameString:hdrColor:"), (IMP)hook_setImageNameHDR, (IMP *)&orig_setImageNameHDR);
+            if (!orig_didUpdate)
+                MSHookMessageEx(btn, sel_registerName("didUpdate"), (IMP)hook_didUpdate, (IMP *)&orig_didUpdate);
+            if (!orig_setImageScale)
+                MSHookMessageEx(btn, sel_registerName("setImageWithScaleAmimation:"), (IMP)hook_setImageScale, (IMP *)&orig_setImageScale);
+            if (!orig_setLastImage)
+                MSHookMessageEx(btn, sel_registerName("setLastImage:"), (IMP)hook_setLastImage, (IMP *)&orig_setLastImage);
         }
         Class avatar = NSClassFromString(@"AWEPlayInteractionUserProfilePictureView");
         if (avatar && !orig_elemLayout) {
