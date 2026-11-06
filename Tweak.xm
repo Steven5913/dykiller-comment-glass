@@ -52,8 +52,6 @@ static UIView *DKMakeDisc(CGFloat d){
     host.tag = DK_TAG;
     host.clipsToBounds = YES;
     host.layer.cornerRadius = d / 2.0;
-    host.layer.borderColor = [UIColor colorWithWhite:1.0 alpha:0.25].CGColor;
-    host.layer.borderWidth = 0.5;
 
     UIVisualEffect *eff = DKGlassEffect();
     if (eff) {
@@ -78,6 +76,45 @@ static UIView *DKMakeDisc(CGFloat d){
     return host;
 }
 
+#define DK_RING_NAME @"DKRing20261106"
+// 环形描边：上下白、左右渐隐到无（用竖向三段渐变做 alpha 蒙版）
+static void DKUpdateRing(UIView *g){
+    if (!g) return;
+    CGFloat d = g.bounds.size.width;
+    if (d < 8) return;
+    CAShapeLayer *ring = nil;
+    for (CALayer *l in g.layer.sublayers) {
+        if ([l.name isEqualToString:DK_RING_NAME]) { ring = (CAShapeLayer *)l; break; }
+    }
+    if (!ring) {
+        ring = [CAShapeLayer layer];
+        ring.name = DK_RING_NAME;
+        ring.fillColor = nil;
+        ring.strokeColor = [UIColor colorWithWhite:1.0 alpha:1.0].CGColor;
+        ring.lineWidth = 0.5;
+        ring.zPosition = 1.0f;
+
+        CAGradientLayer *mask = [CAGradientLayer layer];
+        mask.startPoint = CGPointMake(0.5, 0.0);
+        mask.endPoint = CGPointMake(0.5, 1.0);
+        mask.colors = @[(id)[UIColor colorWithWhite:1.0 alpha:0.25].CGColor,
+                        (id)[UIColor colorWithWhite:1.0 alpha:0.0].CGColor,
+                        (id)[UIColor colorWithWhite:1.0 alpha:0.25].CGColor];
+        mask.locations = @[@0.0f, @0.5f, @1.0f];
+        ring.mask = mask;
+        [g.layer addSublayer:ring];
+    }
+    [CATransaction begin];
+    [CATransaction setDisableActions:YES];
+    ring.frame = g.bounds;
+    CALayer *mask = ring.mask;
+    if (mask) mask.frame = ring.bounds;
+    CGRect rr = CGRectInset(g.bounds, 0.25, 0.25);
+    ring.path = [UIBezierPath bezierPathWithRoundedRect:rr
+                                           cornerRadius:MAX((CGFloat)0.0, rr.size.width / 2.0)].CGPath;
+    [CATransaction commit];
+}
+
 // 在 host 上保证存在一块以 (cx,cy) 为圆心、直径 d 的玻璃盘（只插一次，之后只更新位置）
 static void DKApplyDiscAt(UIView *host, CGPoint center, CGFloat d){
     if (!host || d < 8) return;
@@ -95,6 +132,7 @@ static void DKApplyDiscAt(UIView *host, CGPoint center, CGFloat d){
         [host insertSubview:g atIndex:0];
     }
     if (!CGRectEqualToRect(g.frame, r)) g.frame = r;
+    DKUpdateRing(g);
 }
 
 // 以 icon 为中心套玻璃盘
