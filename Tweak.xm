@@ -217,18 +217,17 @@ static void DKNavGlass(UIView *bar){
         }
     }
     if (rightBox) {
-        // 把「加号」按钮往左挪，缩小与搜索的间距（原 x=48 → 40）
+        // 加号位置不动，把「搜索」往右挪，缩小两者间距（原 x=0 → 8）
         for (UIView *c in rightBox.subviews) {
-            if ([NSStringFromClass([c class]) isEqualToString:@"AWEButton"] && c.frame.origin.x > 44.0) {
+            if ([NSStringFromClass([c class]) isEqualToString:@"IESIMButton"] && c.frame.origin.x < 8.0) {
                 CGRect f = c.frame;
-                f.origin.x = 40.0;
+                f.origin.x = 8.0;
                 c.frame = f;
             }
         }
+        // 高度与左侧圆盘一致(40)，宽度比按钮区略窄(84)，整体居中
         CGRect rr = rightBox.frame;
-        rr.size.width = 84.0;
-        // 高度与左侧圆盘一致(40)，宽度比按钮区略窄(80)，整体居中
-        CGFloat h = 40.0, w = 80.0;
+        CGFloat h = 40.0, w = 84.0;
         CGRect gr = CGRectMake(CGRectGetMidX(rr) - w / 2.0,
                                CGRectGetMidY(rr) - h / 2.0, w, h);
         DKApplyGlassAt(row, gr, h / 2.0);
