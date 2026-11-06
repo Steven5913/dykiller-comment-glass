@@ -158,13 +158,13 @@ static void DKGlassOne(UIView *v){
         }
         DKApplyDisc(v, icon ?: v, 42.0);
     } else if ([cn isEqualToString:@"AWEPlayInteractionUserProfilePictureView"]) {
-        // 头像：48x48 圆形头像本体，玻璃盘 64（留 8pt 玻璃边）
+        // 头像：48x48 圆形头像本体，玻璃盘 56（与音乐唱片同尺寸）
         UIView *icon = nil;
         for (UIView *s in v.subviews) {
             if (s.bounds.size.width >= 40 && s.bounds.size.width <= 60 &&
                 s.bounds.size.height >= 40 && s.bounds.size.height <= 60) { icon = s; break; }
         }
-        DKApplyDisc(v, icon ?: v, 64.0);
+        DKApplyDisc(v, icon ?: v, 56.0);
     } else if ([cn isEqualToString:@"AWEMusicCoverButton"]) {
         // 音乐唱片：44x44，玻璃盘 56
         DKApplyDisc(v, v, 56.0);
