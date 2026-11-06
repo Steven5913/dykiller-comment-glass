@@ -44,24 +44,6 @@ static UIVisualEffect *DKGlassEffect(void){
     return eff;
 }
 
-// 输入栏五胶囊专用：先试 UIGlassEffect(clear)，再退到最薄的清透材质，避免发雾
-static UIVisualEffect *DKIMGlassEffect(void){
-    UIVisualEffect *eff = nil;
-    Class ge = NSClassFromString(@"UIGlassEffect");
-    if (ge) {
-        SEL s = NSSelectorFromString(@"effectWithStyle:");
-        id (*msg)(id, SEL, NSInteger) = (id (*)(id, SEL, NSInteger))objc_msgSend;
-        NSInteger styles[] = {1, 0, 2};
-        for (int i = 0; i < 3; i++) {
-            @try { eff = msg(ge, s, styles[i]); } @catch(...) { eff = nil; }
-            if (eff) break;
-        }
-    }
-    if (!eff) { @try { eff = [UIBlurEffect effectWithStyle:UIBlurEffectStyleSystemUltraThinMaterialLight]; } @catch(...){ eff = nil; } }
-    if (!eff) { @try { eff = [UIBlurEffect effectWithStyle:UIBlurEffectStyleSystemThinMaterialLight]; } @catch(...){ eff = nil; } }
-    return eff;
-}
-
 // 玻璃本体（圆盘/胶囊共用同一套配方：长按倍速那套）
 static UIView *DKMakeGlassRect(CGFloat w, CGFloat h, CGFloat radius){
     UIView *host = [[UIView alloc] initWithFrame:CGRectMake(0, 0, w, h)];
@@ -85,7 +67,7 @@ static UIView *DKMakeGlassRect(CGFloat w, CGFloat h, CGFloat radius){
     CAGradientLayer *gl = [CAGradientLayer layer];
     gl.frame = host.bounds;
     gl.cornerRadius = radius;
-    gl.colors = @[(id)[UIColor colorWithWhite:1.0 alpha:0.16].CGColor,
+    gl.colors = @[(id)[UIColor colorWithWhite:1.0 alpha:0.10].CGColor,
                   (id)[UIColor colorWithWhite:1.0 alpha:0.0].CGColor];
     gl.locations = @[@0.0f, @0.20f];
     gl.startPoint = CGPointMake(0, 0);
@@ -489,14 +471,7 @@ static void DKIMFixParent(UIView *parent){
             UIView *mine = DKMakeGlassRect(fr.size.width, fr.size.height, rad);
             mine.tag = DK_IM_TAG;
             mine.frame = fr;
-            // 用与右侧六键同一套玻璃：UIGlassEffect 优先，取不到时用更薄的清透材质
-            UIVisualEffect *imEff = DKIMGlassEffect();
-            for (UIView *sub in mine.subviews) {
-                if ([sub isKindOfClass:[UIVisualEffectView class]] && imEff) {
-                    ((UIVisualEffectView *)sub).effect = imEff;
-                }
-            }
-            mine.backgroundColor = [UIColor clearColor];
+            // 与右侧六键完全同一套玻璃，不做任何替换
             [parent insertSubview:mine belowSubview:o];
             DKUpdateRing(mine);
         }
