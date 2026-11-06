@@ -238,6 +238,7 @@ static void DKNavGlass(UIView *bar){
             CGFloat h = 40.0;
             CGRect gr = [rightBox convertRect:CGRectMake(u.origin.x, CGRectGetMidY(rightBox.bounds) - h / 2.0,
                                                          u.size.width, h) toView:row];
+            gr.origin.x -= 4.0;   // 整体左移 4pt
             DKApplyGlassAt(row, gr, h / 2.0);
         }
     }
