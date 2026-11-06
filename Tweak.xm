@@ -487,7 +487,11 @@ static void DKIMFixParent(UIView *parent){
             UIView *mine = DKMakeGlassRect(fr.size.width, fr.size.height, rad);
             mine.tag = DK_IM_TAG;
             mine.frame = fr;
-            // 与右侧六键完全同一套玻璃，不做任何替换
+            // 与右侧六键同一套玻璃结构，但把材质层压到 35%：
+            // 保留玻璃的折射/高光/描边，同时不让它在深色壁纸上糊成一片白
+            for (UIView *sub in mine.subviews) {
+                if ([sub isKindOfClass:[UIVisualEffectView class]]) sub.alpha = 0.35;
+            }
             [parent insertSubview:mine belowSubview:o];
             DKUpdateRing(mine);
         }
