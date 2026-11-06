@@ -176,6 +176,25 @@ static void DKAvatarSize(UIView *btn, CGFloat d){
     } @catch(...) {}
 }
 
+// 头像本体缩到 44（与音乐唱片同尺寸），只改内部图片视图、圆心不动，玻璃盘仍 Ø56
+static void DKAvatarResize(UIView *btn){
+    if (!btn) return;
+    CGFloat want = 44.0;
+    for (UIView *s in btn.subviews) {
+        if (![s isKindOfClass:[UIImageView class]]) continue;
+        CGFloat w = s.bounds.size.width, h = s.bounds.size.height;
+        if (w < 34 || w > 54 || h < 34 || h > 54) continue;
+        CGRect r = s.frame;
+        if (fabs((double)r.size.width - (double)want) > 0.5 || fabs((double)r.size.height - (double)want) > 0.5) {
+            CGPoint c = CGPointMake(CGRectGetMidX(r), CGRectGetMidY(r));
+            s.frame = CGRectMake(c.x - want / 2.0, c.y - want / 2.0, want, want);
+        }
+        s.layer.cornerRadius = want / 2.0;
+        s.layer.masksToBounds = YES;
+        s.clipsToBounds = YES;
+    }
+}
+
 // 去掉视图（及其一层子视图/子图层）上的描边——用来干掉抖音头像那圈细白线
 static void DKClearBorder(UIView *v){
     if (!v) return;
@@ -253,6 +272,7 @@ static void DKGlassOne(UIView *v){
             DKApplyDisc(v, v, 56.0);
         }
         DKAvatarClean(v, icon);
+        DKAvatarResize(icon);
     } else if ([cn isEqualToString:@"AWEMusicCoverButton"]) {
         // 音乐唱片：44x44，玻璃盘 56
         DKApplyDisc(v, v, 56.0);
