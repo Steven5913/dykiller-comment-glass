@@ -209,6 +209,22 @@ static void DKClearBorder(UIView *v){
     } @catch(...) {}
 }
 
+// 头像那个 AWEButton 自己重排时会把内部图片再摆回 48，所以在它的 layoutSubviews 之后再压一次
+static void (*orig_btnLayout)(id, SEL);
+static void hook_btnLayout(id self, SEL _cmd){
+    if (orig_btnLayout) orig_btnLayout(self, _cmd);
+    @try {
+        UIView *btn = (UIView *)self;
+        UIView *sv = btn.superview;
+        if (sv) {
+            NSString *scn = NSStringFromClass([sv class]) ?: @"";
+            if ([scn isEqualToString:@"AWEPlayInteractionUserProfilePictureView"]) {
+                DKAvatarResize(btn);
+            }
+        }
+    } @catch(...) {}
+}
+
 // 头像专治：去掉头像自带白描边、藏掉「日常」彩环、头像这块玻璃不留描边
 static void DKAvatarClean(UIView *host, UIView *btn){
     DKClearBorder(btn);
@@ -389,6 +405,10 @@ static void DKTryInstall(void){
             MSHookMessageEx(music, sel_registerName("layoutSubviews"), (IMP)hook_elemLayout, (IMP *)&orig_elemLayout);
         }
         // 竖排兜底
+        Class btnCls = NSClassFromString(@"AWEButton");
+        if (btnCls && !orig_btnLayout) {
+            MSHookMessageEx(btnCls, sel_registerName("layoutSubviews"), (IMP)hook_btnLayout, (IMP *)&orig_btnLayout);
+        }
         Class ring = NSClassFromString(@"AFDColorRingView");
         if (ring && !orig_ringLayout) {
             MSHookMessageEx(ring, sel_registerName("layoutSubviews"), (IMP)hook_ringLayout, (IMP *)&orig_ringLayout);
