@@ -490,7 +490,7 @@ static void DKIMFixParent(UIView *parent){
             // 与右侧六键同一套玻璃结构，但把材质层压到 35%：
             // 保留玻璃的折射/高光/描边，同时不让它在深色壁纸上糊成一片白
             for (UIView *sub in mine.subviews) {
-                if ([sub isKindOfClass:[UIVisualEffectView class]]) sub.alpha = 0.35;
+                if ([sub isKindOfClass:[UIVisualEffectView class]]) sub.alpha = 0.5;
             }
             [parent insertSubview:mine belowSubview:o];
             DKUpdateRing(mine);
