@@ -357,6 +357,23 @@ static void DKDetailNavGlass(UIView *bar){
     if (searchIcon && searchIcon.superview) DKApplyDisc(searchIcon.superview, searchIcon, 44.0);
 }
 
+// 从整页里找出真正承载返回/搜索的那条导航容器，再上玻璃
+static void DKDetailPageGlass(UIView *root){
+    if (!root || root.bounds.size.width < 300) return;
+    UIView *navBar = nil;
+    NSMutableArray *q = [NSMutableArray arrayWithObject:root];
+    NSUInteger guard = 0;
+    while (q.count > 0 && guard++ < 4000) {
+        UIView *v = [q objectAtIndex:0];
+        [q removeObjectAtIndex:0];
+        if (v.hidden || v.alpha < 0.01) continue;
+        if ([NSStringFromClass([v class]) isEqualToString:@"AWEAwemeDetailNaviBarContainerView"] &&
+            v.bounds.size.width > 300) { navBar = v; break; }
+        for (UIView *c in v.subviews) [q addObject:c];
+    }
+    DKDetailNavGlass(navBar ? navBar : root);
+}
+
 // 底部输入框：清掉原本那层 15% 白底，铺同配方玻璃（胶囊圆角）
 static void DKInputBarGlass(UIView *bar){
     if (!bar) return;
@@ -655,6 +672,22 @@ static void hook_navLayout(id self, SEL _cmd){
     @try { DKNavGlass((UIView *)self); } @catch(NSException *e) {}
 }
 
+static void (*orig_detailVCLayout)(id, SEL, BOOL);
+static void hook_detailVCLayout(id self, SEL _cmd, BOOL animated){
+    if (orig_detailVCLayout) orig_detailVCLayout(self, _cmd, animated);
+    @try {
+        UIView *v = [(UIViewController *)self view];
+        DKDetailPageGlass(v);
+        // 子视图常比 VC 晚一轮布局，补几次
+        for (NSNumber *sec in @[@0.05, @0.15, @0.35, @0.70]) {
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(sec.doubleValue * NSEC_PER_SEC)),
+                           dispatch_get_main_queue(), ^{
+                DKDetailPageGlass([(UIViewController *)self view]);
+            });
+        }
+    } @catch(NSException *e) {}
+}
+
 static void (*orig_detailNavLayout)(id, SEL);
 static void hook_detailNavLayout(id self, SEL _cmd){
     if (orig_detailNavLayout) orig_detailNavLayout(self, _cmd);
@@ -744,6 +777,11 @@ static void DKTryInstall(void){
             }
         }
         // 视频详情页：返回 / 搜索 / 底部输入框
+        Class dvc = NSClassFromString(@"AWEAwemeIMDetailTableViewController");
+        if (dvc && !orig_detailVCLayout) {
+            MSHookMessageEx(dvc, sel_registerName("viewDidLayoutSubviews"),
+                            (IMP)hook_detailVCLayout, (IMP *)&orig_detailVCLayout);
+        }
         Class dnav = NSClassFromString(@"AWEAwemeDetailNaviBarContainerView");
         if (dnav && !orig_detailNavLayout) {
             MSHookMessageEx(dnav, sel_registerName("layoutSubviews"), (IMP)hook_detailNavLayout, (IMP *)&orig_detailNavLayout);
@@ -760,7 +798,7 @@ static void DKTryInstall(void){
         }
     } @catch(NSException *e) {}
     if (orig_elemLayout || orig_railLayout || orig_piLayout || orig_navLayout || orig_popoverLayout ||
-        orig_detailNavLayout || orig_inputBarLayout) g_hooked = YES;
+        orig_detailVCLayout || orig_detailNavLayout || orig_inputBarLayout) g_hooked = YES;
 }
 
 static __attribute__((constructor)) void DKInit(void){
