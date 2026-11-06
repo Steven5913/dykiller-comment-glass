@@ -433,6 +433,22 @@ static BOOL DKIsOursGlass(UIView *v){
     return NO;
 }
 
+// 胶囊底部若有别人/原生铺的白底或模糊底，一并清掉（只清胶囊所在的那几层）
+static void DKIMClearBehind(UIView *v){
+    if (!v) return;
+    for (int i = 0; i < 3 && v; i++) {
+        @try { v.backgroundColor = [UIColor clearColor]; } @catch(...) {}
+        for (UIView *s in v.subviews) {
+            if ([s isKindOfClass:[UIVisualEffectView class]] && !DKIsOursGlass(s)) {
+                @try { ((UIVisualEffectView *)s).effect = nil; } @catch(...) {}
+                @try { s.backgroundColor = [UIColor clearColor]; } @catch(...) {}
+                s.hidden = YES;
+            }
+        }
+        v = v.superview;
+    }
+}
+
 static void DKIMFixParent(UIView *parent){
     if (!parent) return;
     NSMutableArray *frames = [NSMutableArray array];
@@ -475,6 +491,9 @@ static void DKIMFixParent(UIView *parent){
             [parent insertSubview:mine belowSubview:o];
             DKUpdateRing(mine);
         }
+    }
+    for (UIView *s in parent.subviews) {
+        if (s.tag == DK_IM_TAG) { DKIMClearBehind(parent); break; }
     }
 }
 
