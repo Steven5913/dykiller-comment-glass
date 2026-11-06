@@ -422,6 +422,7 @@ static void hook_elemLayout(id self, SEL _cmd){
 // ===== 底部输入栏五个胶囊：玩法 / 输入框 / 语音 / 表情 / 加号 =====
 // 做法：把别的插件画的胶囊(DKGlassFlexView)按原矩形 1:1 换成我们自己的清透玻璃
 #define DK_IM_TAG 20261107
+#define DK_REPLACED_TAG 20261108
 
 static BOOL DKIsOursGlass(UIView *v){
     if (!v) return NO;
@@ -459,6 +460,8 @@ static void DKIMFixParent(UIView *parent){
         CGRect fr = [frames[i] CGRectValue];
         i++;
         o.hidden = YES;
+        o.alpha = 0.0;
+        o.tag = DK_REPLACED_TAG;
         BOOL exist = NO;
         for (UIView *s in parent.subviews) {
             if (s.tag == DK_IM_TAG && CGRectEqualToRect(s.frame, fr)) { exist = YES; break; }
@@ -468,6 +471,18 @@ static void DKIMFixParent(UIView *parent){
             UIView *mine = DKMakeGlassRect(fr.size.width, fr.size.height, rad);
             mine.tag = DK_IM_TAG;
             mine.frame = fr;
+            // 拿不到 UIGlassEffect（系统只有模糊材质）时，改成真正透明的一层：
+            // 去掉模糊视效，只留极淡白色底 + 顶部高光 + 描边，保证能透出背后画面
+            BOOL gotGlass = NO;
+            Class glassCls = NSClassFromString(@"UIGlassEffect");
+            for (UIView *sub in mine.subviews) {
+                if ([sub isKindOfClass:[UIVisualEffectView class]]) {
+                    UIVisualEffect *e = ((UIVisualEffectView *)sub).effect;
+                    if (glassCls && [e isKindOfClass:glassCls]) gotGlass = YES;
+                    if (!gotGlass) [sub removeFromSuperview];
+                }
+            }
+            if (!gotGlass) mine.backgroundColor = [UIColor colorWithWhite:1.0 alpha:0.10];
             [parent insertSubview:mine belowSubview:o];
             DKUpdateRing(mine);
         }
@@ -507,7 +522,7 @@ static void DKIMHideBlurBehind(UIWindow *win, NSArray *caps){
                     CGRect c = [nv CGRectValue];
                     CGFloat inter = CGRectGetWidth(CGRectIntersection(r, c)) * CGRectGetHeight(CGRectIntersection(r, c));
                     CGFloat area = c.size.width * c.size.height;
-                    if (area > 0 && inter / area >= 0.85) { s.hidden = YES; break; }
+                    if (area > 0 && inter / area >= 0.85) { s.hidden = YES; s.alpha = 0.0; s.tag = DK_REPLACED_TAG; [s removeFromSuperview]; break; }
                 }
             }
             [stack addObject:s];
@@ -533,12 +548,32 @@ static void DKIMScan(UIView *root){
     }
 }
 
+// 别的插件（DKGlassFlexView）或原生模糊底每次自己布局后，再压一次，防止它们把自己重新显示出来
+static void (*orig_otherGlassLayout)(id, SEL);
+static void hook_otherGlassLayout(id self, SEL _cmd){
+    if (orig_otherGlassLayout) orig_otherGlassLayout(self, _cmd);
+    @try {
+        UIView *v = (UIView *)self;
+        if (v.tag == DK_REPLACED_TAG) { v.hidden = YES; v.alpha = 0.0; }
+    } @catch(...) {}
+}
+
 static void (*orig_imInputLayout)(id, SEL);
 static void hook_imInputLayout(id self, SEL _cmd){
     if (orig_imInputLayout) orig_imInputLayout(self, _cmd);
     @try {
         UIView *rootView = ((UIViewController *)self).view;
-        if (rootView) DKIMScan(rootView);
+        if (!rootView) return;
+        __weak UIView *weakRoot = rootView;
+        DKIMScan(rootView);
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.20 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+            UIView *r = weakRoot;
+            if (r) DKIMScan(r);
+        });
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.60 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+            UIView *r = weakRoot;
+            if (r) DKIMScan(r);
+        });
     } @catch(...) {}
 }
 
@@ -600,6 +635,10 @@ static void DKTryInstall(void){
             MSHookMessageEx(music, sel_registerName("layoutSubviews"), (IMP)hook_elemLayout, (IMP *)&orig_elemLayout);
         }
         // 竖排兜底
+        Class otherGlass = NSClassFromString(@"DKGlassFlexView");
+        if (otherGlass && !orig_otherGlassLayout) {
+            MSHookMessageEx(otherGlass, sel_registerName("layoutSubviews"), (IMP)hook_otherGlassLayout, (IMP *)&orig_otherGlassLayout);
+        }
         Class imVC = NSClassFromString(@"IESIMInputViewController");
         if (imVC && !orig_imInputLayout) {
             MSHookMessageEx(imVC, sel_registerName("viewDidLayoutSubviews"), (IMP)hook_imInputLayout, (IMP *)&orig_imInputLayout);
