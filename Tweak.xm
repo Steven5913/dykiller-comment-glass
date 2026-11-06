@@ -146,7 +146,7 @@ static UIView *DKFindRail(UIView *v){
 static void DKGlassOne(UIView *v){
     NSString *cn = NSStringFromClass([v class]) ?: @"";
     if ([cn isEqualToString:@"AWEFeedVideoButton"]) {
-        // 点赞/评论/收藏/分享：icon 容器 36x36，玻璃盘 42（底边落在数字上方，不切字）
+        // 点赞/评论/收藏/分享：icon 容器 36x36，玻璃盘 46
         UIView *icon = nil;
         @try { icon = (UIView *)[v valueForKey:@"containerView"]; } @catch(...) { icon = nil; }
         if (!icon || ![icon isKindOfClass:[UIView class]] || icon.bounds.size.width < 14) {
@@ -156,7 +156,7 @@ static void DKGlassOne(UIView *v){
                     s.bounds.size.height >= 24 && s.bounds.size.height <= 48) { icon = s; break; }
             }
         }
-        DKApplyDisc(v, icon ?: v, 42.0);
+        DKApplyDisc(v, icon ?: v, 46.0);
     } else if ([cn isEqualToString:@"AWEPlayInteractionUserProfilePictureView"]) {
         // 头像：48x48 圆形头像本体，玻璃盘 56（与音乐唱片同尺寸）
         UIView *icon = nil;
