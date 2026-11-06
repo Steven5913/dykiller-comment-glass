@@ -474,6 +474,47 @@ static void DKIMFixParent(UIView *parent){
     }
 }
 
+// 收集本插件的 IM 玻璃，返回其在 window 坐标下的矩形
+static void DKIMCollect(UIView *root, NSMutableArray *out){
+    if (!root) return;
+    NSMutableArray *stack = [NSMutableArray arrayWithObject:root];
+    int guard = 0;
+    while (stack.count > 0 && guard < 800) {
+        guard++;
+        UIView *v = stack.lastObject;
+        [stack removeLastObject];
+        if (v.tag == DK_IM_TAG && !v.hidden) {
+            CGRect r = [v convertRect:v.bounds toView:nil];
+            [out addObject:[NSValue valueWithCGRect:r]];
+        }
+        for (UIView *s in v.subviews) [stack addObject:s];
+    }
+}
+
+// 把盖在这五块胶囊下面的模糊底全部藏掉（不论它挂在哪一层）
+static void DKIMHideBlurBehind(UIWindow *win, NSArray *caps){
+    if (!win || caps.count == 0) return;
+    NSMutableArray *stack = [NSMutableArray arrayWithObject:(UIView *)win];
+    int guard = 0;
+    while (stack.count > 0 && guard < 3000) {
+        guard++;
+        UIView *v = stack.lastObject;
+        [stack removeLastObject];
+        for (UIView *s in v.subviews) {
+            if ([s isKindOfClass:[UIVisualEffectView class]] && !DKIsOursGlass(s) && !s.hidden) {
+                CGRect r = [s convertRect:s.bounds toView:nil];
+                for (NSValue *nv in caps) {
+                    CGRect c = [nv CGRectValue];
+                    CGFloat inter = CGRectGetWidth(CGRectIntersection(r, c)) * CGRectGetHeight(CGRectIntersection(r, c));
+                    CGFloat area = c.size.width * c.size.height;
+                    if (area > 0 && inter / area >= 0.85) { s.hidden = YES; break; }
+                }
+            }
+            [stack addObject:s];
+        }
+    }
+}
+
 static void DKIMScan(UIView *root){
     if (!root) return;
     NSMutableArray *stack = [NSMutableArray arrayWithObject:root];
@@ -483,10 +524,12 @@ static void DKIMScan(UIView *root){
         UIView *v = stack.lastObject;
         [stack removeLastObject];
         DKIMFixParent(v);
-        for (UIView *s in v.subviews) {
-            if ([s isKindOfClass:[UIVisualEffectView class]] && !DKIsOursGlass(s)) s.hidden = YES;
-            [stack addObject:s];
-        }
+        for (UIView *s in v.subviews) [stack addObject:s];
+    }
+    if ([NSThread isMainThread]) {
+        NSMutableArray *caps = [NSMutableArray array];
+        DKIMCollect(root, caps);
+        DKIMHideBlurBehind(root.window, caps);
     }
 }
 
