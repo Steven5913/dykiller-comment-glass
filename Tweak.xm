@@ -206,6 +206,25 @@ static void DKPopoverClearWhites(UIView *v){
     for (UIView *sv in v.subviews) DKPopoverClearWhites(sv);
 }
 
+// 玻璃上黑字看不清：所有标题/标签统一改白色，分隔线改浅白
+static void DKPopoverRecolor(UIView *v){
+    if (!v) return;
+    if ([v isKindOfClass:[UIButton class]]) {
+        UIButton *b = (UIButton *)v;
+        [b setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
+        [b setTitleColor:[UIColor colorWithWhite:1.0 alpha:0.55] forState:UIControlStateHighlighted];
+        [b setTitleColor:[UIColor colorWithWhite:1.0 alpha:0.55] forState:UIControlStateSelected];
+        b.tintColor = [UIColor whiteColor];
+    }
+    if ([v isKindOfClass:[UILabel class]]) {
+        ((UILabel *)v).textColor = [UIColor whiteColor];
+    }
+    if (v.frame.size.height > 0.0 && v.frame.size.height <= 1.0 && v.frame.size.width > 20.0) {
+        v.backgroundColor = [UIColor colorWithWhite:1.0 alpha:0.18];
+    }
+    for (UIView *sv in v.subviews) DKPopoverRecolor(sv);
+}
+
 static void DKPopoverGlass(UIView *sheet){
     if (!sheet) return;
     UIView *content = nil;
@@ -228,19 +247,7 @@ static void DKPopoverGlass(UIView *sheet){
     content.backgroundColor = [UIColor clearColor];
     content.layer.backgroundColor = [UIColor clearColor].CGColor;
 
-    // 玻璃上黑字看不清：标题统一改白色，图标跟着走白；分隔线改浅白
-    for (UIView *v in content.subviews) {
-        if ([v isKindOfClass:[UIButton class]]) {
-            UIButton *b = (UIButton *)v;
-            [b setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
-            [b setTitleColor:[UIColor colorWithWhite:1.0 alpha:0.55] forState:UIControlStateHighlighted];
-            b.titleLabel.textColor = [UIColor whiteColor];
-            b.tintColor = [UIColor whiteColor];
-        }
-        if (v.frame.size.height > 0.0 && v.frame.size.height <= 1.0) {
-            v.backgroundColor = [UIColor colorWithWhite:1.0 alpha:0.18];
-        }
-    }
+    DKPopoverRecolor(content);
 
     CGFloat r = content.layer.cornerRadius;
     if (r <= 2.0) r = 13.0;
@@ -600,7 +607,16 @@ static void hook_navLayout(id self, SEL _cmd){
 static void (*orig_popoverLayout)(id, SEL);
 static void hook_popoverLayout(id self, SEL _cmd){
     if (orig_popoverLayout) orig_popoverLayout(self, _cmd);
-    @try { DKPopoverGlass((UIView *)self); } @catch(NSException *e) {}
+    @try {
+        UIView *sheet = (UIView *)self;
+        DKPopoverGlass(sheet);
+        // app 在布局/赋值过程中会把标题色写回黑色，这里再补几次
+        for (double t = 0.03; t <= 0.62; t += 0.15) {
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(t * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+                @try { DKPopoverGlass(sheet); } @catch(NSException *e) {}
+            });
+        }
+    } @catch(NSException *e) {}
 }
 
 static BOOL g_hooked = NO;
