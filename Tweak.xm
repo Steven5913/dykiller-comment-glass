@@ -115,8 +115,11 @@ static void DKUpdateRing(UIView *g){
     CALayer *mask = ring.mask;
     if (mask) mask.frame = ring.bounds;
     CGRect rr = CGRectInset(g.bounds, 0.25, 0.25);
-    ring.path = [UIBezierPath bezierPathWithRoundedRect:rr
-                                           cornerRadius:MAX((CGFloat)0.0, rr.size.width / 2.0)].CGPath;
+    CGFloat cr = g.layer.cornerRadius;
+    if (cr <= 0.0) cr = rr.size.width / 2.0;
+    CGFloat cap = MIN(rr.size.width, rr.size.height) / 2.0;
+    if (cr > cap) cr = cap;
+    ring.path = [UIBezierPath bezierPathWithRoundedRect:rr cornerRadius:cr].CGPath;
     [CATransaction commit];
 }
 
@@ -176,6 +179,58 @@ static void DKApplyGlassAt(UIView *host, CGRect r, CGFloat radius){
     }
     if (!CGRectEqualToRect(g.frame, r)) g.frame = r;
     DKUpdateRing(g);
+}
+
+// ===== 加号弹窗（AFDLeftExtensionPopoverSheetView）玻璃 =====
+// 清掉弹窗里原有的白色底（背景色 + 白色 CAShape 底板），只保留文字/图标
+static void DKPopoverClearWhites(UIView *v){
+    if (!v) return;
+    UIColor *bg = v.backgroundColor;
+    if (bg) {
+        CGFloat w = 0.0, a = 0.0;
+        if ([bg getWhite:&w alpha:&a] && a > 0.05 && w > 0.80) v.backgroundColor = [UIColor clearColor];
+    }
+    for (CALayer *l in v.layer.sublayers) {
+        if ([l isKindOfClass:[CAShapeLayer class]]) { l.hidden = YES; continue; }
+        CGColorRef c = l.backgroundColor;
+        if (!c) continue;
+        UIColor *uc = [UIColor colorWithCGColor:c];
+        CGFloat w = 0.0, a = 0.0;
+        if ([uc getWhite:&w alpha:&a] && a > 0.05 && w > 0.80) {
+            [CATransaction begin];
+            [CATransaction setDisableActions:YES];
+            l.backgroundColor = [UIColor clearColor].CGColor;
+            [CATransaction commit];
+        }
+    }
+    for (UIView *sv in v.subviews) DKPopoverClearWhites(sv);
+}
+
+static void DKPopoverGlass(UIView *sheet){
+    if (!sheet) return;
+    UIView *content = nil;
+    @try {
+        id c = [sheet valueForKey:@"contentView"];
+        if ([c isKindOfClass:[UIView class]]) content = (UIView *)c;
+    } @catch (NSException *e) {}
+    if (!content) {
+        for (UIView *v in sheet.subviews) {
+            if (v.frame.size.width >= 100.0 && v.frame.size.width <= 280.0 && v.frame.size.height >= 60.0) {
+                content = v;
+                break;
+            }
+        }
+    }
+    if (!content) return;
+    if (content.bounds.size.width < 60.0 || content.bounds.size.height < 40.0) return;
+
+    DKPopoverClearWhites(content);
+    content.backgroundColor = [UIColor clearColor];
+    content.layer.backgroundColor = [UIColor clearColor].CGColor;
+
+    CGFloat r = content.layer.cornerRadius;
+    if (r <= 2.0) r = 13.0;
+    DKApplyGlassAt(content, content.bounds, r);
 }
 
 // ===== 顶部导航栏（消息页）玻璃 =====
@@ -528,6 +583,12 @@ static void hook_navLayout(id self, SEL _cmd){
     @try { DKNavGlass((UIView *)self); } @catch(NSException *e) {}
 }
 
+static void (*orig_popoverLayout)(id, SEL);
+static void hook_popoverLayout(id self, SEL _cmd){
+    if (orig_popoverLayout) orig_popoverLayout(self, _cmd);
+    @try { DKPopoverGlass((UIView *)self); } @catch(NSException *e) {}
+}
+
 static BOOL g_hooked = NO;
 
 static void DKTryInstall(void){
@@ -564,6 +625,11 @@ static void DKTryInstall(void){
         if (nav && !orig_navLayout) {
             MSHookMessageEx(nav, sel_registerName("layoutSubviews"), (IMP)hook_navLayout, (IMP *)&orig_navLayout);
         }
+        // 加号弹窗（消息页右上角加号弹出的小菜单）
+        Class pop = NSClassFromString(@"AFDLeftExtensionPopoverSheetView");
+        if (pop && !orig_popoverLayout) {
+            MSHookMessageEx(pop, sel_registerName("layoutSubviews"), (IMP)hook_popoverLayout, (IMP *)&orig_popoverLayout);
+        }
         // 页面级兜底
         Class pi = NSClassFromString(@"AWEPlayInteractionViewController");
         if (pi) {
@@ -571,7 +637,7 @@ static void DKTryInstall(void){
             if (!orig_piAppear) MSHookMessageEx(pi, sel_registerName("viewDidAppear:"), (IMP)hook_piAppear, (IMP *)&orig_piAppear);
         }
     } @catch(NSException *e) {}
-    if (orig_elemLayout || orig_railLayout || orig_piLayout || orig_navLayout) g_hooked = YES;
+    if (orig_elemLayout || orig_railLayout || orig_piLayout || orig_navLayout || orig_popoverLayout) g_hooked = YES;
 }
 
 static __attribute__((constructor)) void DKInit(void){
