@@ -47,6 +47,7 @@ static UIVisualEffect *DKGlassEffect(void){
 // 玻璃本体（圆盘/胶囊共用同一套配方：长按倍速那套）
 static UIView *DKMakeGlassRect(CGFloat w, CGFloat h, CGFloat radius){
     UIView *host = [[UIView alloc] initWithFrame:CGRectMake(0, 0, w, h)];
+    UIView *host = [[UIView alloc] initWithFrame:CGRectMake(0, 0, d, d)];
     host.backgroundColor = [UIColor clearColor];
     host.userInteractionEnabled = NO;
     host.tag = DK_TAG;
@@ -59,7 +60,6 @@ static UIView *DKMakeGlassRect(CGFloat w, CGFloat h, CGFloat radius){
         vev.frame = host.bounds;
         vev.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
         vev.userInteractionEnabled = NO;
-        vev.tag = DK_TAG;
         vev.layer.cornerRadius = radius;
         vev.clipsToBounds = YES;
         [host addSubview:vev];
@@ -86,8 +86,8 @@ static UIView *DKMakeDisc(CGFloat d){
 // 环形描边：上下白、左右渐隐到无（用竖向三段渐变做 alpha 蒙版）
 static void DKUpdateRing(UIView *g){
     if (!g) return;
-    CGFloat mn = MIN(g.bounds.size.width, g.bounds.size.height);
-    if (mn < 6) return;
+    CGFloat d = g.bounds.size.width;
+    if (d < 8) return;
     CAShapeLayer *ring = nil;
     for (CALayer *l in g.layer.sublayers) {
         if ([l.name isEqualToString:DK_RING_NAME]) { ring = (CAShapeLayer *)l; break; }
@@ -116,9 +116,8 @@ static void DKUpdateRing(UIView *g){
     CALayer *mask = ring.mask;
     if (mask) mask.frame = ring.bounds;
     CGRect rr = CGRectInset(g.bounds, 0.25, 0.25);
-    CGFloat cr = g.layer.cornerRadius - 0.25;
     ring.path = [UIBezierPath bezierPathWithRoundedRect:rr
-                                           cornerRadius:MAX((CGFloat)0.0, cr)].CGPath;
+                                           cornerRadius:MAX((CGFloat)0.0, rr.size.width / 2.0)].CGPath;
     [CATransaction commit];
 }
 
@@ -156,31 +155,72 @@ static void DKApplyDisc(UIView *host, UIView *icon, CGFloat d){
     DKApplyDiscAt(host, CGPointMake(CGRectGetMidX(iconRect), CGRectGetMidY(iconRect)), d);
 }
 
-
-
-// 在 host 上铺一块指定矩形、指定圆角的玻璃（同一套配方），用于消息页底部条
-__attribute__((unused)) static void DKApplyGlassRect(UIView *host, CGRect rect, CGFloat radius){
-    if (!host || rect.size.width < 8 || rect.size.height < 6) return;
+// 按矩形铺一块玻璃（胶囊/面板用；与圆盘同一套配方）
+static void DKApplyGlassAt(UIView *host, CGRect r, CGFloat radius){
+    if (!host) return;
+    if (r.size.width < 8 || r.size.height < 8) return;
+    if (isnan(r.origin.x) || isnan(r.origin.y)) return;
     UIView *g = nil;
     for (UIView *sv in host.subviews) {
-        if (sv.tag == DK_TAG) { g = sv; break; }
-    }
-    if (g && (fabs((double)g.bounds.size.width - (double)rect.size.width) > 0.5 ||
-              fabs((double)g.bounds.size.height - (double)rect.size.height) > 0.5)) {
-        [g removeFromSuperview];
-        g = nil;
+        if (sv.tag != DK_TAG) continue;
+        if (fabs((double)sv.bounds.size.width - (double)r.size.width) < 0.5 &&
+            fabs((double)sv.bounds.size.height - (double)r.size.height) < 0.5) { g = sv; break; }
     }
     if (!g) {
-        g = DKMakeGlassRect(rect.size.width, rect.size.height, radius);
+        g = DKMakeGlassRect(r.size.width, r.size.height, radius);
         [host insertSubview:g atIndex:0];
     }
-    g.layer.cornerRadius = radius;
-    for (UIView *s in g.subviews) s.layer.cornerRadius = radius;
-    for (CALayer *l in g.layer.sublayers) {
-        if ([l isKindOfClass:[CAGradientLayer class]] && ![l.name isEqualToString:DK_RING_NAME]) l.cornerRadius = radius;
+    if (fabs((double)g.layer.cornerRadius - (double)radius) > 0.5) {
+        g.layer.cornerRadius = radius;
+        for (UIView *sv in g.subviews) { if ([sv isKindOfClass:[UIVisualEffectView class]]) sv.layer.cornerRadius = radius; }
+        for (CALayer *l in g.layer.sublayers) { if ([l isKindOfClass:[CAGradientLayer class]]) l.cornerRadius = radius; }
     }
-    if (!CGRectEqualToRect(g.frame, rect)) g.frame = rect;
+    if (!CGRectEqualToRect(g.frame, r)) g.frame = r;
     DKUpdateRing(g);
+}
+
+// ===== 顶部导航栏（消息页）玻璃 =====
+// 左边三条横线：单独一个圆盘；右边搜索+加号：共用一块胶囊
+static void DKNavGlass(UIView *bar){
+    if (!bar || bar.bounds.size.width < 300) return;
+    UIView *row = nil;
+    for (UIView *v in bar.subviews) {
+        if (v.frame.size.width > 300 && fabs((double)v.frame.size.height - 44.0) < 1.5) { row = v; break; }
+    }
+    if (!row) return;
+
+    UIView *leftEnt = nil, *rightBox = nil;
+    for (UIView *v in row.subviews) {
+        NSString *cn = NSStringFromClass([v class]);
+        if ([cn isEqualToString:@"AWEIMMessageTabSideBarView"]) leftEnt = v;
+        if (v.subviews.count >= 1 && fabs((double)v.frame.size.width - 92.0) < 2.0 &&
+            fabs((double)v.frame.size.height - 32.0) < 2.0) {
+            for (UIView *c in v.subviews) {
+                if ([NSStringFromClass([c class]) isEqualToString:@"IESIMButton"]) { rightBox = v; break; }
+            }
+        }
+    }
+
+    if (leftEnt) {
+        UIView *icon = nil;
+        for (UIView *c in leftEnt.subviews) {
+            if (c.frame.size.width >= 24 && c.frame.size.width <= 40 &&
+                c.frame.size.height >= 24 && c.frame.size.height <= 40) { icon = c; break; }
+        }
+        if (icon) {
+            CGRect ir = icon.bounds;
+            @try { ir = [icon convertRect:icon.bounds toView:row]; } @catch(...) { ir = CGRectZero; }
+            if (!CGRectIsEmpty(ir)) {
+                CGFloat d = 40.0;
+                DKApplyGlassAt(row, CGRectMake(CGRectGetMidX(ir) - d / 2.0,
+                                               CGRectGetMidY(ir) - d / 2.0, d, d), d / 2.0);
+            }
+        }
+    }
+    if (rightBox) {
+        CGRect rr = rightBox.frame;
+        DKApplyGlassAt(row, rr, MIN(rr.size.width, rr.size.height) / 2.0);
+    }
 }
 
 // ===== 六元素识别 =====
@@ -419,178 +459,6 @@ static void hook_elemLayout(id self, SEL _cmd){
     } @catch (NSException *e) {}
 }
 
-// ===== 底部输入栏五个胶囊：玩法 / 输入框 / 语音 / 表情 / 加号 =====
-// 做法：把别的插件画的胶囊(DKGlassFlexView)按原矩形 1:1 换成我们自己的清透玻璃
-#define DK_IM_TAG 20261107
-#define DK_REPLACED_TAG 20261108
-
-static BOOL DKIsOursGlass(UIView *v){
-    if (!v) return NO;
-    if (v.tag == DK_TAG || v.tag == DK_IM_TAG) return YES;
-    UIView *p1 = v.superview, *p2 = p1 ? p1.superview : nil;
-    if (p1 && (p1.tag == DK_TAG || p1.tag == DK_IM_TAG)) return YES;
-    if (p2 && (p2.tag == DK_TAG || p2.tag == DK_IM_TAG)) return YES;
-    return NO;
-}
-
-// 胶囊底部若有别人/原生铺的白底或模糊底，一并清掉（只清胶囊所在的那几层）
-static void DKIMClearBehind(UIView *v){
-    if (!v) return;
-    for (int i = 0; i < 3 && v; i++) {
-        @try { v.backgroundColor = [UIColor clearColor]; } @catch(...) {}
-        for (UIView *s in v.subviews) {
-            if ([s isKindOfClass:[UIVisualEffectView class]] && !DKIsOursGlass(s)) {
-                @try { ((UIVisualEffectView *)s).effect = nil; } @catch(...) {}
-                @try { s.backgroundColor = [UIColor clearColor]; } @catch(...) {}
-                s.hidden = YES;
-            }
-        }
-        v = v.superview;
-    }
-}
-
-static void DKIMFixParent(UIView *parent){
-    if (!parent) return;
-    NSMutableArray *frames = [NSMutableArray array];
-    NSMutableArray *others = [NSMutableArray array];
-    for (UIView *s in parent.subviews) {
-        NSString *cn = NSStringFromClass([s class]) ?: @"";
-        if ([cn hasPrefix:@"DKGlass"]) {
-            CGRect f = s.frame;
-            if (f.size.width >= 24 && f.size.height >= 20) {
-                [frames addObject:[NSValue valueWithCGRect:f]];
-                [others addObject:s];
-            }
-        }
-    }
-    for (UIView *s in parent.subviews) {
-        if (s.tag != DK_IM_TAG) continue;
-        BOOL keep = NO;
-        for (NSValue *v in frames) {
-            if (CGRectEqualToRect([v CGRectValue], s.frame)) { keep = YES; break; }
-        }
-        if (!keep) [s removeFromSuperview];
-    }
-    NSUInteger i = 0;
-    for (UIView *o in others) {
-        CGRect fr = [frames[i] CGRectValue];
-        i++;
-        o.hidden = YES;
-        o.alpha = 0.0;
-        o.tag = DK_REPLACED_TAG;
-        BOOL exist = NO;
-        for (UIView *s in parent.subviews) {
-            if (s.tag == DK_IM_TAG && CGRectEqualToRect(s.frame, fr)) { exist = YES; break; }
-        }
-        if (!exist) {
-            // 圆角按短边一半，但封顶 22：输入框展开成大面板(386x278)时不能再取 139
-            CGFloat rad = MIN(fr.size.width, fr.size.height) / 2.0;
-            if (rad > 22.0) rad = 22.0;
-            UIView *mine = DKMakeGlassRect(fr.size.width, fr.size.height, rad);
-            mine.tag = DK_IM_TAG;
-            mine.frame = fr;
-            // 与右侧六键同一套玻璃结构，但把材质层压到 35%：
-            // 保留玻璃的折射/高光/描边，同时不让它在深色壁纸上糊成一片白
-            for (UIView *sub in mine.subviews) {
-                if ([sub isKindOfClass:[UIVisualEffectView class]]) sub.alpha = 0.55;
-            }
-            [parent insertSubview:mine belowSubview:o];
-            DKUpdateRing(mine);
-        }
-    }
-    for (UIView *s in parent.subviews) {
-        if (s.tag == DK_IM_TAG) { DKIMClearBehind(parent); break; }
-    }
-}
-
-// 收集本插件的 IM 玻璃，返回其在 window 坐标下的矩形
-static void DKIMCollect(UIView *root, NSMutableArray *out){
-    if (!root) return;
-    NSMutableArray *stack = [NSMutableArray arrayWithObject:root];
-    int guard = 0;
-    while (stack.count > 0 && guard < 800) {
-        guard++;
-        UIView *v = stack.lastObject;
-        [stack removeLastObject];
-        if (v.tag == DK_IM_TAG && !v.hidden) {
-            CGRect r = [v convertRect:v.bounds toView:nil];
-            [out addObject:[NSValue valueWithCGRect:r]];
-        }
-        for (UIView *s in v.subviews) [stack addObject:s];
-    }
-}
-
-// 把盖在这五块胶囊下面的模糊底全部藏掉（不论它挂在哪一层）
-static void DKIMHideBlurBehind(UIWindow *win, NSArray *caps){
-    if (!win || caps.count == 0) return;
-    NSMutableArray *stack = [NSMutableArray arrayWithObject:(UIView *)win];
-    int guard = 0;
-    while (stack.count > 0 && guard < 3000) {
-        guard++;
-        UIView *v = stack.lastObject;
-        [stack removeLastObject];
-        for (UIView *s in v.subviews) {
-            if ([s isKindOfClass:[UIVisualEffectView class]] && !DKIsOursGlass(s) && !s.hidden) {
-                CGRect r = [s convertRect:s.bounds toView:nil];
-                for (NSValue *nv in caps) {
-                    CGRect c = [nv CGRectValue];
-                    CGFloat inter = CGRectGetWidth(CGRectIntersection(r, c)) * CGRectGetHeight(CGRectIntersection(r, c));
-                    CGFloat area = c.size.width * c.size.height;
-                    if (area > 0 && inter / area >= 0.85) { s.hidden = YES; s.alpha = 0.0; s.tag = DK_REPLACED_TAG; [s removeFromSuperview]; break; }
-                }
-            }
-            [stack addObject:s];
-        }
-    }
-}
-
-static void DKIMScan(UIView *root){
-    if (!root) return;
-    NSMutableArray *stack = [NSMutableArray arrayWithObject:root];
-    int guard = 0;
-    while (stack.count > 0 && guard < 800) {
-        guard++;
-        UIView *v = stack.lastObject;
-        [stack removeLastObject];
-        DKIMFixParent(v);
-        for (UIView *s in v.subviews) [stack addObject:s];
-    }
-    if ([NSThread isMainThread]) {
-        NSMutableArray *caps = [NSMutableArray array];
-        DKIMCollect(root, caps);
-        DKIMHideBlurBehind(root.window, caps);
-    }
-}
-
-// 别的插件（DKGlassFlexView）或原生模糊底每次自己布局后，再压一次，防止它们把自己重新显示出来
-static void (*orig_otherGlassLayout)(id, SEL);
-static void hook_otherGlassLayout(id self, SEL _cmd){
-    if (orig_otherGlassLayout) orig_otherGlassLayout(self, _cmd);
-    @try {
-        UIView *v = (UIView *)self;
-        if (v.tag == DK_REPLACED_TAG) { v.hidden = YES; v.alpha = 0.0; }
-    } @catch(...) {}
-}
-
-static void (*orig_imInputLayout)(id, SEL);
-static void hook_imInputLayout(id self, SEL _cmd){
-    if (orig_imInputLayout) orig_imInputLayout(self, _cmd);
-    @try {
-        UIView *rootView = ((UIViewController *)self).view;
-        if (!rootView) return;
-        __weak UIView *weakRoot = rootView;
-        DKIMScan(rootView);
-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.20 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-            UIView *r = weakRoot;
-            if (r) DKIMScan(r);
-        });
-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.60 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-            UIView *r = weakRoot;
-            if (r) DKIMScan(r);
-        });
-    } @catch(...) {}
-}
-
 // 「日常」彩环：只要它布局一次就再藏起来，防止 app 在刷新时重新显示
 static void (*orig_ringLayout)(id, SEL);
 static void hook_ringLayout(id self, SEL _cmd){
@@ -630,6 +498,13 @@ static void hook_piAppear(id self, SEL _cmd, BOOL animated){
     } @catch (NSException *e) {}
 }
 
+
+static void (*orig_navLayout)(id, SEL);
+static void hook_navLayout(id self, SEL _cmd){
+    orig_navLayout(self, _cmd);
+    @try { DKNavGlass((UIView *)self); } @catch(NSException *e) {}
+}
+
 static BOOL g_hooked = NO;
 
 static void DKTryInstall(void){
@@ -649,14 +524,6 @@ static void DKTryInstall(void){
             MSHookMessageEx(music, sel_registerName("layoutSubviews"), (IMP)hook_elemLayout, (IMP *)&orig_elemLayout);
         }
         // 竖排兜底
-        Class otherGlass = NSClassFromString(@"DKGlassFlexView");
-        if (otherGlass && !orig_otherGlassLayout) {
-            MSHookMessageEx(otherGlass, sel_registerName("layoutSubviews"), (IMP)hook_otherGlassLayout, (IMP *)&orig_otherGlassLayout);
-        }
-        Class imVC = NSClassFromString(@"IESIMInputViewController");
-        if (imVC && !orig_imInputLayout) {
-            MSHookMessageEx(imVC, sel_registerName("viewDidLayoutSubviews"), (IMP)hook_imInputLayout, (IMP *)&orig_imInputLayout);
-        }
         Class btnCls = NSClassFromString(@"AWEButton");
         if (btnCls && !orig_btnLayout) {
             MSHookMessageEx(btnCls, sel_registerName("layoutSubviews"), (IMP)hook_btnLayout, (IMP *)&orig_btnLayout);
@@ -669,6 +536,11 @@ static void DKTryInstall(void){
         if (rail && !orig_railLayout) {
             MSHookMessageEx(rail, sel_registerName("layoutSubviews"), (IMP)hook_railLayout, (IMP *)&orig_railLayout);
         }
+        // 消息页顶部导航栏
+        Class nav = NSClassFromString(@"AWENavigationBar");
+        if (nav && !orig_navLayout) {
+            MSHookMessageEx(nav, sel_registerName("layoutSubviews"), (IMP)hook_navLayout, (IMP *)&orig_navLayout);
+        }
         // 页面级兜底
         Class pi = NSClassFromString(@"AWEPlayInteractionViewController");
         if (pi) {
@@ -676,7 +548,7 @@ static void DKTryInstall(void){
             if (!orig_piAppear) MSHookMessageEx(pi, sel_registerName("viewDidAppear:"), (IMP)hook_piAppear, (IMP *)&orig_piAppear);
         }
     } @catch(NSException *e) {}
-    if (orig_elemLayout || orig_railLayout || orig_piLayout) g_hooked = YES;
+    if (orig_elemLayout || orig_railLayout || orig_piLayout || orig_navLayout) g_hooked = YES;
 }
 
 static __attribute__((constructor)) void DKInit(void){
