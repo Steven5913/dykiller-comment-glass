@@ -217,14 +217,27 @@ static void DKNavGlass(UIView *bar){
         }
     }
     if (rightBox) {
-        // 加号位置不动，把「搜索」往右挪，缩小两者间距（原 x=0 → 8）
+        // 加号位置不动，把「搜索」往右挪，缩小两者间距（原 x=0 → 16）
         for (UIView *c in rightBox.subviews) {
-            if ([NSStringFromClass([c class]) isEqualToString:@"IESIMButton"] && c.frame.origin.x < 8.0) {
+            if ([NSStringFromClass([c class]) isEqualToString:@"IESIMButton"] && c.frame.origin.x < 16.0) {
                 CGRect f = c.frame;
-                f.origin.x = 8.0;
+                f.origin.x = 16.0;
                 c.frame = f;
             }
         }
+        // 有的层级会在父视图之后的布局里把子弹回原位，稍后再压一次
+        UIView *boxRef = rightBox;
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.05 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+            @try {
+                for (UIView *c in boxRef.subviews) {
+                    if ([NSStringFromClass([c class]) isEqualToString:@"IESIMButton"] && c.frame.origin.x < 16.0) {
+                        CGRect f = c.frame;
+                        f.origin.x = 16.0;
+                        c.frame = f;
+                    }
+                }
+            } @catch(NSException *e) {}
+        });
         // 高度与左侧圆盘一致(40)，宽度比按钮区略窄(84)，整体居中
         CGRect rr = rightBox.frame;
         CGFloat h = 40.0, w = 84.0;
