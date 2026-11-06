@@ -329,6 +329,50 @@ static void DKNavGlass(UIView *bar){
     }
 }
 
+// ===== 视频详情页（AWEAwemeIMDetail…）：返回 / 搜索 / 底部输入框 玻璃 =====
+// 左：返回按钮 Ø44；右：搜索图标 Ø44（都沿用同一套玻璃配方）
+static void DKDetailScan(UIView *root, UIView **backBtn, UIView **searchIcon){
+    if (!root) return;
+    NSMutableArray *q = [NSMutableArray arrayWithObject:root];
+    NSUInteger guard = 0;
+    while (q.count > 0 && guard++ < 4000) {
+        UIView *v = [q objectAtIndex:0];
+        [q removeObjectAtIndex:0];
+        if (v.hidden || v.alpha < 0.01) continue;
+        NSString *cn = NSStringFromClass([v class]);
+        if (!*searchIcon && [cn isEqualToString:@"AWEDiscoverFeedEntranceView"]) *searchIcon = v;
+        if (!*backBtn && [cn isEqualToString:@"AWEButton"] &&
+            fabs((double)v.frame.size.width - 44.0) < 1.0 && fabs((double)v.frame.size.height - 44.0) < 1.0) {
+            *backBtn = v;
+        }
+        for (UIView *c in v.subviews) [q addObject:c];
+    }
+}
+
+static void DKDetailNavGlass(UIView *bar){
+    if (!bar || bar.bounds.size.width < 300) return;
+    UIView *backBtn = nil, *searchIcon = nil;
+    DKDetailScan(bar, &backBtn, &searchIcon);
+    if (backBtn) DKApplyDisc(backBtn, backBtn, 44.0);
+    if (searchIcon && searchIcon.superview) DKApplyDisc(searchIcon.superview, searchIcon, 44.0);
+}
+
+// 底部输入框：清掉原本那层 15% 白底，铺同配方玻璃（胶囊圆角）
+static void DKInputBarGlass(UIView *bar){
+    if (!bar) return;
+    if (bar.bounds.size.width < 120.0 || bar.bounds.size.height < 30.0) return;
+    for (UIView *sv in bar.subviews) {
+        UIColor *bg = sv.backgroundColor;
+        if (!bg) continue;
+        CGFloat w = 0.0, a = 0.0;
+        if ([bg getWhite:&w alpha:&a] && a > 0.02 && w > 0.80) sv.backgroundColor = [UIColor clearColor];
+    }
+    bar.backgroundColor = [UIColor clearColor];
+    CGFloat r = bar.bounds.size.height / 2.0;
+    if (r > 24.0) r = 24.0;
+    DKApplyGlassAt(bar, bar.bounds, r);
+}
+
 // ===== 六元素识别 =====
 static BOOL DKIsElementClass(NSString *cn){
     if (!cn) return NO;
@@ -611,6 +655,18 @@ static void hook_navLayout(id self, SEL _cmd){
     @try { DKNavGlass((UIView *)self); } @catch(NSException *e) {}
 }
 
+static void (*orig_detailNavLayout)(id, SEL);
+static void hook_detailNavLayout(id self, SEL _cmd){
+    if (orig_detailNavLayout) orig_detailNavLayout(self, _cmd);
+    @try { DKDetailNavGlass((UIView *)self); } @catch(NSException *e) {}
+}
+
+static void (*orig_inputBarLayout)(id, SEL);
+static void hook_inputBarLayout(id self, SEL _cmd){
+    if (orig_inputBarLayout) orig_inputBarLayout(self, _cmd);
+    @try { DKInputBarGlass((UIView *)self); } @catch(NSException *e) {}
+}
+
 static void (*orig_pop_setButtons)(id, SEL, id);
 static void hook_pop_setButtons(id self, SEL _cmd, id arr){
     if (orig_pop_setButtons) orig_pop_setButtons(self, _cmd, arr);
@@ -687,6 +743,15 @@ static void DKTryInstall(void){
                 MSHookMessageEx(pop, sel_registerName("setContentView:"), (IMP)hook_pop_setContent, (IMP *)&orig_pop_setContent);
             }
         }
+        // 视频详情页：返回 / 搜索 / 底部输入框
+        Class dnav = NSClassFromString(@"AWEAwemeDetailNaviBarContainerView");
+        if (dnav && !orig_detailNavLayout) {
+            MSHookMessageEx(dnav, sel_registerName("layoutSubviews"), (IMP)hook_detailNavLayout, (IMP *)&orig_detailNavLayout);
+        }
+        Class ibar = NSClassFromString(@"AWEIMFeedBottomQuickEmojiInputBar");
+        if (ibar && !orig_inputBarLayout) {
+            MSHookMessageEx(ibar, sel_registerName("layoutSubviews"), (IMP)hook_inputBarLayout, (IMP *)&orig_inputBarLayout);
+        }
         // 页面级兜底
         Class pi = NSClassFromString(@"AWEPlayInteractionViewController");
         if (pi) {
@@ -694,7 +759,8 @@ static void DKTryInstall(void){
             if (!orig_piAppear) MSHookMessageEx(pi, sel_registerName("viewDidAppear:"), (IMP)hook_piAppear, (IMP *)&orig_piAppear);
         }
     } @catch(NSException *e) {}
-    if (orig_elemLayout || orig_railLayout || orig_piLayout || orig_navLayout || orig_popoverLayout) g_hooked = YES;
+    if (orig_elemLayout || orig_railLayout || orig_piLayout || orig_navLayout || orig_popoverLayout ||
+        orig_detailNavLayout || orig_inputBarLayout) g_hooked = YES;
 }
 
 static __attribute__((constructor)) void DKInit(void){
