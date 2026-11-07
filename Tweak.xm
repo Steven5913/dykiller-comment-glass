@@ -851,6 +851,18 @@ static void hook_cdInputLayout(id self, SEL _cmd){
     } @catch(NSException *e) {}
 }
 
+static void (*orig_piVCLayout)(id, SEL);
+static void hook_piVCLayout(id self, SEL _cmd){
+    if (orig_piVCLayout) orig_piVCLayout(self, _cmd);
+    @try { UIView *v = ((UIViewController *)self).view; DKCommentRestoreHeight(v); } @catch(NSException *e) {}
+}
+
+static void (*orig_mergeVCLayout)(id, SEL);
+static void hook_mergeVCLayout(id self, SEL _cmd){
+    if (orig_mergeVCLayout) orig_mergeVCLayout(self, _cmd);
+    @try { DKCommentRestoreHeight(((UIViewController *)self).view); } @catch(NSException *e) {}
+}
+
 static void (*orig_cdVCLayout)(id, SEL);
 static void hook_cdVCLayout(id self, SEL _cmd){
     if (orig_cdVCLayout) orig_cdVCLayout(self, _cmd);
@@ -858,6 +870,9 @@ static void hook_cdVCLayout(id self, SEL _cmd){
     @try {
         UIView *v = ((UIViewController *)self).view;
         dispatch_async(dispatch_get_main_queue(), ^{ DKCommentPageGlass(v); });
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.15 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ DKCommentPageGlass(v); });
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.45 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ DKCommentPageGlass(v); });
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.90 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ DKCommentPageGlass(v); });
     } @catch(NSException *e) {}
 }
 
@@ -985,6 +1000,14 @@ static void DKTryInstall(void){
         Class cdInput = NSClassFromString(@"AWECommentInputBackgroundView");
         if (cdInput && !orig_cdInputLayout) {
             MSHookMessageEx(cdInput, sel_registerName("layoutSubviews"), (IMP)hook_cdInputLayout, (IMP *)&orig_cdInputLayout);
+        }
+        Class piVC = NSClassFromString(@"AWEPlayInteractionViewController");
+        if (piVC && !orig_piVCLayout) {
+            MSHookMessageEx(piVC, sel_registerName("viewDidLayoutSubviews"), (IMP)hook_piVCLayout, (IMP *)&orig_piVCLayout);
+        }
+        Class mergeVC = NSClassFromString(@"AWEDPlayerViewController_Merge");
+        if (mergeVC && !orig_mergeVCLayout) {
+            MSHookMessageEx(mergeVC, sel_registerName("viewDidLayoutSubviews"), (IMP)hook_mergeVCLayout, (IMP *)&orig_mergeVCLayout);
         }
         Class cdVC = NSClassFromString(@"AWEAwemeDetailTableViewController");
         if (cdVC && !orig_cdVCLayout) {
