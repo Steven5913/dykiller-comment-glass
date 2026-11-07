@@ -466,6 +466,8 @@ static void DKCommentInputGlass(UIView *root){
         for (UIView *c in v.subviews) [q addObject:c];
     }
     if (!pill || pill.tag == DK_TAG) return;
+    // 胶囊里那层原生模糊就是那圈黑底，顶掉它让玻璃露出来
+    DKHideBlurDeep(pill);
     // 胶囊自身的白底/圆角裁剪只是视觉，改背景色不会触发布局
     pill.backgroundColor = [UIColor clearColor];
     pill.layer.backgroundColor = NULL;
