@@ -528,12 +528,12 @@ static void DKCommentRestoreHeight(UIView *root){
                     NSValue *base = objc_getAssociatedObject(c, &kDKShiftKey);
                     if (!base) {
                         objc_setAssociatedObject(c, &kDKShiftKey, [NSValue valueWithCGAffineTransform:c.transform], OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-                        c.transform = CGAffineTransformTranslate(c.transform, 0, 70.0);
+                        c.transform = CGAffineTransformTranslate(c.transform, 0, 90.0);
                     } else {
                         CGAffineTransform cur = c.transform, b0;
                         [base getValue:&b0];
                         if (memcmp(&cur, &b0, sizeof(CGAffineTransform)) == 0) {
-                            c.transform = CGAffineTransformTranslate(cur, 0, 70.0);
+                            c.transform = CGAffineTransformTranslate(cur, 0, 90.0);
                         }
                     }
                 }
