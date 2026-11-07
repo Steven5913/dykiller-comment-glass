@@ -353,8 +353,24 @@ static void DKDetailNavGlass(UIView *bar){
     if (!bar || bar.bounds.size.width < 300) return;
     UIView *backBtn = nil, *searchIcon = nil;
     DKDetailScan(bar, &backBtn, &searchIcon);
-    if (backBtn) DKApplyDisc(backBtn, backBtn, 44.0);
-    if (searchIcon && searchIcon.superview) DKApplyDisc(searchIcon.superview, searchIcon, 44.0);
+    // 玻璃只铺在导航容器这一层，不插进 stack 里的按钮（会带动容器重排，把视频区顶上去）
+    if (backBtn) {
+        CGRect r;
+        @try { r = [backBtn convertRect:backBtn.bounds toView:bar]; } @catch (NSException *e) { r = CGRectZero; }
+        if (!CGRectIsEmpty(r) && !isnan(r.origin.x)) {
+            CGPoint c = CGPointMake(CGRectGetMidX(r), CGRectGetMidY(r));
+            DKApplyDiscAt(bar, c, 44.0);
+        }
+    }
+    if (!searchIcon) return;
+    UIView *sh = searchIcon.superview ? searchIcon.superview : bar;
+    CGRect sr;
+    @try { sr = [searchIcon convertRect:searchIcon.bounds toView:sh]; } @catch (NSException *e) { sr = CGRectZero; }
+    if (CGRectIsEmpty(sr) || isnan(sr.origin.x)) return;
+    CGRect sr2;
+    @try { sr2 = [sh convertRect:sr toView:bar]; } @catch (NSException *e) { sr2 = CGRectZero; }
+    if (CGRectIsEmpty(sr2)) return;
+    DKApplyDiscAt(bar, CGPointMake(CGRectGetMidX(sr2), CGRectGetMidY(sr2)), 44.0);
 }
 
 // 从整页里找出真正承载返回/搜索的那条导航容器，再上玻璃
@@ -465,13 +481,24 @@ static void DKCommentInputGlass(UIView *root){
             fabs((double)v.layer.cornerRadius - (double)(h / 2.0)) < 2.5) { pill = v; break; }
         for (UIView *c in v.subviews) [q addObject:c];
     }
-    if (!pill) return;
-    // 不在 app 自己的输入框视图里插子视图（会牵动它的布局，把整块视频区顶上去），
-    // 改成在输入栏背景层上按 pill 的矩形铺一层 overlay
-    UIView *host = pill.superview ? pill.superview : root;
-    if (host.tag == DK_TAG) return;
-    CGRect pr = [pill convertRect:pill.bounds toView:host];
+    if (!pill || pill.tag == DK_TAG) return;
+    // 胶囊自身的白底/圆角裁剪只是视觉，改背景色不会触发布局
+    pill.backgroundColor = [UIColor clearColor];
+    pill.layer.backgroundColor = NULL;
+    for (UIView *sv in [pill.subviews copy]) {
+        UIColor *bg = sv.backgroundColor;
+        if (!bg) continue;
+        CGFloat wv = 0.0, av = 0.0;
+        if ([bg getWhite:&wv alpha:&av] && av > 0.02 && wv > 0.80) sv.backgroundColor = [UIColor clearColor];
+    }
+    // 玻璃铺在整条输入栏背景层上（不在胶囊/中间容器里插子视图，避免带动 app 重排）
+    UIView *host = root.tag == DK_TAG ? pill.superview : root;
+    if (!host) return;
+    CGRect pr;
+    @try { pr = [pill convertRect:pill.bounds toView:host]; } @catch (NSException *e) { return; }
+    if (CGRectIsEmpty(pr) || isnan(pr.origin.x) || isnan(pr.origin.y)) return;
     CGFloat r = pr.size.height / 2.0;
+    if (r > 22.0) r = 22.0;
     DKApplyGlassAt(host, pr, r);
 }
 
