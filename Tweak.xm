@@ -878,14 +878,27 @@ static void hook_cdNavLayout(id self, SEL _cmd){
 }
 
 static void (*orig_cdInputLayout)(id, SEL);
+static void (*orig_cdInputLayout)(id, SEL);
+
 static void hook_cdInputLayout(id self, SEL _cmd){
     if (orig_cdInputLayout) orig_cdInputLayout(self, _cmd);
+    UIView *v = (UIView *)self;
+    // 评论输入栏是这一页最后布局的一层，这里补位移最不容易被回写
     @try {
-        UIView *v = (UIView *)self;
+        UIView *root = v.superview;
+        if (root) {
+            dispatch_async(dispatch_get_main_queue(), ^{
+                @try {
+                    UIView *pp = root.superview ?: root;
+                    DKCommentRestoreHeight(pp);
+                } @catch(NSException *e) {}
+            });
+        }
+    } @catch(NSException *e) {}
+    @try {
         dispatch_async(dispatch_get_main_queue(), ^{ DKCommentInputGlass(v); });
     } @catch(NSException *e) {}
 }
-
 static void (*orig_cdVCLayout)(id, SEL);
 static void hook_cdVCLayout(id self, SEL _cmd){
     if (orig_cdVCLayout) orig_cdVCLayout(self, _cmd);
