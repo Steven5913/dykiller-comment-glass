@@ -988,6 +988,14 @@ static void hook_cellLayout(id self, SEL _cmd){
         if (v.bounds.size.width > 390.0 && v.bounds.size.width < 415.0 &&
             v.bounds.size.height > 760.0 && v.bounds.size.height < 820.0) {
             DKCommentRestoreHeight(v);
+            // 图片作品翻到下一张时会再排一次版并把内容层压回 708，
+            // 这里在随后的几帧里连续补，直到它稳住
+            for (double t = 0.10; t <= 1.01; t += 0.15) {
+                dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(t * NSEC_PER_SEC)),
+                               dispatch_get_main_queue(), ^{
+                    @try { DKCommentRestoreHeight(v); } @catch(NSException *e) {}
+                });
+            }
         }
     } @catch(NSException *e) {}
 }
