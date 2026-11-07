@@ -516,6 +516,16 @@ static void DKCommentRestoreHeight(UIView *root){
             if (t.ty < 1.0) {
                 v.transform = CGAffineTransformMakeTranslation(0, d);
                 objc_setAssociatedObject(v, &kDKShiftKey, @(d), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+                // 左下文字块（作者/描述/IP行）在容器内自带一段底部内边距，顶回原位后仍会空出一条黑带，
+                // 这里再单独把它往下贴 55pt，让文字贴住评论输入框上沿（右侧六按钮列不动）
+                for (UIView *c in v.subviews) {
+                    if (![NSStringFromClass([c class]) isEqualToString:@"AWEElementStackView"]) continue;
+                    if (c.bounds.size.width > 330.0 || c.bounds.size.width < 200.0) continue;
+                    if (c.frame.origin.y < 500.0) continue;
+                    if (c.tag == DK_TAG) continue;
+                    CGFloat cy = c.transform.ty;
+                    if (cy < 1.0) c.transform = CGAffineTransformMakeTranslation(0, 55.0);
+                }
             }
         } else if (d < 6.0 && t.ty > 1.0) {
             NSNumber *prev = objc_getAssociatedObject(v, &kDKShiftKey);
