@@ -494,6 +494,27 @@ static void DKCommentInputGlass(UIView *root){
 // 详情页浮层：视频交互容器被 app 按「扣掉评论栏高度」重排后会整体上移，
 // 这里把它的高度顶回父容器（子视图都是底对齐，恢复后即原来的满屏位置）
 static char kDKShiftKey;
+static void DKNudgeDesc(UIView *v){
+    for (UIView *c in v.subviews) {
+        if (![NSStringFromClass([c class]) isEqualToString:@"AWEElementStackView"]) continue;
+        if (c.bounds.size.width > 330.0 || c.bounds.size.width < 200.0) continue;
+        if (c.frame.origin.y < 500.0) continue;
+        if (c.tag == DK_TAG) continue;
+        // 保留 app 自己的位移，只在其上再叠加下贴量；app 若回写就重新叠加
+        NSValue *base = objc_getAssociatedObject(c, &kDKShiftKey);
+        if (!base) {
+            objc_setAssociatedObject(c, &kDKShiftKey, [NSValue valueWithCGAffineTransform:c.transform], OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+            c.transform = CGAffineTransformTranslate(c.transform, 0, 90.0);
+        } else {
+            CGAffineTransform cur = c.transform, b0;
+            [base getValue:&b0];
+            if (memcmp(&cur, &b0, sizeof(CGAffineTransform)) == 0) {
+                c.transform = CGAffineTransformTranslate(cur, 0, 90.0);
+            }
+        }
+    }
+}
+
 static void DKCommentRestoreHeight(UIView *root){
     if (!root) return;
     NSMutableArray *q = [NSMutableArray arrayWithObject:root];
@@ -513,37 +534,11 @@ static void DKCommentRestoreHeight(UIView *root){
         CGFloat d = ph - h;
         CGAffineTransform t = v.transform;
         if (d > 78.0 && d < 88.0) {
-            // 子视图比父容器矮一条评论栏 —— 用位移顶回原位
             if (t.ty < 1.0) {
                 v.transform = CGAffineTransformMakeTranslation(0, d);
                 objc_setAssociatedObject(v, &kDKShiftKey, @(d), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-                // 左下文字块（作者/描述/IP行）在容器内自带一段底部内边距，顶回原位后仍会空出一条黑带，
-                // 这里再单独把它往下贴 55pt，让文字贴住评论输入框上沿（右侧六按钮列不动）
-                for (UIView *c in v.subviews) {
-                    if (![NSStringFromClass([c class]) isEqualToString:@"AWEElementStackView"]) continue;
-                    if (c.bounds.size.width > 330.0 || c.bounds.size.width < 200.0) continue;
-                    if (c.frame.origin.y < 500.0) continue;
-                    if (c.tag == DK_TAG) continue;
-                    // 保留 app 自己的位移，只在此之上再叠加下贴量；app 若回写就重新叠加
-                    NSValue *base = objc_getAssociatedObject(c, &kDKShiftKey);
-                    if (!base) {
-                        objc_setAssociatedObject(c, &kDKShiftKey, [NSValue valueWithCGAffineTransform:c.transform], OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-                        c.transform = CGAffineTransformTranslate(c.transform, 0, 90.0);
-                    } else {
-                        CGAffineTransform cur = c.transform, b0;
-                        [base getValue:&b0];
-                        if (memcmp(&cur, &b0, sizeof(CGAffineTransform)) == 0) {
-                            c.transform = CGAffineTransformTranslate(cur, 0, 90.0);
-                        }
-                    }
-                }
             }
-        } else if (d < 6.0 && t.ty > 1.0) {
-            NSNumber *prev = objc_getAssociatedObject(v, &kDKShiftKey);
-            if (prev) {
-                v.transform = CGAffineTransformIdentity;
-                objc_setAssociatedObject(v, &kDKShiftKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-            }
+            DKNudgeDesc(v);
         }
     }
 }
@@ -972,6 +967,20 @@ static void hook_popoverLayout(id self, SEL _cmd){
     } @catch(NSException *e) {}
 }
 
+static void DKCommentRestoreHeight(UIView *root);
+
+static void (*orig_cellLayout)(id, SEL);
+static void hook_cellLayout(id self, SEL _cmd){
+    if (orig_cellLayout) orig_cellLayout(self, _cmd);
+    @try {
+        UIView *v = (UIView *)self;
+        if (v.bounds.size.width > 390.0 && v.bounds.size.width < 415.0 &&
+            v.bounds.size.height > 760.0 && v.bounds.size.height < 820.0) {
+            DKCommentRestoreHeight(v);
+        }
+    } @catch(NSException *e) {}
+}
+
 static BOOL g_hooked = NO;
 
 static void DKTryInstall(void){
@@ -1029,6 +1038,10 @@ static void DKTryInstall(void){
         Class cdInput = NSClassFromString(@"AWECommentInputBackgroundView");
         if (cdInput && !orig_cdInputLayout) {
             MSHookMessageEx(cdInput, sel_registerName("layoutSubviews"), (IMP)hook_cdInputLayout, (IMP *)&orig_cdInputLayout);
+        }
+        Class cellCls = NSClassFromString(@"UITableViewCell");
+        if (cellCls && !orig_cellLayout) {
+            MSHookMessageEx(cellCls, sel_registerName("layoutSubviews"), (IMP)hook_cellLayout, (IMP *)&orig_cellLayout);
         }
         Class cdVC = NSClassFromString(@"AWEAwemeDetailTableViewController");
         if (cdVC && !orig_cdVCLayout) {
