@@ -17,8 +17,9 @@
 
 #import <Foundation/Foundation.h>
 #import <UIKit/UIKit.h>
-#import <objc/runtime.h>
+
 #import <objc/message.h>
+#import <objc/runtime.h>
 #import <substrate.h>
 
 #define DK_TAG 20261106
@@ -491,29 +492,36 @@ static void DKCommentInputGlass(UIView *root){
 
 // 详情页浮层：视频交互容器被 app 按「扣掉评论栏高度」重排后会整体上移，
 // 这里把它的高度顶回父容器（子视图都是底对齐，恢复后即原来的满屏位置）
+static char kDKShiftKey;
 static void DKCommentRestoreHeight(UIView *root){
     if (!root) return;
-    Class ic = NSClassFromString(@"AWEPlayInteractionViewController");
-    if (!ic) return;
     NSMutableArray *q = [NSMutableArray arrayWithObject:root];
     NSUInteger guard = 0;
-    while (q.count > 0 && guard++ < 5000) {
+    while (q.count > 0 && guard++ < 8000) {
         UIView *v = [q objectAtIndex:0];
         [q removeObjectAtIndex:0];
-        id nr = v.nextResponder;
-        if (nr && [nr isKindOfClass:ic] && v.superview) {
-            CGFloat ph = v.superview.bounds.size.height;
-            CGFloat d = ph - v.bounds.size.height;
-            CGAffineTransform t = v.transform;
-            if (d > 60.0 && d < 100.0 && ph > 400.0) {
-                // 用位移把内容顶回原位，绝不改 frame（改 frame 会触发 app 无限重排）
-                if (t.ty < 1.0) v.transform = CGAffineTransformMakeTranslation(0, d);
-            } else if (d < 6.0 && t.ty > 1.0) {
-                v.transform = CGAffineTransformIdentity;
-            }
-            continue;
-        }
+        UIView *sp = v.superview;
         for (UIView *c in v.subviews) [q addObject:c];
+        if (v.tag == DK_TAG || !sp) continue;
+        CGFloat ph = sp.bounds.size.height, pw = sp.bounds.size.width;
+        CGFloat h = v.bounds.size.height, w = v.bounds.size.width;
+        if (ph < 400.0 || h < 200.0) continue;
+        if (fabs(w - pw) > 2.0) continue;
+        CGFloat d = ph - h;
+        CGAffineTransform t = v.transform;
+        if (d > 60.0 && d < 100.0) {
+            // 子视图比父容器矮一条评论栏 —— 用位移顶回原位
+            if (t.ty < 1.0) {
+                v.transform = CGAffineTransformMakeTranslation(0, d);
+                objc_setAssociatedObject(v, &kDKShiftKey, @(d), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+            }
+        } else if (d < 6.0 && t.ty > 1.0) {
+            NSNumber *prev = objc_getAssociatedObject(v, &kDKShiftKey);
+            if (prev) {
+                v.transform = CGAffineTransformIdentity;
+                objc_setAssociatedObject(v, &kDKShiftKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+            }
+        }
     }
 }
 
