@@ -440,16 +440,18 @@ static void DKAvatarSize(UIView *btn, CGFloat d){
         }
         btn.layer.cornerRadius = d / 2.0;
         btn.layer.masksToBounds = YES;
-        // 里面的头像图片跟着铺满同一个圆
+        // 里面的头像图片居中缩到 d-6（奶蛙：46 容器里 40 的头像，四周各留 3）
+        CGFloat inner = d - 6.0;
         for (UIView *s in btn.subviews) {
             NSString *scn = NSStringFromClass([s class]) ?: @"";
             if (![scn isEqualToString:@"UIImageView"]) continue;
             CGRect sf = s.frame;
-            if (fabs((double)sf.size.width - (double)d) > 0.5 ||
-                fabs((double)sf.size.height - (double)d) > 0.5) {
-                s.frame = CGRectMake(0, 0, d, d);
+            if (fabs((double)sf.size.width - (double)inner) > 0.5 ||
+                fabs((double)sf.size.height - (double)inner) > 0.5) {
+                CGPoint c = CGPointMake(CGRectGetMidX(sf), CGRectGetMidY(sf));
+                s.frame = CGRectMake(c.x - inner / 2.0, c.y - inner / 2.0, inner, inner);
             }
-            s.layer.cornerRadius = d / 2.0;
+            s.layer.cornerRadius = inner / 2.0;
             s.layer.masksToBounds = YES;
         }
     } @catch(...) {}
@@ -458,7 +460,7 @@ static void DKAvatarSize(UIView *btn, CGFloat d){
 // 头像本体缩到 44（与音乐唱片同尺寸），只改内部图片视图、圆心不动，玻璃盘仍 Ø56
 static void DKAvatarResize(UIView *btn){
     if (!btn) return;
-    CGFloat want = 44.0;
+    CGFloat want = 40.0;
     for (UIView *s in btn.subviews) {
         if (![s isKindOfClass:[UIImageView class]]) continue;
         CGFloat w = s.bounds.size.width, h = s.bounds.size.height;
@@ -526,7 +528,7 @@ static void DKAvatarClean(UIView *host, UIView *btn){
 static void DKGlassOne(UIView *v){
     NSString *cn = NSStringFromClass([v class]) ?: @"";
     if ([cn isEqualToString:@"AWEFeedVideoButton"]) {
-        // 点赞/评论/收藏/分享：icon 容器 36x36，玻璃盘 44
+        // 点赞/评论/收藏/分享：icon 容器 36x36，玻璃盘 46（与奶蛙一致）
         UIView *icon = nil;
         @try { icon = (UIView *)[v valueForKey:@"containerView"]; } @catch(...) { icon = nil; }
         if (!icon || ![icon isKindOfClass:[UIView class]] || icon.bounds.size.width < 14) {
@@ -536,9 +538,9 @@ static void DKGlassOne(UIView *v){
                     s.bounds.size.height >= 24 && s.bounds.size.height <= 48) { icon = s; break; }
             }
         }
-        DKApplyDisc(v, icon ?: v, 44.0);
+        DKApplyDisc(v, icon ?: v, 46.0);
     } else if ([cn isEqualToString:@"AWEPlayInteractionUserProfilePictureView"]) {
-        // 头像：多数视频 48x48、少部分 44x44；玻璃盘 56（与音乐唱片同尺寸）
+        // 头像：容器统一 46、里面头像 40；玻璃盘 46（与奶蛙一致）
         // 圆心必须取头像本体（AWEButton），跳过我们自己插的玻璃与「日常」彩环，
         // 否则会把玻璃自己当圆心，越摆越偏（29.44 之前部分视频不同心就是这个原因）
         UIView *icon = nil;
@@ -558,19 +560,19 @@ static void DKGlassOne(UIView *v){
             }
         }
         // 头像统一成 44x44（与音乐唱片同尺寸），圆心不动
-        if (icon) DKAvatarSize(icon, 44.0);
+        if (icon) DKAvatarSize(icon, 46.0);
         if (icon) {
             // 用头像本体的绝对矩形直接定圆心，避免二次换算误差
             CGRect btnRect = [icon convertRect:icon.bounds toView:v];
-            DKApplyDiscAt(v, CGPointMake(CGRectGetMidX(btnRect), CGRectGetMidY(btnRect)), 56.0);
+            DKApplyDiscAt(v, CGPointMake(CGRectGetMidX(btnRect), CGRectGetMidY(btnRect)), 46.0);
         } else {
-            DKApplyDisc(v, v, 56.0);
+            DKApplyDisc(v, v, 46.0);
         }
         DKAvatarClean(v, icon);
         DKAvatarResize(icon);
     } else if ([cn isEqualToString:@"AWEMusicCoverButton"]) {
-        // 音乐唱片：44x44，玻璃盘 56
-        DKApplyDisc(v, v, 56.0);
+        // 音乐唱片：玻璃盘 46（与奶蛙一致）
+        DKApplyDisc(v, v, 46.0);
     }
 }
 
