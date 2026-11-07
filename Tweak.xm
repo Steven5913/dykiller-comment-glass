@@ -466,9 +466,13 @@ static void DKCommentInputGlass(UIView *root){
         for (UIView *c in v.subviews) [q addObject:c];
     }
     if (!pill) return;
-    pill.backgroundColor = [UIColor clearColor];
-    CGFloat r = pill.bounds.size.height / 2.0;
-    DKApplyGlassAt(pill, pill.bounds, r);
+    // 不在 app 自己的输入框视图里插子视图（会牵动它的布局，把整块视频区顶上去），
+    // 改成在输入栏背景层上按 pill 的矩形铺一层 overlay
+    UIView *host = pill.superview ? pill.superview : root;
+    if (host.tag == DK_TAG) return;
+    CGRect pr = [pill convertRect:pill.bounds toView:host];
+    CGFloat r = pr.size.height / 2.0;
+    DKApplyGlassAt(host, pr, r);
 }
 
 static void DKCommentPageGlass(UIView *root){
@@ -776,20 +780,29 @@ static void hook_cdNavLayout(id self, SEL _cmd){
     if (orig_cdNavLayout) orig_cdNavLayout(self, _cmd);
     @try {
         UIView *v = (UIView *)self;
-        if (v.bounds.size.width > 300) DKDetailNavGlass(v);
+        if (v.bounds.size.width > 300) {
+            dispatch_async(dispatch_get_main_queue(), ^{ DKDetailNavGlass(v); });
+        }
     } @catch(NSException *e) {}
 }
 
 static void (*orig_cdInputLayout)(id, SEL);
 static void hook_cdInputLayout(id self, SEL _cmd){
     if (orig_cdInputLayout) orig_cdInputLayout(self, _cmd);
-    @try { DKCommentInputGlass((UIView *)self); } @catch(NSException *e) {}
+    @try {
+        UIView *v = (UIView *)self;
+        dispatch_async(dispatch_get_main_queue(), ^{ DKCommentInputGlass(v); });
+    } @catch(NSException *e) {}
 }
 
 static void (*orig_cdVCLayout)(id, SEL);
 static void hook_cdVCLayout(id self, SEL _cmd){
     if (orig_cdVCLayout) orig_cdVCLayout(self, _cmd);
-    @try { DKCommentPageGlass(((UIViewController *)self).view); } @catch(NSException *e) {}
+    // 布局回调里插视图会触发重入，延到本次布局结束后再铺
+    @try {
+        UIView *v = ((UIViewController *)self).view;
+        dispatch_async(dispatch_get_main_queue(), ^{ DKCommentPageGlass(v); });
+    } @catch(NSException *e) {}
 }
 
 static void (*orig_quickCellLayout)(id, SEL);
