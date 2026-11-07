@@ -494,24 +494,14 @@ static void DKCommentInputGlass(UIView *root){
 // 详情页浮层：视频交互容器被 app 按「扣掉评论栏高度」重排后会整体上移，
 // 这里把它的高度顶回父容器（子视图都是底对齐，恢复后即原来的满屏位置）
 static char kDKShiftKey;
-static void DKNudgeDesc(UIView *v){
-    for (UIView *c in v.subviews) {
-        if (![NSStringFromClass([c class]) isEqualToString:@"AWEElementStackView"]) continue;
-        if (c.bounds.size.width > 330.0 || c.bounds.size.width < 200.0) continue;
-        if (c.frame.origin.y < 500.0) continue;
-        if (c.tag == DK_TAG) continue;
-        // 保留 app 自己的位移，只在其上再叠加下贴量；app 若回写就重新叠加
-        NSValue *base = objc_getAssociatedObject(c, &kDKShiftKey);
-        if (!base) {
-            objc_setAssociatedObject(c, &kDKShiftKey, [NSValue valueWithCGAffineTransform:c.transform], OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-            c.transform = CGAffineTransformTranslate(c.transform, 0, 90.0);
-        } else {
-            CGAffineTransform cur = c.transform, b0;
-            [base getValue:&b0];
-            if (memcmp(&cur, &b0, sizeof(CGAffineTransform)) == 0) {
-                c.transform = CGAffineTransformTranslate(cur, 0, 90.0);
-            }
-        }
+static void DKPlaceBottom(UIView *v, CGFloat targetBottom, CGFloat gap){
+    // 以父容器底边为基准做绝对定位，不累加，重复执行也不会漂移
+    CGRect f = v.frame;
+    CGFloat want = targetBottom - gap - f.size.height - (v.transform.ty);
+    if (fabs(f.origin.y - want) > 0.5) {
+        f.origin.y = want;
+        v.transform = CGAffineTransformIdentity;
+        v.frame = f;
     }
 }
 
@@ -532,13 +522,18 @@ static void DKCommentRestoreHeight(UIView *root){
         if (h < 660.0 || h > 730.0) continue;
         if (fabs(w - pw) > 2.0) continue;
         CGFloat d = ph - h;
-        CGAffineTransform t = v.transform;
-        if (d > 78.0 && d < 88.0) {
-            if (t.ty < 1.0) {
-                v.transform = CGAffineTransformMakeTranslation(0, d);
-                objc_setAssociatedObject(v, &kDKShiftKey, @(d), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        if (d <= 78.0 || d >= 88.0) continue;
+        // 内容层被扣了一条评论栏：把子视图按父底边重新贴到底部（绝对定位）
+        for (UIView *c in v.subviews) {
+            CGFloat ch = c.bounds.size.height, cw = c.bounds.size.width;
+            if ([NSStringFromClass([c class]) isEqualToString:@"AWEElementStackView"] &&
+                cw > 200.0 && cw < 330.0) {
+                DKPlaceBottom(c, ph, 10.0);          // 作者/描述/IP 文字块贴住输入框
+            } else if (cw > 395.0 && cw < 410.0 && ch > 1.0 && ch < 40.0) {
+                DKPlaceBottom(c, ph, 4.0);           // 图片作品的翻页进度条
+            } else if (cw > 395.0 && cw < 410.0 && ch <= 1.0 && c.frame.origin.y > ph - 80.0) {
+                DKPlaceBottom(c, ph, 0.0);           // 加载/音量条
             }
-            DKNudgeDesc(v);
         }
     }
 }
