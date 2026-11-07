@@ -20,6 +20,7 @@
 
 #import <objc/message.h>
 #import <objc/runtime.h>
+#include <string.h>
 #import <substrate.h>
 
 #define DK_TAG 20261106
@@ -523,8 +524,14 @@ static void DKCommentRestoreHeight(UIView *root){
                     if (c.bounds.size.width > 330.0 || c.bounds.size.width < 200.0) continue;
                     if (c.frame.origin.y < 500.0) continue;
                     if (c.tag == DK_TAG) continue;
-                    CGFloat cy = c.transform.ty;
-                    if (cy < 1.0) c.transform = CGAffineTransformMakeTranslation(0, 55.0);
+                    // 保留 app 自己的位移，只在此之上再叠加下贴量；app 若回写就重新叠加
+                    NSValue *base = objc_getAssociatedObject(c, &kDKShiftKey);
+                    if (!base) {
+                        objc_setAssociatedObject(c, &kDKShiftKey, [NSValue valueWithCGAffineTransform:c.transform], OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+                        c.transform = CGAffineTransformTranslate(c.transform, 0, 55.0);
+                    } else if (memcmp(&(c.transform), [base pointerValue], sizeof(CGAffineTransform)) == 0) {
+                        c.transform = CGAffineTransformTranslate(c.transform, 0, 55.0);
+                    }
                 }
             }
         } else if (d < 6.0 && t.ty > 1.0) {
