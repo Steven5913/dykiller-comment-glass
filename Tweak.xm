@@ -481,7 +481,7 @@ static void DKCommentInputGlass(UIView *root){
     CGRect pr;
     @try { pr = [pill convertRect:pill.bounds toView:host]; } @catch (NSException *e) { return; }
     if (CGRectIsEmpty(pr) || isnan(pr.origin.x) || isnan(pr.origin.y)) return;
-    pr = CGRectInset(pr, 8.0, 0);   // 左右各内缩 8pt，别顶出屏幕
+    pr = CGRectInset(pr, 6.0, 0);   // 左右各内缩 6pt（比上版加宽 4pt）
     CGFloat r = pr.size.height / 2.0;
     if (r > 22.0) r = 22.0;
     DKApplyGlassAt(host, pr, r);
