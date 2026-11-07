@@ -505,11 +505,13 @@ static void DKCommentRestoreHeight(UIView *root){
         if (v.tag == DK_TAG || !sp) continue;
         CGFloat ph = sp.bounds.size.height, pw = sp.bounds.size.width;
         CGFloat h = v.bounds.size.height, w = v.bounds.size.width;
-        if (ph < 400.0 || h < 200.0) continue;
+        // 只认「父 791 / 子 708」这一个确定的抬高特征，正常布局（等高）完全不碰
+        if (ph < 760.0 || ph > 820.0) continue;
+        if (h < 660.0 || h > 730.0) continue;
         if (fabs(w - pw) > 2.0) continue;
         CGFloat d = ph - h;
         CGAffineTransform t = v.transform;
-        if (d > 60.0 && d < 100.0) {
+        if (d > 78.0 && d < 88.0) {
             // 子视图比父容器矮一条评论栏 —— 用位移顶回原位
             if (t.ty < 1.0) {
                 v.transform = CGAffineTransformMakeTranslation(0, d);
