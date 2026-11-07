@@ -515,14 +515,14 @@ static void DKCommentRestoreHeight(UIView *root){
         [q removeObjectAtIndex:0];
         id nr = v.nextResponder;
         if (nr && [nr isKindOfClass:ic] && v.superview) {
-            CGRect f = v.frame;
             CGFloat ph = v.superview.bounds.size.height;
-            CGFloat d = ph - f.size.height;
-            // 只修「被扣掉一整条评论栏」这一种情形，其它状态不动
+            CGFloat d = ph - v.bounds.size.height;
+            CGAffineTransform t = v.transform;
             if (d > 60.0 && d < 100.0 && ph > 400.0) {
-                f.size.height = ph;
-                v.frame = f;
-                [v setNeedsLayout];
+                // 用位移把内容顶回原位，绝不改 frame（改 frame 会触发 app 无限重排）
+                if (t.ty < 1.0) v.transform = CGAffineTransformMakeTranslation(0, d);
+            } else if (d < 6.0 && t.ty > 1.0) {
+                v.transform = CGAffineTransformIdentity;
             }
             continue;
         }
@@ -851,18 +851,6 @@ static void hook_cdInputLayout(id self, SEL _cmd){
     } @catch(NSException *e) {}
 }
 
-static void (*orig_piVCLayout)(id, SEL);
-static void hook_piVCLayout(id self, SEL _cmd){
-    if (orig_piVCLayout) orig_piVCLayout(self, _cmd);
-    @try { UIView *v = ((UIViewController *)self).view; DKCommentRestoreHeight(v); } @catch(NSException *e) {}
-}
-
-static void (*orig_mergeVCLayout)(id, SEL);
-static void hook_mergeVCLayout(id self, SEL _cmd){
-    if (orig_mergeVCLayout) orig_mergeVCLayout(self, _cmd);
-    @try { DKCommentRestoreHeight(((UIViewController *)self).view); } @catch(NSException *e) {}
-}
-
 static void (*orig_cdVCLayout)(id, SEL);
 static void hook_cdVCLayout(id self, SEL _cmd){
     if (orig_cdVCLayout) orig_cdVCLayout(self, _cmd);
@@ -1000,14 +988,6 @@ static void DKTryInstall(void){
         Class cdInput = NSClassFromString(@"AWECommentInputBackgroundView");
         if (cdInput && !orig_cdInputLayout) {
             MSHookMessageEx(cdInput, sel_registerName("layoutSubviews"), (IMP)hook_cdInputLayout, (IMP *)&orig_cdInputLayout);
-        }
-        Class piVC = NSClassFromString(@"AWEPlayInteractionViewController");
-        if (piVC && !orig_piVCLayout) {
-            MSHookMessageEx(piVC, sel_registerName("viewDidLayoutSubviews"), (IMP)hook_piVCLayout, (IMP *)&orig_piVCLayout);
-        }
-        Class mergeVC = NSClassFromString(@"AWEDPlayerViewController_Merge");
-        if (mergeVC && !orig_mergeVCLayout) {
-            MSHookMessageEx(mergeVC, sel_registerName("viewDidLayoutSubviews"), (IMP)hook_mergeVCLayout, (IMP *)&orig_mergeVCLayout);
         }
         Class cdVC = NSClassFromString(@"AWEAwemeDetailTableViewController");
         if (cdVC && !orig_cdVCLayout) {
