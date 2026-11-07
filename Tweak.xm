@@ -395,6 +395,7 @@ static void DKInputBarGlass(UIView *bar){
 static void DKHideBlurDeep(UIView *v){
     if (!v) return;
     for (UIView *s in v.subviews) {
+        if (s.tag == DK_TAG) continue;      // 自己的玻璃子树一律不动
         if ([s isKindOfClass:[UIVisualEffectView class]]) { s.hidden = YES; continue; }
         DKHideBlurDeep(s);
     }
@@ -407,10 +408,29 @@ static void DKQuickEmojiGlass(UIView *cell){
     DKHideBlurDeep(cell);
     CGFloat r = h / 2.0;
     if (r > 16.0) r = 16.0;
+    // 同一颗胶囊只留一层玻璃：cell 复用后宽度会变，旧的先并成一层的尺寸再复用
+    UIView *keep = nil;
+    for (UIView *sv in [cell.subviews copy]) {
+        if (sv.tag != DK_TAG) continue;
+        if (!keep) { keep = sv; continue; }
+        [sv removeFromSuperview];
+    }
     // cell 自身带的 15% 白底 + 圆角 8 的裁剪也要清掉，否则会压在我们玻璃上
     cell.backgroundColor = [UIColor clearColor];
     cell.layer.backgroundColor = NULL;
     if (fabs((double)cell.layer.cornerRadius - (double)r) > 0.5) cell.layer.cornerRadius = r;
+    if (keep) {
+        if (!CGRectEqualToRect(keep.frame, cell.bounds)) keep.frame = cell.bounds;
+        if (fabs((double)keep.layer.cornerRadius - (double)r) > 0.5) {
+            keep.layer.cornerRadius = r;
+            for (UIView *sv in keep.subviews) {
+                if ([sv isKindOfClass:[UIVisualEffectView class]]) sv.layer.cornerRadius = r;
+            }
+            for (CALayer *l in keep.layer.sublayers) {
+                if ([l isKindOfClass:[CAGradientLayer class]]) l.cornerRadius = r;
+            }
+        }
+    }
     DKApplyGlassAt(cell, cell.bounds, r);
 }
 
