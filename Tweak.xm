@@ -877,9 +877,8 @@ static void hook_cdNavLayout(id self, SEL _cmd){
     } @catch(NSException *e) {}
 }
 
-static void (*orig_cdInputLayout)(id, SEL);
-static void (*orig_cdInputLayout)(id, SEL);
 
+static void (*orig_cdInputLayout)(id, SEL);
 static void hook_cdInputLayout(id self, SEL _cmd){
     if (orig_cdInputLayout) orig_cdInputLayout(self, _cmd);
     UIView *v = (UIView *)self;
