@@ -353,24 +353,8 @@ static void DKDetailNavGlass(UIView *bar){
     if (!bar || bar.bounds.size.width < 300) return;
     UIView *backBtn = nil, *searchIcon = nil;
     DKDetailScan(bar, &backBtn, &searchIcon);
-    // 玻璃只铺在导航容器这一层，不插进 stack 里的按钮（会带动容器重排，把视频区顶上去）
-    if (backBtn) {
-        CGRect r;
-        @try { r = [backBtn convertRect:backBtn.bounds toView:bar]; } @catch (NSException *e) { r = CGRectZero; }
-        if (!CGRectIsEmpty(r) && !isnan(r.origin.x)) {
-            CGPoint c = CGPointMake(CGRectGetMidX(r), CGRectGetMidY(r));
-            DKApplyDiscAt(bar, c, 44.0);
-        }
-    }
-    if (!searchIcon) return;
-    UIView *sh = searchIcon.superview ? searchIcon.superview : bar;
-    CGRect sr;
-    @try { sr = [searchIcon convertRect:searchIcon.bounds toView:sh]; } @catch (NSException *e) { sr = CGRectZero; }
-    if (CGRectIsEmpty(sr) || isnan(sr.origin.x)) return;
-    CGRect sr2;
-    @try { sr2 = [sh convertRect:sr toView:bar]; } @catch (NSException *e) { sr2 = CGRectZero; }
-    if (CGRectIsEmpty(sr2)) return;
-    DKApplyDiscAt(bar, CGPointMake(CGRectGetMidX(sr2), CGRectGetMidY(sr2)), 44.0);
+    if (backBtn) DKApplyDisc(backBtn, backBtn, 44.0);
+    if (searchIcon && searchIcon.superview) DKApplyDisc(searchIcon.superview, searchIcon, 44.0);
 }
 
 // 从整页里找出真正承载返回/搜索的那条导航容器，再上玻璃
