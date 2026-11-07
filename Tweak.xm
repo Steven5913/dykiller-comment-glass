@@ -493,7 +493,7 @@ static void DKCommentInputGlass(UIView *root){
 
 // 详情页浮层：视频交互容器被 app 按「扣掉评论栏高度」重排后会整体上移，
 // 这里把它的高度顶回父容器（子视图都是底对齐，恢复后即原来的满屏位置）
-static char kDKShiftKey;
+static char kDKShiftKey __attribute__((unused));
 static void DKPlaceBottom(UIView *v, CGFloat targetBottom, CGFloat gap){
     // 以父容器底边为基准做绝对定位，不累加，重复执行也不会漂移
     CGRect f = v.frame;
