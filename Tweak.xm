@@ -407,6 +407,10 @@ static void DKQuickEmojiGlass(UIView *cell){
     DKHideBlurDeep(cell);
     CGFloat r = h / 2.0;
     if (r > 16.0) r = 16.0;
+    // cell 自身带的 15% 白底 + 圆角 8 的裁剪也要清掉，否则会压在我们玻璃上
+    cell.backgroundColor = [UIColor clearColor];
+    cell.layer.backgroundColor = NULL;
+    if (fabs((double)cell.layer.cornerRadius - (double)r) > 0.5) cell.layer.cornerRadius = r;
     DKApplyGlassAt(cell, cell.bounds, r);
 }
 
