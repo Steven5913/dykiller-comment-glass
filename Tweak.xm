@@ -832,8 +832,20 @@ static void hook_piLayout(id self, SEL _cmd){
     if (orig_piLayout) orig_piLayout(self, _cmd);
     @try {
         UIViewController *vc = (UIViewController *)self;
-        if ([vc isKindOfClass:[UIViewController class]] && [vc isViewLoaded]) DKScanRoot(vc.view);
-    } @catch (NSException *e) {}
+        if ([vc isKindOfClass:[UIViewController class]] && [vc isViewLoaded]) {
+            UIView *sv = vc.view, *sp = sv.superview;
+            if (sp) {
+                CGFloat ph = sp.bounds.size.height, pw = sp.bounds.size.width;
+                CGFloat h = sv.bounds.size.height, w = sv.bounds.size.width;
+                CGFloat d = ph - h;
+                // 评论浮层页里这层会被扣掉一条评论栏高度(83pt)：只改 transform，绝不改 frame
+                if (fabs(w - pw) < 2.0 && ph > 760.0 && ph < 820.0 && h > 660.0 && h < 730.0 && d > 78.0 && d < 88.0) {
+                    if (sv.transform.ty < 1.0) sv.transform = CGAffineTransformMakeTranslation(0, d);
+                }
+            }
+            DKScanRoot(vc.view);
+        }
+    } @catch(NSException *e) {}
 }
 
 static void (*orig_piAppear)(id, SEL, BOOL);
