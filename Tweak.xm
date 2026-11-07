@@ -502,6 +502,34 @@ static void DKCommentInputGlass(UIView *root){
     DKApplyGlassAt(host, pr, r);
 }
 
+// 详情页浮层：视频交互容器被 app 按「扣掉评论栏高度」重排后会整体上移，
+// 这里把它的高度顶回父容器（子视图都是底对齐，恢复后即原来的满屏位置）
+static void DKCommentRestoreHeight(UIView *root){
+    if (!root) return;
+    Class ic = NSClassFromString(@"AWEPlayInteractionViewController");
+    if (!ic) return;
+    NSMutableArray *q = [NSMutableArray arrayWithObject:root];
+    NSUInteger guard = 0;
+    while (q.count > 0 && guard++ < 5000) {
+        UIView *v = [q objectAtIndex:0];
+        [q removeObjectAtIndex:0];
+        id nr = v.nextResponder;
+        if (nr && [nr isKindOfClass:ic] && v.superview) {
+            CGRect f = v.frame;
+            CGFloat ph = v.superview.bounds.size.height;
+            CGFloat d = ph - f.size.height;
+            // 只修「被扣掉一整条评论栏」这一种情形，其它状态不动
+            if (d > 60.0 && d < 100.0 && ph > 400.0) {
+                f.size.height = ph;
+                v.frame = f;
+                [v setNeedsLayout];
+            }
+            continue;
+        }
+        for (UIView *c in v.subviews) [q addObject:c];
+    }
+}
+
 static void DKCommentPageGlass(UIView *root){
     if (!root || root.bounds.size.width < 300) return;
     UIView *navBar = nil, *inputBar = nil;
@@ -518,6 +546,7 @@ static void DKCommentPageGlass(UIView *root){
     }
     if (navBar) DKDetailNavGlass(navBar);
     if (inputBar) DKCommentInputGlass(inputBar);
+    DKCommentRestoreHeight(root);
 }
 
 // ===== 六元素识别 =====
