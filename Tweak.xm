@@ -390,6 +390,42 @@ static void DKInputBarGlass(UIView *bar){
     DKApplyGlassAt(bar, bar.bounds, r);
 }
 
+// ===== 底部输入框上方的快捷表情胶囊 =====
+// 每个 cell 自带一层 UIVisualEffectView 模糊，先顶掉再铺同配方玻璃
+static void DKHideBlurDeep(UIView *v){
+    if (!v) return;
+    for (UIView *s in v.subviews) {
+        if ([s isKindOfClass:[UIVisualEffectView class]]) { s.hidden = YES; continue; }
+        DKHideBlurDeep(s);
+    }
+}
+
+static void DKQuickEmojiGlass(UIView *cell){
+    if (!cell) return;
+    CGFloat w = cell.bounds.size.width, h = cell.bounds.size.height;
+    if (w < 30.0 || h < 20.0 || h > 44.0) return;
+    DKHideBlurDeep(cell);
+    CGFloat r = h / 2.0;
+    if (r > 16.0) r = 16.0;
+    DKApplyGlassAt(cell, cell.bounds, r);
+}
+
+static void DKQuickEmojiBar(UIView *bar){
+    if (!bar) return;
+    NSMutableArray *q = [NSMutableArray arrayWithObject:bar];
+    NSUInteger guard = 0;
+    while (q.count > 0 && guard++ < 600) {
+        UIView *v = [q objectAtIndex:0];
+        [q removeObjectAtIndex:0];
+        NSString *cn = NSStringFromClass([v class]) ?: @"";
+        if ([cn isEqualToString:@"AWEIMInputActionBarFansGroupEntryViewCollectionViewCell"]) {
+            DKQuickEmojiGlass(v);
+            continue;
+        }
+        for (UIView *c in v.subviews) [q addObject:c];
+    }
+}
+
 // ===== 六元素识别 =====
 static BOOL DKIsElementClass(NSString *cn){
     if (!cn) return NO;
@@ -440,18 +476,16 @@ static void DKAvatarSize(UIView *btn, CGFloat d){
         }
         btn.layer.cornerRadius = d / 2.0;
         btn.layer.masksToBounds = YES;
-        // 里面的头像图片居中缩到 d-6（奶蛙：46 容器里 40 的头像，四周各留 3）
-        CGFloat inner = d - 6.0;
+        // 里面的头像图片跟着铺满同一个圆
         for (UIView *s in btn.subviews) {
             NSString *scn = NSStringFromClass([s class]) ?: @"";
             if (![scn isEqualToString:@"UIImageView"]) continue;
             CGRect sf = s.frame;
-            if (fabs((double)sf.size.width - (double)inner) > 0.5 ||
-                fabs((double)sf.size.height - (double)inner) > 0.5) {
-                CGPoint c = CGPointMake(CGRectGetMidX(sf), CGRectGetMidY(sf));
-                s.frame = CGRectMake(c.x - inner / 2.0, c.y - inner / 2.0, inner, inner);
+            if (fabs((double)sf.size.width - (double)d) > 0.5 ||
+                fabs((double)sf.size.height - (double)d) > 0.5) {
+                s.frame = CGRectMake(0, 0, d, d);
             }
-            s.layer.cornerRadius = inner / 2.0;
+            s.layer.cornerRadius = d / 2.0;
             s.layer.masksToBounds = YES;
         }
     } @catch(...) {}
@@ -460,7 +494,7 @@ static void DKAvatarSize(UIView *btn, CGFloat d){
 // 头像本体缩到 44（与音乐唱片同尺寸），只改内部图片视图、圆心不动，玻璃盘仍 Ø56
 static void DKAvatarResize(UIView *btn){
     if (!btn) return;
-    CGFloat want = 40.0;
+    CGFloat want = 44.0;
     for (UIView *s in btn.subviews) {
         if (![s isKindOfClass:[UIImageView class]]) continue;
         CGFloat w = s.bounds.size.width, h = s.bounds.size.height;
@@ -524,25 +558,11 @@ static void DKAvatarClean(UIView *host, UIView *btn){
     }
 }
 
-// 抖音自带的那层原生模糊底盘（含 UIVisualEffectView 的装饰视图）——已有自己的玻璃，直接藏掉
-static void DKHideNativeBlur(UIView *root){
-    if (!root) return;
-    for (UIView *s in root.subviews) {
-        if (s.tag == DK_TAG) continue;
-        BOOL hasBlur = NO;
-        for (UIView *c in s.subviews) {
-            if ([c isKindOfClass:[UIVisualEffectView class]]) { hasBlur = YES; break; }
-        }
-        if (hasBlur) s.hidden = YES;
-    }
-}
-
-// 头像专用
 // 单个元素套玻璃
 static void DKGlassOne(UIView *v){
     NSString *cn = NSStringFromClass([v class]) ?: @"";
     if ([cn isEqualToString:@"AWEFeedVideoButton"]) {
-        // 点赞/评论/收藏/分享：icon 容器 36x36，玻璃盘 46（与奶蛙一致）
+        // 点赞/评论/收藏/分享：icon 容器 36x36，玻璃盘 44
         UIView *icon = nil;
         @try { icon = (UIView *)[v valueForKey:@"containerView"]; } @catch(...) { icon = nil; }
         if (!icon || ![icon isKindOfClass:[UIView class]] || icon.bounds.size.width < 14) {
@@ -552,9 +572,9 @@ static void DKGlassOne(UIView *v){
                     s.bounds.size.height >= 24 && s.bounds.size.height <= 48) { icon = s; break; }
             }
         }
-        DKApplyDisc(v, icon ?: v, 46.0);
+        DKApplyDisc(v, icon ?: v, 44.0);
     } else if ([cn isEqualToString:@"AWEPlayInteractionUserProfilePictureView"]) {
-        // 头像：容器统一 46、里面头像 40；玻璃盘 46（与奶蛙一致）
+        // 头像：多数视频 48x48、少部分 44x44；玻璃盘 56（与音乐唱片同尺寸）
         // 圆心必须取头像本体（AWEButton），跳过我们自己插的玻璃与「日常」彩环，
         // 否则会把玻璃自己当圆心，越摆越偏（29.44 之前部分视频不同心就是这个原因）
         UIView *icon = nil;
@@ -574,29 +594,19 @@ static void DKGlassOne(UIView *v){
             }
         }
         // 头像统一成 44x44（与音乐唱片同尺寸），圆心不动
-        if (icon) DKAvatarSize(icon, 46.0);
+        if (icon) DKAvatarSize(icon, 44.0);
         if (icon) {
             // 用头像本体的绝对矩形直接定圆心，避免二次换算误差
             CGRect btnRect = [icon convertRect:icon.bounds toView:v];
-            DKApplyDiscAt(v, CGPointMake(CGRectGetMidX(btnRect), CGRectGetMidY(btnRect)), 46.0);
+            DKApplyDiscAt(v, CGPointMake(CGRectGetMidX(btnRect), CGRectGetMidY(btnRect)), 56.0);
         } else {
-            DKApplyDisc(v, v, 46.0);
+            DKApplyDisc(v, v, 56.0);
         }
         DKAvatarClean(v, icon);
         DKAvatarResize(icon);
     } else if ([cn isEqualToString:@"AWEMusicCoverButton"]) {
-        // 音乐唱片：藏掉原生 56 模糊，封面缩到 40（与头像 40 一致），玻璃盘 46
-        DKHideNativeBlur(v);
-        for (UIView *s in v.subviews) {
-            if (s.tag == DK_TAG) continue;
-            CGFloat w = s.bounds.size.width;
-            if (w < 40.0 || w > 70.0) continue;
-            if (fabs((double)w - 40.0) > 0.5) {
-                s.bounds = CGRectMake(0, 0, 40.0, 40.0);
-                s.layer.cornerRadius = 20.0;
-            }
-        }
-        DKApplyDisc(v, v, 46.0);
+        // 音乐唱片：44x44，玻璃盘 56
+        DKApplyDisc(v, v, 56.0);
     }
 }
 
@@ -696,6 +706,18 @@ static void (*orig_navLayout)(id, SEL);
 static void hook_navLayout(id self, SEL _cmd){
     orig_navLayout(self, _cmd);
     @try { DKNavGlass((UIView *)self); } @catch(NSException *e) {}
+}
+
+static void (*orig_quickCellLayout)(id, SEL);
+static void hook_quickCellLayout(id self, SEL _cmd){
+    if (orig_quickCellLayout) orig_quickCellLayout(self, _cmd);
+    @try { DKQuickEmojiGlass((UIView *)self); } @catch(NSException *e) {}
+}
+
+static void (*orig_quickBarLayout)(id, SEL);
+static void hook_quickBarLayout(id self, SEL _cmd){
+    if (orig_quickBarLayout) orig_quickBarLayout(self, _cmd);
+    @try { DKQuickEmojiBar((UIView *)self); } @catch(NSException *e) {}
 }
 
 static void (*orig_detailVCLayout)(id, SEL, BOOL);
@@ -803,6 +825,14 @@ static void DKTryInstall(void){
             }
         }
         // 视频详情页：返回 / 搜索 / 底部输入框
+        Class qcell = NSClassFromString(@"AWEIMInputActionBarFansGroupEntryViewCollectionViewCell");
+        if (qcell && !orig_quickCellLayout) {
+            MSHookMessageEx(qcell, sel_registerName("layoutSubviews"), (IMP)hook_quickCellLayout, (IMP *)&orig_quickCellLayout);
+        }
+        Class qbar = NSClassFromString(@"AWEIMInputActionBarFansGroupEntryView");
+        if (qbar && !orig_quickBarLayout) {
+            MSHookMessageEx(qbar, sel_registerName("layoutSubviews"), (IMP)hook_quickBarLayout, (IMP *)&orig_quickBarLayout);
+        }
         Class dvc = NSClassFromString(@"AWEAwemeIMDetailTableViewController");
         if (dvc && !orig_detailVCLayout) {
             MSHookMessageEx(dvc, sel_registerName("viewDidLayoutSubviews"),
@@ -824,7 +854,8 @@ static void DKTryInstall(void){
         }
     } @catch(NSException *e) {}
     if (orig_elemLayout || orig_railLayout || orig_piLayout || orig_navLayout || orig_popoverLayout ||
-        orig_detailVCLayout || orig_detailNavLayout || orig_inputBarLayout) g_hooked = YES;
+        orig_detailVCLayout || orig_detailNavLayout || orig_inputBarLayout ||
+        orig_quickCellLayout || orig_quickBarLayout) g_hooked = YES;
 }
 
 static __attribute__((constructor)) void DKInit(void){
