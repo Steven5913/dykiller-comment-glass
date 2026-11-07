@@ -450,6 +450,45 @@ static void DKQuickEmojiBar(UIView *bar){
     }
 }
 
+// ===== 视频详情页（评论区浮层）：左上返回 + 底部评论输入框 =====
+static void DKCommentInputGlass(UIView *root){
+    if (!root) return;
+    UIView *pill = nil;
+    NSMutableArray *q = [NSMutableArray arrayWithObject:root];
+    NSUInteger guard = 0;
+    while (q.count > 0 && guard++ < 800) {
+        UIView *v = [q objectAtIndex:0];
+        [q removeObjectAtIndex:0];
+        if (v.tag == DK_TAG) continue;
+        CGFloat h = v.bounds.size.height, w = v.bounds.size.width;
+        if (h > 30.0 && h < 52.0 && w > 200.0 &&
+            fabs((double)v.layer.cornerRadius - (double)(h / 2.0)) < 2.5) { pill = v; break; }
+        for (UIView *c in v.subviews) [q addObject:c];
+    }
+    if (!pill) return;
+    pill.backgroundColor = [UIColor clearColor];
+    CGFloat r = pill.bounds.size.height / 2.0;
+    DKApplyGlassAt(pill, pill.bounds, r);
+}
+
+static void DKCommentPageGlass(UIView *root){
+    if (!root || root.bounds.size.width < 300) return;
+    UIView *navBar = nil, *inputBar = nil;
+    NSMutableArray *q = [NSMutableArray arrayWithObject:root];
+    NSUInteger guard = 0;
+    while (q.count > 0 && guard++ < 5000) {
+        UIView *v = [q objectAtIndex:0];
+        [q removeObjectAtIndex:0];
+        NSString *cn = NSStringFromClass([v class]) ?: @"";
+        if (!navBar && [cn isEqualToString:@"AWEAwemeDetailNaviBarContainerView"] &&
+            v.bounds.size.width > 300) navBar = v;
+        if (!inputBar && [cn isEqualToString:@"AWECommentInputBackgroundView"]) inputBar = v;
+        for (UIView *c in v.subviews) [q addObject:c];
+    }
+    if (navBar) DKDetailNavGlass(navBar);
+    if (inputBar) DKCommentInputGlass(inputBar);
+}
+
 // ===== 六元素识别 =====
 static BOOL DKIsElementClass(NSString *cn){
     if (!cn) return NO;
@@ -732,6 +771,27 @@ static void hook_navLayout(id self, SEL _cmd){
     @try { DKNavGlass((UIView *)self); } @catch(NSException *e) {}
 }
 
+static void (*orig_cdNavLayout)(id, SEL);
+static void hook_cdNavLayout(id self, SEL _cmd){
+    if (orig_cdNavLayout) orig_cdNavLayout(self, _cmd);
+    @try {
+        UIView *v = (UIView *)self;
+        if (v.bounds.size.width > 300) DKDetailNavGlass(v);
+    } @catch(NSException *e) {}
+}
+
+static void (*orig_cdInputLayout)(id, SEL);
+static void hook_cdInputLayout(id self, SEL _cmd){
+    if (orig_cdInputLayout) orig_cdInputLayout(self, _cmd);
+    @try { DKCommentInputGlass((UIView *)self); } @catch(NSException *e) {}
+}
+
+static void (*orig_cdVCLayout)(id, SEL);
+static void hook_cdVCLayout(id self, SEL _cmd){
+    if (orig_cdVCLayout) orig_cdVCLayout(self, _cmd);
+    @try { DKCommentPageGlass(((UIViewController *)self).view); } @catch(NSException *e) {}
+}
+
 static void (*orig_quickCellLayout)(id, SEL);
 static void hook_quickCellLayout(id self, SEL _cmd){
     if (orig_quickCellLayout) orig_quickCellLayout(self, _cmd);
@@ -849,6 +909,18 @@ static void DKTryInstall(void){
             }
         }
         // 视频详情页：返回 / 搜索 / 底部输入框
+        Class cdNav = NSClassFromString(@"AWEAwemeDetailNaviBarContainerView");
+        if (cdNav && !orig_cdNavLayout) {
+            MSHookMessageEx(cdNav, sel_registerName("layoutSubviews"), (IMP)hook_cdNavLayout, (IMP *)&orig_cdNavLayout);
+        }
+        Class cdInput = NSClassFromString(@"AWECommentInputBackgroundView");
+        if (cdInput && !orig_cdInputLayout) {
+            MSHookMessageEx(cdInput, sel_registerName("layoutSubviews"), (IMP)hook_cdInputLayout, (IMP *)&orig_cdInputLayout);
+        }
+        Class cdVC = NSClassFromString(@"AWEAwemeDetailTableViewController");
+        if (cdVC && !orig_cdVCLayout) {
+            MSHookMessageEx(cdVC, sel_registerName("viewDidLayoutSubviews"), (IMP)hook_cdVCLayout, (IMP *)&orig_cdVCLayout);
+        }
         Class qcell = NSClassFromString(@"AWEIMInputActionBarFansGroupEntryViewCollectionViewCell");
         if (qcell && !orig_quickCellLayout) {
             MSHookMessageEx(qcell, sel_registerName("layoutSubviews"), (IMP)hook_quickCellLayout, (IMP *)&orig_quickCellLayout);
@@ -879,7 +951,8 @@ static void DKTryInstall(void){
     } @catch(NSException *e) {}
     if (orig_elemLayout || orig_railLayout || orig_piLayout || orig_navLayout || orig_popoverLayout ||
         orig_detailVCLayout || orig_detailNavLayout || orig_inputBarLayout ||
-        orig_quickCellLayout || orig_quickBarLayout) g_hooked = YES;
+        orig_quickCellLayout || orig_quickBarLayout ||
+        orig_cdNavLayout || orig_cdInputLayout || orig_cdVCLayout) g_hooked = YES;
 }
 
 static __attribute__((constructor)) void DKInit(void){
