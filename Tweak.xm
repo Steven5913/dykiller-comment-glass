@@ -808,18 +808,17 @@ static void hook_ringLayout(id self, SEL _cmd){
 static void (*orig_railLayout)(id, SEL);
 static void hook_railLayout(id self, SEL _cmd){
     if (orig_railLayout) orig_railLayout(self, _cmd);
+    UIView *v = (UIView *)self;
+    // 先做下贴，再铺玻璃，各自独立 try，避免玻璃那边抛异常把下贴整段跳过
     @try {
-        UIView *v = (UIView *)self;
-        DKGlassRail(v);
-        // 左下文字块（作者/描述/IP行）：app 每次布局都会把自己的位移写回来，
-        // 这里在它布局完成之后立刻补上下贴，消除输入框上方的黑带
         UIView *sp = v.superview;
         if (sp && v.bounds.size.width > 200.0 && v.bounds.size.width < 330.0 &&
             sp.bounds.size.height > 660.0 && sp.bounds.size.height < 730.0 &&
-            v.frame.origin.y > 480.0 && v.transform.ty < 90.0) {
+            v.frame.origin.y > 480.0 && v.transform.ty < 60.0) {
             v.transform = CGAffineTransformTranslate(v.transform, 0, 90.0);
         }
-    } @catch (NSException *e) {}
+    } @catch(NSException *e) {}
+    @try { DKGlassRail(v); } @catch(NSException *e) {}
 }
 
 static void (*orig_piLayout)(id, SEL);
