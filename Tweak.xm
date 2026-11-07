@@ -524,6 +524,20 @@ static void DKAvatarClean(UIView *host, UIView *btn){
     }
 }
 
+// 抖音自带的那层原生模糊底盘（含 UIVisualEffectView 的装饰视图）——已有自己的玻璃，直接藏掉
+static void DKHideNativeBlur(UIView *root){
+    if (!root) return;
+    for (UIView *s in root.subviews) {
+        if (s.tag == DK_TAG) continue;
+        BOOL hasBlur = NO;
+        for (UIView *c in s.subviews) {
+            if ([c isKindOfClass:[UIVisualEffectView class]]) { hasBlur = YES; break; }
+        }
+        if (hasBlur) s.hidden = YES;
+    }
+}
+
+// 头像专用
 // 单个元素套玻璃
 static void DKGlassOne(UIView *v){
     NSString *cn = NSStringFromClass([v class]) ?: @"";
@@ -571,7 +585,17 @@ static void DKGlassOne(UIView *v){
         DKAvatarClean(v, icon);
         DKAvatarResize(icon);
     } else if ([cn isEqualToString:@"AWEMusicCoverButton"]) {
-        // 音乐唱片：玻璃盘 46（与奶蛙一致）
+        // 音乐唱片：藏掉原生 56 模糊，封面缩到 40（与头像 40 一致），玻璃盘 46
+        DKHideNativeBlur(v);
+        for (UIView *s in v.subviews) {
+            if (s.tag == DK_TAG) continue;
+            CGFloat w = s.bounds.size.width;
+            if (w < 40.0 || w > 70.0) continue;
+            if (fabs((double)w - 40.0) > 0.5) {
+                s.bounds = CGRectMake(0, 0, 40.0, 40.0);
+                s.layer.cornerRadius = 20.0;
+            }
+        }
         DKApplyDisc(v, v, 46.0);
     }
 }
