@@ -837,6 +837,13 @@ static void DKClearBackingDeep(UIView *v, int depth){
     if (v.backgroundColor && ![v.backgroundColor isEqual:[UIColor clearColor]]) {
         v.backgroundColor = [UIColor clearColor];
     }
+    // 宿主自己的图层可能带整块底图（contents），这层是清 backgroundColor 清不掉的，会盖在玻璃上发白
+    if (depth == 0 && v.layer.contents) {
+        [CATransaction begin];
+        [CATransaction setDisableActions:YES];
+        v.layer.contents = nil;
+        [CATransaction commit];
+    }
     // 视图自身的图层底色也要清（此前只清了 backgroundColor，视图自己 layer 上的底色会盖在玻璃上发白）
     if (v.layer.backgroundColor) {
         [CATransaction begin];
@@ -896,7 +903,7 @@ static NSString *DKColorDesc(UIColor *c){
 }
 static void DKDumpCancelToast(UIView *v){
     NSMutableString *o = [NSMutableString string];
-    [o appendFormat:@"BAR %@ %@ bg=%@ a=%.2f\n", NSStringFromClass(object_getClass(v)), NSStringFromCGRect(v.frame), DKColorDesc(v.backgroundColor), (double)v.alpha];
+    [o appendFormat:@"BAR %@ %@ bg=%@ a=%.2f ownBg=%@ ownC=%d\n", NSStringFromClass(object_getClass(v)), NSStringFromCGRect(v.frame), DKColorDesc(v.backgroundColor), (double)v.alpha, v.layer.backgroundColor ? @"yes" : @"nil", v.layer.contents ? 1 : 0];
     UIView *p = v.superview;
     for (int i = 0; i < 3 && p; i++) {
         [o appendFormat:@"P%d %@ %@ bg=%@ layers=%lu\n", i, NSStringFromClass(object_getClass(p)), NSStringFromCGRect(p.frame), DKColorDesc(p.backgroundColor), (unsigned long)p.layer.sublayers.count];
