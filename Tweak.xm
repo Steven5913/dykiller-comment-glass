@@ -946,7 +946,7 @@ static long long DKNumberFromText(NSString *t){
     for (NSUInteger i = 0; i < t.length; i++) {
         unichar c = [t characterAtIndex:i];
         if (c >= '0' && c <= '9') { [d appendFormat:@"%C", c]; if (afterDot) break; }
-        else if (c == '.' || c == '·') { if (d.length == 0) continue; afterDot = YES; [d appendString:@"."]; }
+        else if (c == '.' || c == 0x00B7) { if (d.length == 0) continue; afterDot = YES; [d appendString:@"."]; }
         else if (d.length) break;
     }
     if (!d.length) return -1;
