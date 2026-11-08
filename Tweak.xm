@@ -528,8 +528,13 @@ static void DKCommentRestoreHeight(UIView *root){
         // 这一层就是「交互层」：第一张图是 {0,83,402,708}（底边贴 791，正常），
         // 翻到第二张后 app 把它摆成 {0,0,402,708}（底边只到 708，整层元素一起上移 83）。
         // 只在这一层上做纵向位移，让它底边重新贴住父容器底边；子视图一律不动。
-        CGFloat delta = ph - (v.frame.origin.y + h);
-        if (fabs(delta) < 0.5) delta = 0.0;
+        // 只修「翻页后被摆成 y=0、高度正好 708」这一种抬高形态；
+        // 已经贴住的（y=83 或其它任何位置）一律不碰，避免把正常页、有进度条的页顶上去
+        CGFloat hh = v.bounds.size.height;
+        if (hh < 700.0 || hh > 716.0) continue;
+        if (fabs(v.frame.origin.y) > 0.5) continue;
+        if (ph < 785.0 || ph > 797.0) continue;
+        CGFloat delta = ph - hh;
         if (fabs(v.transform.ty - delta) > 0.5) {
             v.transform = CGAffineTransformMakeTranslation(0, delta);
         }
