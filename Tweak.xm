@@ -824,10 +824,6 @@ static void hook_gameTagLayout(id self, SEL _cmd){
     @try { DKClearTagBg((UIView *)self); DKGlassPill((UIView *)self); } @catch(NSException *e) {}
 }
 
-static void hook_pillLayout(id self, SEL _cmd){
-    if (orig_pillLayout) orig_pillLayout(self, _cmd);
-    @try { DKGlassPill((UIView *)self); } @catch(NSException *e) {}
-}
 static void (*orig_pillLayout2)(id, SEL);
 static void hook_pillLayout2(id self, SEL _cmd){
     if (orig_pillLayout2) orig_pillLayout2(self, _cmd);
