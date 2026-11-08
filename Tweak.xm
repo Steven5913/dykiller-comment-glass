@@ -896,29 +896,46 @@ static BOOL DKIsLottieClass(NSString *cn){
     if (cn.length == 0) return NO;
     return [cn hasPrefix:@"LOT"] || [cn hasPrefix:@"lottie"] || [cn containsString:@"Lottie"];
 }
+// 加速并隐藏 Lottie：动画看不见，但完成回调照常触发（否则图标状态不会翻转）
+static void DKHideLottieFast(UIView *v){
+    if (!v) return;
+    v.hidden = YES;
+    v.alpha = 0.0;
+    SEL spd = NSSelectorFromString(@"setAnimationSpeed:");
+    if ([v respondsToSelector:spd]) {
+        NSMethodSignature *sig = [v methodSignatureForSelector:spd];
+        if (sig) {
+            NSInvocation *inv = [NSInvocation invocationWithMethodSignature:sig];
+            [inv setTarget:v]; [inv setSelector:spd];
+            double speed = 200.0;
+            [inv setArgument:&speed atIndex:2];
+            [inv invoke];
+        }
+    }
+}
 static void (*orig_dk_addSubview)(id, SEL, UIView *);
 static void dk_addSubview(id self, SEL _cmd, UIView *v){
+    BOOL favLot = NO;
     @try {
         if (v && DKIsLottieClass(NSStringFromClass([v class])) &&
-            DKViewInFavAncestor((UIView *)self)) return;
+            DKViewInFavAncestor((UIView *)self)) favLot = YES;
     } @catch (NSException *e) {}
     if (orig_dk_addSubview) orig_dk_addSubview(self, _cmd, v);
+    if (favLot) @try { DKHideLottieFast(v); } @catch (NSException *e) {}
 }
 
 static void (*orig_dk_lotPlay)(id, SEL);
 static void dk_lotPlay(id self, SEL _cmd){
-    @try {
-        UIView *v = (UIView *)self;
-        if (DKViewInFavAncestor(v.superview)) { v.hidden = YES; return; }
-    } @catch (NSException *e) {}
+    BOOL fav = NO;
+    @try { fav = DKViewInFavAncestor(((UIView *)self).superview); } @catch (NSException *e) {}
+    if (fav) @try { DKHideLottieFast((UIView *)self); } @catch (NSException *e) {}
     if (orig_dk_lotPlay) orig_dk_lotPlay(self, _cmd);
 }
 static void (*orig_dk_lotPlayRange)(id, SEL, id, id, id);
 static void dk_lotPlayRange(id self, SEL _cmd, id a, id b, id c){
-    @try {
-        UIView *v = (UIView *)self;
-        if (DKViewInFavAncestor(v.superview)) { v.hidden = YES; return; }
-    } @catch (NSException *e) {}
+    BOOL fav = NO;
+    @try { fav = DKViewInFavAncestor(((UIView *)self).superview); } @catch (NSException *e) {}
+    if (fav) @try { DKHideLottieFast((UIView *)self); } @catch (NSException *e) {}
     if (orig_dk_lotPlayRange) orig_dk_lotPlayRange(self, _cmd, a, b, c);
 }
 
