@@ -879,8 +879,21 @@ static void DKDumpCancelToast(UIView *v){
         p = p.superview;
     }
     int gi = 0;
-    for (UIView *sv in v.subviews) if (sv.tag == DK_TAG) gi++;
+    for (UIView *sv in v.subviews) if (sv.tag == DK_TAG) {
+        gi++;
+        [o appendFormat:@"G %@ %@ hid=%d a=%.2f sub=%lu\n", NSStringFromClass(object_getClass(sv)), NSStringFromCGRect(sv.frame), (int)sv.hidden, (double)sv.alpha, (unsigned long)sv.subviews.count];
+        for (UIView *gv in sv.subviews) [o appendFormat:@"  Gs %@ hid=%d a=%.2f\n", NSStringFromClass(object_getClass(gv)), (int)gv.hidden, (double)gv.alpha];
+    }
     [o appendFormat:@"GLASS=%d\n", gi];
+    UIWindow *win = v.window;
+    if (win) {
+        NSArray *wls = win.layer.sublayers;
+        [o appendFormat:@"WIN %@ layers=%lu\n", NSStringFromClass(object_getClass(win)), (unsigned long)wls.count];
+        for (CALayer *wl in wls) {
+            if ([wls indexOfObject:wl] > 5) break;
+            [o appendFormat:@"  W %@ hid=%d a=%.2f fr=%@\n", NSStringFromClass(object_getClass(wl)), (int)wl.hidden, (double)wl.opacity, NSStringFromCGRect(wl.frame)];
+        }
+    }
     NSArray *ls = v.layer.sublayers;
     for (CALayer *l in ls) {
         if (ls.count > 8 && [ls indexOfObject:l] > 7) break;
@@ -926,14 +939,13 @@ static void DKFeedFavToast(UIView *v){
     if (!t.length || [t rangeOfString:@"收藏"].location == NSNotFound) return;
     CGFloat r = b.size.height / 2.0;
     DKClearBackingDeep(v, 0);
-    if ([NSStringFromClass(object_getClass(v)) isEqualToString:@"AWEPlayInteractionSnackBar"]) {
-        DKStripDecorLayers(v);
-        @try { DKDumpCancelToast(v); } @catch (NSException *e) {}
-    }
+    BOOL isCancelBar = [NSStringFromClass(object_getClass(v)) isEqualToString:@"AWEPlayInteractionSnackBar"];
+    if (isCancelBar) DKStripDecorLayers(v);
     if (fabs((double)v.layer.cornerRadius - (double)r) > 0.5) v.layer.cornerRadius = r;
     v.layer.masksToBounds = YES;
     DKApplyGlassAt(v, b, r);
     for (UIView *sv in v.subviews) if (sv.tag == DK_TAG) sv.layer.hidden = NO;
+    if (isCancelBar) { @try { DKDumpCancelToast(v); } @catch (NSException *e) {} }
     DKWhitenIconAndText(v);
 }
 static void (*orig_snackLayout)(id, SEL);
