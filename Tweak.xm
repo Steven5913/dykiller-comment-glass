@@ -756,8 +756,11 @@ static void DKGlassRail(UIView *rail){
 }
 
 // 全页兜底扫描：按"窗口坐标靠右 + 够高 + 内含多个六元素"认定竖排，不依赖类名与 frame.x
+static void DKCommentRestoreHeight(UIView *root);
+
 static void DKScanRoot(UIView *root){
     if (!root) return;
+    @try { DKCommentRestoreHeight(root); } @catch(NSException *e) {}
     UIView *win = root.window;
     if (!win) win = root;
     NSMutableArray *stack = [NSMutableArray arrayWithObject:root];
@@ -1053,9 +1056,9 @@ static void DKTryInstall(void){
         if (cdInput && !orig_cdInputLayout) {
             MSHookMessageEx(cdInput, sel_registerName("layoutSubviews"), (IMP)hook_cdInputLayout, (IMP *)&orig_cdInputLayout);
         }
-        Class cellCls = NSClassFromString(@"UITableViewCell");
-        if (cellCls && !orig_cellLayout) {
-            MSHookMessageEx(cellCls, sel_registerName("layoutSubviews"), (IMP)hook_cellLayout, (IMP *)&orig_cellLayout);
+        Class dyCell = NSClassFromString(@"AWEAwemeDetailTableViewCell");
+        if (dyCell && !orig_cellLayout) {
+            MSHookMessageEx(dyCell, sel_registerName("layoutSubviews"), (IMP)hook_cellLayout, (IMP *)&orig_cellLayout);
         }
         Class cdVC = NSClassFromString(@"AWEAwemeDetailTableViewController");
         if (cdVC && !orig_cdVCLayout) {
