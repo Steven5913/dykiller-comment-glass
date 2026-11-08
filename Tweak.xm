@@ -809,7 +809,7 @@ static void DKHudLog(NSString *line){
             [DKHudLines addObject:line];
             while (DKHudLines.count > 9) [DKHudLines removeObjectAtIndex:0];
             if (!DKHudLabel) {
-                UIWindow *w = [UIApplication sharedApplication].keyWindow;
+                UIWindow *w = [[UIApplication sharedApplication].windows firstObject];
                 if (!w) return;
                 DKHudLabel = [[UILabel alloc] initWithFrame:CGRectMake(8, 150, w.bounds.size.width - 16, 210)];
                 DKHudLabel.numberOfLines = 0;
