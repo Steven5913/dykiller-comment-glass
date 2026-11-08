@@ -531,22 +531,26 @@ static void DKCommentRestoreHeight(UIView *root){
         if (v.tag == DK_TAG || !sp) continue;
         CGFloat ph = sp.bounds.size.height, pw = sp.bounds.size.width;
         CGFloat h = v.bounds.size.height, w = v.bounds.size.width;
-        // 只认「父 791 / 子 708」这一个确定的抬高特征，正常布局（等高）完全不碰
         if (ph < 760.0 || ph > 820.0) continue;
         if (h < 660.0 || h > 730.0) continue;
         if (fabs(w - pw) > 2.0) continue;
         CGFloat d = ph - h;
-        if (d <= 78.0 || d >= 88.0) continue;
-        // 带播放进度条的作品（视频型）之前已经调好，一律不碰
-        if (DKTreeHasClass(v, @"AWEDPlayerProgressContainerView", 4)) continue;
+        if (d <= 40.0 || d >= 100.0) continue;   // 这一层正常就是「顶边让 83、高度少 83」
+        if (DKTreeHasClass(v, @"AWEDPlayerProgressContainerView", 4)) continue;   // 视频型不动
         if (DKTreeHasClass(v, @"AWEAwemePlayVideoProgressContainerView", 4)) continue;
-        // 这一层的顶边被 app 往下让了 83、高度也少了 83，导致层内所有元素整体偏高。
-        // 不动任何子视图，只把内容原点往上引 83：等价于层内元素整体下移 83，视觉上回到底部。
-        CGRect b = v.bounds;
-        CGFloat wantY = -d;
-        if (fabs(b.origin.y - wantY) > 0.5) {
-            b.origin.y = wantY;
-            v.bounds = b;
+        // 统一口径：文字块底边固定落在层内 679pt（= 屏幕绝对 762pt，原生图片作品的正确位置），
+        // 与文字高度无关，翻页前后都一样，从而消掉 83pt 的跳动
+        for (UIView *c in v.subviews) {
+            if (![NSStringFromClass([c class]) isEqualToString:@"AWEElementStackView"]) continue;
+            if (c.bounds.size.width < 200.0 || c.bounds.size.width > 330.0) continue;
+            if (c.bounds.size.height < 20.0) continue;
+            CGRect f = c.frame;
+            CGFloat want = 679.0 - f.size.height;
+            if (fabs(f.origin.y - want) > 0.5) {
+                f.origin.y = want;
+                c.transform = CGAffineTransformIdentity;
+                c.frame = f;
+            }
         }
         {
             UIView *owner = v.superview;
