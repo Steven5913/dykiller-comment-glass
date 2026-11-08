@@ -822,6 +822,18 @@ static void DKFeedFavToast(UIView *v){
         if (bg && [bg getWhite:&w alpha:&a] && a > 0.02) s.backgroundColor = [UIColor clearColor];
         if ([s isKindOfClass:[UIVisualEffectView class]]) s.hidden = YES;
     }
+    for (CALayer *l in v.layer.sublayers) {
+        CGColorRef c = l.backgroundColor;
+        if (!c) continue;
+        UIColor *u = [UIColor colorWithCGColor:c];
+        CGFloat w2 = 0.0, a2 = 0.0;
+        if ([u getWhite:&w2 alpha:&a2] && a2 > 0.02) {
+            [CATransaction begin];
+            [CATransaction setDisableActions:YES];
+            l.backgroundColor = NULL;
+            [CATransaction commit];
+        }
+    }
     if (fabs((double)v.layer.cornerRadius - (double)r) > 0.5) v.layer.cornerRadius = r;
     v.layer.masksToBounds = YES;
     DKApplyGlassAt(v, b, r);
@@ -830,6 +842,12 @@ static void DKFeedFavToast(UIView *v){
 static void (*orig_snackLayout)(id, SEL);
 static void hook_snackLayout(id self, SEL _cmd){
     if (orig_snackLayout) orig_snackLayout(self, _cmd);
+    @try { DKFeedFavToast((UIView *)self); } @catch (NSException *e) {}
+}
+// 取消收藏用的是另一套：AWEPlayInteractionSnackBar（DUXBottomNotification）
+static void (*orig_playSnackLayout)(id, SEL);
+static void hook_playSnackLayout(id self, SEL _cmd){
+    if (orig_playSnackLayout) orig_playSnackLayout(self, _cmd);
     @try { DKFeedFavToast((UIView *)self); } @catch (NSException *e) {}
 }
 
@@ -1413,6 +1431,8 @@ static void DKTryInstall(void){
         if (tipsC) MSHookMessageEx(tipsC, sel_registerName("layoutSubviews"), (IMP)hook_tipsLayout, (IMP *)&orig_tipsLayout);
         Class snackC = NSClassFromString(@"AFDSnackBarCustomView");
         if (snackC) MSHookMessageEx(snackC, sel_registerName("layoutSubviews"), (IMP)hook_snackLayout, (IMP *)&orig_snackLayout);
+        Class playSnack = NSClassFromString(@"AWEPlayInteractionSnackBar");
+        if (playSnack) MSHookMessageEx(playSnack, sel_registerName("layoutSubviews"), (IMP)hook_playSnackLayout, (IMP *)&orig_playSnackLayout);
         Class shareC = NSClassFromString(@"AWEIMBottomShareTipsView");
         if (shareC) MSHookMessageEx(shareC, sel_registerName("layoutSubviews"), (IMP)hook_shareLayout, (IMP *)&orig_shareLayout);
         Class rail = NSClassFromString(@"AWEElementStackView");
