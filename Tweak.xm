@@ -907,6 +907,7 @@ static NSInteger DK_FAV_STYLE = 2; // UIImpactFeedbackStyleMedium
 
 static double dk_lastTouchAt = -1.0;
 static double dk_likeArmAt = -1.0;
+static double dk_favArmAt = -1.0;
 static double dk_lastFavPlayAt = -10.0;
 static double dk_lastLikeReplaceAt = -10.0;
 static BOOL dk_replaying = NO;
@@ -976,6 +977,7 @@ static void dk_sendEvent(id self, SEL _cmd, UIEvent *e){
                 UIView *v = t.view;
                 if (!v) continue;
                 if (DKIsLikeButton(v)) { dk_likeArmAt = dk_lastTouchAt; break; }
+                if (DKIsFavButton(v)) dk_favArmAt = dk_lastTouchAt;
             }
         }
     } @catch (NSException *e2) {}
@@ -1056,109 +1058,73 @@ static void dk_selChanged(id self, SEL _cmd){
     if (orig_dk_selChanged) orig_dk_selChanged(self, _cmd);
 }
 
-// ===== 直接盯计数模型：扫 app 里 set*avorite/set*ollect 之类的数字 setter =====
-#include <objc/runtime.h>
-#include <string.h>
-static BOOL dk_modelHookInstalled = NO;
-static NSString *DKKeyFromSetter(SEL cmd){
-    const char *n = sel_getName(cmd);
-    if (strncmp(n, "set", 3) != 0) return nil;
-    size_t len = strlen(n);
-    if (len < 5 || n[len - 1] != ':') return nil;
-    static char buf[128];
-    size_t k = 0;
-    buf[k++] = (char)(n[3] >= 'A' && n[3] <= 'Z' ? n[3] + 32 : n[3]);
-    for (size_t i = 4; i < len - 1 && k < sizeof(buf) - 1; i++) buf[k++] = n[i];
-    buf[k] = 0;
-    return [NSString stringWithUTF8String:buf];
-}
-static void DKDiag(NSString *line){
+// ===== 万级收藏：临时诊断浮层（只在点收藏后 5 秒内记录） =====
+static UILabel *dk_hudLabel = nil;
+
+static void DKHudAdd(NSString *line){
     if (!line.length) return;
-    NSLog(@"[DKH] %@", line);
-    static NSMutableString *log = nil;
-    static dispatch_once_t once;
-    dispatch_once(&once, ^{ log = [NSMutableString string]; });
-    [log appendFormat:@"%@ %@\n", [NSDate date], line];
-    if (log.length > 20000) [log deleteCharactersInRange:NSMakeRange(0, 10000)];
-    NSString *p = @"/var/mobile/Library/pkgmirror/dk_haptic.log";
-    [log writeToFile:p atomically:YES encoding:NSUTF8StringEncoding error:nil];
-}
-static void DKFireFavHapticFromModel(void){
-    double now = CFAbsoluteTimeGetCurrent();
-    if (now - dk_lastFavPlayAt < 0.35) return;
-    dk_lastFavPlayAt = now;
-    DKPlayImpact(DK_FAV_STYLE);
-}
-static IMP DKMakeCountHook(IMP orig, BOOL isFav){
-    return imp_implementationWithBlock(^(id self, SEL cmd, long long v){
-        NSString *key = DKKeyFromSetter(cmd);
-        long long oldVal = 0;
-        BOOL hadOld = NO;
-        @try {
-            id old = key ? [self valueForKey:key] : nil;
-            if ([old isKindOfClass:[NSNumber class]]) { oldVal = [old longLongValue]; hadOld = YES; }
-        } @catch (NSException *e) {}
-        ((void (*)(id, SEL, long long))orig)(self, cmd, v);
-        @try {
-            id now2 = key ? [self valueForKey:key] : nil;
-            if ([now2 isKindOfClass:[NSNumber class]]) {
-                long long nv = [now2 longLongValue];
-                if (hadOld && nv == oldVal + 1) {
-                    dispatch_async(dispatch_get_main_queue(), ^{
-                        DKDiag([NSString stringWithFormat:@"setter %@ %s %lld->%lld", NSStringFromClass(object_getClass(self)), sel_getName(cmd), oldVal, nv]);
-                        if (isFav) DKFireFavHapticFromModel();
-                        else dk_likeArmAt = CFAbsoluteTimeGetCurrent();
-                    });
-                }
-            }
-        } @catch (NSException *e) {}
+    NSString *copy = [line copy];
+    dispatch_async(dispatch_get_main_queue(), ^{
+        UIWindow *w = nil;
+        for (UIWindow *win in [UIApplication sharedApplication].windows) { if (win.isKeyWindow) { w = win; break; } }
+        if (!w) w = [[UIApplication sharedApplication].windows firstObject];
+        if (!w) return;
+        if (!dk_hudLabel) {
+            dk_hudLabel = [[UILabel alloc] initWithFrame:CGRectMake(8, 150, w.bounds.size.width - 16, 260)];
+            dk_hudLabel.numberOfLines = 0;
+            dk_hudLabel.font = [UIFont systemFontOfSize:11];
+            dk_hudLabel.textColor = [UIColor whiteColor];
+            dk_hudLabel.backgroundColor = [[UIColor blackColor] colorWithAlphaComponent:0.7];
+            dk_hudLabel.userInteractionEnabled = NO;
+            [w addSubview:dk_hudLabel];
+            dk_hudLabel.text = @"";
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(25.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+                [dk_hudLabel removeFromSuperview];
+                dk_hudLabel = nil;
+            });
+        }
+        NSString *t = dk_hudLabel.text.length ? [dk_hudLabel.text stringByAppendingFormat:@"\n%@", copy] : copy;
+        NSArray *ls = [t componentsSeparatedByString:@"\n"];
+        if (ls.count > 10) t = [[ls subarrayWithRange:NSMakeRange(ls.count - 10, 10)] componentsJoinedByString:@"\n"];
+        dk_hudLabel.text = t;
     });
 }
-static BOOL DKNumEncoding(char t){
-    return (t == 'q' || t == 'Q' || t == 'i' || t == 'I' || t == 'l' || t == 'L' || t == 's' || t == 'S');
+static BOOL DKInFavRecently(UIView *v){
+    if (dk_favArmAt <= 0.0) return NO;
+    if (CFAbsoluteTimeGetCurrent() - dk_favArmAt > 5.0) return NO;
+    return DKIsFavButton(v);
 }
-static void DKScanCountSetters(void){
-    if (dk_modelHookInstalled) return;
-    dk_modelHookInstalled = YES;
-    int total = objc_getClassList(NULL, 0);
-    if (total <= 0) return;
-    Class *classes = (Class *)malloc(sizeof(Class) * (size_t)total);
-    total = objc_getClassList(classes, total);
-    int hooked = 0;
-    for (int i = 0; i < total; i++) {
-        Class cls = classes[i];
-        const char *cname = class_getName(cls);
-        if (!cname || strncmp(cname, "AWE", 3) != 0) continue;
-        if (strstr(cname, "View") || strstr(cname, "Controller") || strstr(cname, "Cell")) continue;
-        unsigned int mcount = 0;
-        Method *ms = class_copyMethodList(cls, &mcount);
-        if (!ms) continue;
-        for (unsigned int j = 0; j < mcount; j++) {
-            SEL sel = method_getName(ms[j]);
-            const char *sn = sel_getName(sel);
-            if (strncmp(sn, "set", 3) != 0) continue;
-            if (!strstr(sn, "Count:")) continue;      // 只认数量字段，范围收窄
-            BOOL isFav = (strstr(sn, "avorite") || strstr(sn, "ollect")) ? YES : NO;
-            BOOL isLike = (!isFav && strstr(sn, "iggCount")) ? YES : NO;
-            if (!isFav && !isLike) continue;
-            const char *types = method_getTypeEncoding(ms[j]);
-            if (!types || types[0] != 'v') continue;
-            const char *p = strchr(types, '@');   // self
-            if (!p) continue;
-            p = strchr(p + 1, ':');              // _cmd
-            if (!p) continue;
-            p++;
-            while (*p && (*p == 'n' || *p == 'N' || *p == 'r' || *p == 'R' || *p == 'V' || (*p >= '0' && *p <= '9'))) p++;
-            if (!DKNumEncoding(*p)) continue;
-            IMP oldImp = method_getImplementation(ms[j]);
-            IMP newImp = DKMakeCountHook(oldImp, isFav);
-            method_setImplementation(ms[j], newImp);
-            hooked++;
-        }
-        free(ms);
-    }
-    free(classes);
-    NSLog(@"[DK] count setters hooked = %d", hooked);
+static void (*orig_dk_setA11yValue)(id, SEL, NSString *);
+static void dk_setA11yValue(id self, SEL _cmd, NSString *v){
+    if (orig_dk_setA11yValue) orig_dk_setA11yValue(self, _cmd, v);
+    @try {
+        UIView *view = (UIView *)self;
+        if (DKInFavRecently(view)) DKHudAdd([NSString stringWithFormat:@"AV %@ = %@", NSStringFromClass(object_getClass(view)), v]);
+    } @catch (NSException *e) {}
+}
+static void (*orig_dk_setA11yLabel)(id, SEL, NSString *);
+static void dk_setA11yLabel(id self, SEL _cmd, NSString *v){
+    if (orig_dk_setA11yLabel) orig_dk_setA11yLabel(self, _cmd, v);
+    @try {
+        UIView *view = (UIView *)self;
+        if (DKInFavRecently(view)) DKHudAdd([NSString stringWithFormat:@"AL %@ = %@", NSStringFromClass(object_getClass(view)), v]);
+    } @catch (NSException *e) {}
+}
+static void (*orig_dk_setHidden)(id, SEL, BOOL);
+static void dk_setHidden(id self, SEL _cmd, BOOL h){
+    if (orig_dk_setHidden) orig_dk_setHidden(self, _cmd, h);
+    @try {
+        UIView *view = (UIView *)self;
+        if (DKInFavRecently(view)) DKHudAdd([NSString stringWithFormat:@"HD %@ = %d", NSStringFromClass(object_getClass(view)), (int)h]);
+    } @catch (NSException *e) {}
+}
+static void (*orig_dk_setImage)(id, SEL, UIImage *);
+static void dk_setImage(id self, SEL _cmd, UIImage *img){
+    if (orig_dk_setImage) orig_dk_setImage(self, _cmd, img);
+    @try {
+        UIImageView *view = (UIImageView *)self;
+        if (DKInFavRecently(view)) DKHudAdd([NSString stringWithFormat:@"IM %@ %@", NSStringFromClass(object_getClass(view)), NSStringFromCGSize(img.size)]);
+    } @catch (NSException *e) {}
 }
 
 static void DKInstallFavHaptic(void){
@@ -1182,10 +1148,14 @@ static void DKInstallFavHaptic(void){
         MSHookMessageEx(lab, sel_registerName("setText:"), (IMP)dk_labelText, (IMP *)&orig_dk_labelText);
         MSHookMessageEx(lab, sel_registerName("setAttributedText:"), (IMP)dk_labelAttr, (IMP *)&orig_dk_labelAttr);
     }
-    // 计数模型扫描放到后台、延后执行，避免卡住启动（watchdog）
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(5.0 * NSEC_PER_SEC)), dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_BACKGROUND, 0), ^{
-        DKScanCountSetters();
-    });
+    Class uv2 = objc_getClass("UIView");
+    if (uv2) {
+        MSHookMessageEx(uv2, sel_registerName("setAccessibilityValue:"), (IMP)dk_setA11yValue, (IMP *)&orig_dk_setA11yValue);
+        MSHookMessageEx(uv2, sel_registerName("setAccessibilityLabel:"), (IMP)dk_setA11yLabel, (IMP *)&orig_dk_setA11yLabel);
+        MSHookMessageEx(uv2, sel_registerName("setHidden:"), (IMP)dk_setHidden, (IMP *)&orig_dk_setHidden);
+    }
+    Class iv = objc_getClass("UIImageView");
+    if (iv) MSHookMessageEx(iv, sel_registerName("setImage:"), (IMP)dk_setImage, (IMP *)&orig_dk_setImage);
 }
 
 static void DKInstallNoFavAnim(void){
