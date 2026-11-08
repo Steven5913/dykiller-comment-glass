@@ -1104,7 +1104,7 @@ static IMP DKMakeCountHook(IMP orig, BOOL isFav){
                 long long nv = [now2 longLongValue];
                 if (hadOld && nv == oldVal + 1) {
                     dispatch_async(dispatch_get_main_queue(), ^{
-                        DKDiag([NSString stringWithFormat:@"setter %@ %@ %lld->%lld", NSStringFromClass(object_getClass(self)), sel_getName(cmd), oldVal, nv]);
+                        DKDiag([NSString stringWithFormat:@"setter %@ %s %lld->%lld", NSStringFromClass(object_getClass(self)), sel_getName(cmd), oldVal, nv]);
                         if (isFav) DKFireFavHapticFromModel();
                         else dk_likeArmAt = CFAbsoluteTimeGetCurrent();
                     });
