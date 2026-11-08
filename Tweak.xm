@@ -823,6 +823,33 @@ static void DKClearBackingDeep(UIView *v, int depth){
     }
     for (UIView *s in v.subviews) DKClearBackingDeep(s, depth + 1);
 }
+// 取消提示条（DUXBottomNotification）会在图层树上画白色/渐变装饰层，清 backgroundColor 清不掉，
+// 这里按“这层是否属于文本或图标视图”来判断，其它装饰层一律隐藏
+static void DKStripDecorLayers(UIView *v){
+    if (!v) return;
+    NSMutableArray *keep = [NSMutableArray array];
+    for (UIView *s in v.subviews) {
+        if ([s isKindOfClass:[UILabel class]] || [s isKindOfClass:[UIImageView class]] || [s isKindOfClass:[UIControl class]]) [keep addObject:s];
+    }
+    NSMutableArray *ls = [NSMutableArray arrayWithArray:v.layer.sublayers];
+    for (CALayer *l in ls) {
+        if (!l || l == v.layer) continue;
+        id d = l.delegate;
+        BOOL keepIt = NO;
+        if ([d isKindOfClass:[UIView class]] && d != v) {
+            for (UIView *k in keep) if ((UIView *)d == k) { keepIt = YES; break; }
+        }
+        if (!keepIt) {
+            [CATransaction begin];
+            [CATransaction setDisableActions:YES];
+            l.hidden = YES;
+            l.backgroundColor = NULL;
+            l.contents = nil;
+            [CATransaction commit];
+        }
+    }
+}
+
 static void DKFeedFavToast(UIView *v){
     if (!v) return;
     CGRect b = v.bounds;
@@ -831,19 +858,10 @@ static void DKFeedFavToast(UIView *v){
     if (!t.length || [t rangeOfString:@"收藏"].location == NSNotFound) return;
     CGFloat r = b.size.height / 2.0;
     DKClearBackingDeep(v, 0);
+    if ([NSStringFromClass(object_getClass(v)) isEqualToString:@"AWEPlayInteractionSnackBar"]) DKStripDecorLayers(v);
     if (fabs((double)v.layer.cornerRadius - (double)r) > 0.5) v.layer.cornerRadius = r;
     v.layer.masksToBounds = YES;
     DKApplyGlassAt(v, b, r);
-    // 取消提示条（DUXBottomNotification）材质叠在深底上会发白雾，单独压低材质强度，结构与配方不动
-    if ([NSStringFromClass(object_getClass(v)) isEqualToString:@"AWEPlayInteractionSnackBar"]) {
-        static double matte = 0.50;
-        for (UIView *sv in v.subviews) {
-            if (sv.tag != DK_TAG) continue;
-            for (UIView *inner in sv.subviews) {
-                if ([inner isKindOfClass:[UIVisualEffectView class]]) inner.alpha = (CGFloat)matte;
-            }
-        }
-    }
     DKWhitenIconAndText(v);
 }
 static void (*orig_snackLayout)(id, SEL);
