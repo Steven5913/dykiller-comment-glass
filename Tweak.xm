@@ -993,7 +993,7 @@ static void DKFavSuccess(UIView *v){
 static void DKHandleCount(UIView *v, NSString *oldText, NSString *newText){
     BOOL oldHasWan = oldText.length && [oldText rangeOfString:@"万"].location != NSNotFound;
     BOOL newHasWan = newText.length && [newText rangeOfString:@"万"].location != NSNotFound;
-    if (oldHasWan || newHasWan) return;      // 万级显示是 1000 一档，+1 看不见，交给提示条
+    if (oldHasWan || newHasWan) return;      // 万级显示 1000 一档，+1 看不见，交给计数模型钩子
     long long o = DKNumberFromText(oldText);
     long long n = DKNumberFromText(newText);
     if (o < 0) o = 0;                        // “收藏”这种没数字的文案按 0 算
@@ -1005,28 +1005,19 @@ static void DKHandleCount(UIView *v, NSString *oldText, NSString *newText){
         DKFavSuccess(v);
     }
 }
-// 过万时只能靠提示条：出现“收藏成功 / 已收藏”震，带“取消”的一律不算
-static void DKHandleToast(NSString *newText){
-    if (!newText.length) return;
-    if ([newText rangeOfString:@"取消"].location != NSNotFound) return;
-    if ([newText rangeOfString:@"收藏成"].location == NSNotFound &&
-        [newText rangeOfString:@"已收藏"].location == NSNotFound &&
-        [newText rangeOfString:@"收藏了"].location == NSNotFound) return;
-    DKFavSuccess(nil);
-}
 static void (*orig_dk_labelText)(id, SEL, NSString *);
 static void dk_labelText(id self, SEL _cmd, NSString *t){
     NSString *old = nil;
     @try { old = [(UILabel *)self text]; } @catch (NSException *e) {}
     if (orig_dk_labelText) orig_dk_labelText(self, _cmd, t);
-    @try { DKHandleCount((UIView *)self, old, t); DKHandleToast(t); } @catch (NSException *e) {}
+    @try { DKHandleCount((UIView *)self, old, t); } @catch (NSException *e) {}
 }
 static void (*orig_dk_labelAttr)(id, SEL, NSAttributedString *);
 static void dk_labelAttr(id self, SEL _cmd, NSAttributedString *t){
     NSString *old = nil;
     @try { old = [(UILabel *)self text]; } @catch (NSException *e) {}
     if (orig_dk_labelAttr) orig_dk_labelAttr(self, _cmd, t);
-    @try { NSString *s2 = [t string]; DKHandleCount((UIView *)self, old, s2); DKHandleToast(s2); } @catch (NSException *e) {}
+    @try { NSString *s2 = [t string]; DKHandleCount((UIView *)self, old, s2); } @catch (NSException *e) {}
 }
 
 static BOOL DKShouldReplaceLikeHaptic(void){
@@ -1065,6 +1056,99 @@ static void dk_selChanged(id self, SEL _cmd){
     if (orig_dk_selChanged) orig_dk_selChanged(self, _cmd);
 }
 
+// ===== 直接盯计数模型：扫 app 里 set*avorite/set*ollect 之类的数字 setter =====
+#include <objc/runtime.h>
+#include <string.h>
+static BOOL dk_modelHookInstalled = NO;
+static NSString *DKKeyFromSetter(SEL cmd){
+    const char *n = sel_getName(cmd);
+    if (strncmp(n, "set", 3) != 0) return nil;
+    size_t len = strlen(n);
+    if (len < 5 || n[len - 1] != ':') return nil;
+    static char buf[128];
+    size_t k = 0;
+    buf[k++] = (char)(n[3] >= 'A' && n[3] <= 'Z' ? n[3] + 32 : n[3]);
+    for (size_t i = 4; i < len - 1 && k < sizeof(buf) - 1; i++) buf[k++] = n[i];
+    buf[k] = 0;
+    return [NSString stringWithUTF8String:buf];
+}
+static void DKFireFavHapticFromModel(void){
+    double now = CFAbsoluteTimeGetCurrent();
+    if (now - dk_lastFavPlayAt < 0.35) return;
+    dk_lastFavPlayAt = now;
+    DKPlayImpact(DK_FAV_STYLE);
+}
+static IMP DKMakeCountHook(IMP orig, BOOL isFav){
+    return imp_implementationWithBlock(^(id self, SEL cmd, long long v){
+        NSString *key = DKKeyFromSetter(cmd);
+        long long oldVal = 0;
+        BOOL hadOld = NO;
+        @try {
+            id old = key ? [self valueForKey:key] : nil;
+            if ([old isKindOfClass:[NSNumber class]]) { oldVal = [old longLongValue]; hadOld = YES; }
+        } @catch (NSException *e) {}
+        ((void (*)(id, SEL, long long))orig)(self, cmd, v);
+        @try {
+            id now2 = key ? [self valueForKey:key] : nil;
+            if ([now2 isKindOfClass:[NSNumber class]]) {
+                long long nv = [now2 longLongValue];
+                if (hadOld && nv == oldVal + 1) {
+                    dispatch_async(dispatch_get_main_queue(), ^{
+                        if (isFav) DKFireFavHapticFromModel();
+                        else dk_likeArmAt = CFAbsoluteTimeGetCurrent();
+                    });
+                }
+            }
+        } @catch (NSException *e) {}
+    });
+}
+static BOOL DKNumEncoding(char t){
+    return (t == 'q' || t == 'Q' || t == 'i' || t == 'I' || t == 'l' || t == 'L' || t == 's' || t == 'S');
+}
+static void DKScanCountSetters(void){
+    if (dk_modelHookInstalled) return;
+    dk_modelHookInstalled = YES;
+    int total = objc_getClassList(NULL, 0);
+    if (total <= 0) return;
+    Class *classes = (Class *)malloc(sizeof(Class) * (size_t)total);
+    total = objc_getClassList(classes, total);
+    int hooked = 0;
+    for (int i = 0; i < total; i++) {
+        Class cls = classes[i];
+        const char *cname = class_getName(cls);
+        if (!cname || strncmp(cname, "AWE", 3) != 0) continue;
+        if (strstr(cname, "View") || strstr(cname, "Controller") || strstr(cname, "Cell")) continue;
+        unsigned int mcount = 0;
+        Method *ms = class_copyMethodList(cls, &mcount);
+        if (!ms) continue;
+        for (unsigned int j = 0; j < mcount; j++) {
+            SEL sel = method_getName(ms[j]);
+            const char *sn = sel_getName(sel);
+            if (strncmp(sn, "set", 3) != 0) continue;
+            BOOL isFav = (strstr(sn, "avorite") || strstr(sn, "ollect")) ? YES : NO;
+            BOOL isLike = (!isFav && (strstr(sn, "iggCount") || strstr(sn, "ikeCount"))) ? YES : NO;
+            if (!isFav && !isLike) continue;
+            if (strstr(sn, "List") || strstr(sn, "Tips") || strstr(sn, "Guide") || strstr(sn, "View")) continue;
+            const char *types = method_getTypeEncoding(ms[j]);
+            if (!types || types[0] != 'v') continue;
+            const char *p = strchr(types, '@');   // self
+            if (!p) continue;
+            p = strchr(p + 1, ':');              // _cmd
+            if (!p) continue;
+            p++;
+            while (*p && (*p == 'n' || *p == 'N' || *p == 'r' || *p == 'R' || *p == 'V' || (*p >= '0' && *p <= '9'))) p++;
+            if (!DKNumEncoding(*p)) continue;
+            IMP oldImp = method_getImplementation(ms[j]);
+            IMP newImp = DKMakeCountHook(oldImp, isFav);
+            method_setImplementation(ms[j], newImp);
+            hooked++;
+        }
+        free(ms);
+    }
+    free(classes);
+    NSLog(@"[DK] count setters hooked = %d", hooked);
+}
+
 static void DKInstallFavHaptic(void){
     static BOOL done = NO;
     if (done) return;
@@ -1086,6 +1170,7 @@ static void DKInstallFavHaptic(void){
         MSHookMessageEx(lab, sel_registerName("setText:"), (IMP)dk_labelText, (IMP *)&orig_dk_labelText);
         MSHookMessageEx(lab, sel_registerName("setAttributedText:"), (IMP)dk_labelAttr, (IMP *)&orig_dk_labelAttr);
     }
+    DKScanCountSetters();
 }
 
 static void DKInstallNoFavAnim(void){
