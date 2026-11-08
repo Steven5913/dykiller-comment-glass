@@ -895,6 +895,8 @@ static void DKStripDecorLayers(UIView *v){
     if (!v) return;
     NSMutableArray *keep = [NSMutableArray array];
     for (UIView *s in v.subviews) {
+        // 自家玻璃层必须保留，否则会把玻璃一起当装饰层隐藏掉（白雾的元凶）
+        if (s.tag == DK_TAG) { [keep addObject:s]; continue; }
         if ([s isKindOfClass:[UILabel class]] || [s isKindOfClass:[UIImageView class]] || [s isKindOfClass:[UIControl class]]) [keep addObject:s];
     }
     NSMutableArray *ls = [NSMutableArray arrayWithArray:v.layer.sublayers];
@@ -931,6 +933,7 @@ static void DKFeedFavToast(UIView *v){
     if (fabs((double)v.layer.cornerRadius - (double)r) > 0.5) v.layer.cornerRadius = r;
     v.layer.masksToBounds = YES;
     DKApplyGlassAt(v, b, r);
+    for (UIView *sv in v.subviews) if (sv.tag == DK_TAG) sv.layer.hidden = NO;
     DKWhitenIconAndText(v);
 }
 static void (*orig_snackLayout)(id, SEL);
