@@ -836,43 +836,6 @@ static BOOL DKViewIsFavTarget(UIView *v){
     return NO;
 }
 
-static BOOL DKLayerInFavTree(CALayer *l, NSString *animKey){
-    if (DKNameLooksLikeFav(animKey)) return YES;
-    if (DKNameLooksLikeFav(l.name)) return YES;
-    id d = l.delegate;
-    if ([d isKindOfClass:[UIView class]]) {
-        UIView *v = (UIView *)d;
-        int depth = 0;
-        while (v && depth++ < 10) {
-            if (DKNameLooksLikeFav(NSStringFromClass([v class]))) return YES;
-            if (DKViewIsFavTarget(v)) return YES;
-            v = v.superview;
-        }
-    }
-    return NO;
-}
-
-static void (*orig_dk_startAnimating)(id, SEL);
-static void dk_startAnimating(id self, SEL _cmd){
-    @try {
-        id d = ((UIImageView *)self).superview;
-        UIView *v = [d isKindOfClass:[UIView class]] ? (UIView *)d : nil;
-        int depth = 0;
-        while (v && depth++ < 10) {
-            if (DKNameLooksLikeFav(NSStringFromClass([v class])) || DKViewIsFavTarget(v)) return;
-            v = v.superview;
-        }
-    } @catch (NSException *e) {}
-    if (orig_dk_startAnimating) orig_dk_startAnimating(self, _cmd);
-}
-
-static void (*orig_dk_addAnimation)(id, SEL, CAAnimation *, NSString *);
-static void dk_addAnimation(id self, SEL _cmd, CAAnimation *anim, NSString *key){
-    @try {
-        if (DKLayerInFavTree((CALayer *)self, key)) return;
-    } @catch (NSException *e) {}
-    if (orig_dk_addAnimation) orig_dk_addAnimation(self, _cmd, anim, key);
-}
 // 父链里是否有「点赞 / 收藏」按钮
 static BOOL DKViewOrChildIsFav(UIView *v){
     if (DKViewIsFavTarget(v)) return YES;
@@ -899,15 +862,15 @@ static BOOL DKIsLottieClass(NSString *cn){
 // 加速并隐藏 Lottie：动画看不见，但完成回调照常触发（否则图标状态不会翻转）
 static void DKHideLottieFast(UIView *v){
     if (!v) return;
-    v.hidden = YES;
     v.alpha = 0.0;
+    v.userInteractionEnabled = NO;
     SEL spd = NSSelectorFromString(@"setAnimationSpeed:");
     if ([v respondsToSelector:spd]) {
         NSMethodSignature *sig = [v methodSignatureForSelector:spd];
         if (sig) {
             NSInvocation *inv = [NSInvocation invocationWithMethodSignature:sig];
             [inv setTarget:v]; [inv setSelector:spd];
-            double speed = 200.0;
+            double speed = 12.0;
             [inv setArgument:&speed atIndex:2];
             [inv invoke];
         }
@@ -943,10 +906,6 @@ static void DKInstallNoFavAnim(void){
     static BOOL done = NO;
     if (done) return;
     done = YES;
-    Class ca = objc_getClass("CALayer");
-    if (ca) MSHookMessageEx(ca, sel_registerName("addAnimation:forKey:"), (IMP)dk_addAnimation, (IMP *)&orig_dk_addAnimation);
-    Class iv = objc_getClass("UIImageView");
-    if (iv) MSHookMessageEx(iv, sel_registerName("startAnimating"), (IMP)dk_startAnimating, (IMP *)&orig_dk_startAnimating);
     Class uv = objc_getClass("UIView");
     if (uv) MSHookMessageEx(uv, sel_registerName("addSubview:"), (IMP)dk_addSubview, (IMP *)&orig_dk_addSubview);
     Class lo = objc_getClass("LOTAnimationView");
