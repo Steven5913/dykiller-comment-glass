@@ -1565,10 +1565,8 @@ static void DKTryInstall(void){
         if (dnav && !orig_detailNavLayout) {
             MSHookMessageEx(dnav, sel_registerName("layoutSubviews"), (IMP)hook_detailNavLayout, (IMP *)&orig_detailNavLayout);
         }
-        Class ibar = NSClassFromString(@"AWEIMFeedBottomQuickEmojiInputBar");
-        if (ibar && !orig_inputBarLayout) {
-            MSHookMessageEx(ibar, sel_registerName("layoutSubviews"), (IMP)hook_inputBarLayout, (IMP *)&orig_inputBarLayout);
-        }
+        // 诊断：暂时不接管私信视频详情页的快捷回复输入栏，用来确认输入栏消失是否由这里引起
+        Class ibar = nil;
         // 页面级兜底
         Class pi = NSClassFromString(@"AWEPlayInteractionViewController");
         if (pi) {
