@@ -167,7 +167,8 @@ static void DKApplyGlassAt(UIView *host, CGRect r, CGFloat radius){
     for (UIView *sv in host.subviews) {
         if (sv.tag != DK_TAG) continue;
         if (fabs((double)sv.bounds.size.width - (double)r.size.width) < 0.5 &&
-            fabs((double)sv.bounds.size.height - (double)r.size.height) < 0.5) { g = sv; break; }
+            fabs((double)sv.bounds.size.height - (double)r.size.height) < 0.5) { g = sv; }
+        else sv.hidden = YES;   // 尺寸变迁留下的旧玻璃层，留着会两层材质叠加成白雾
     }
     if (!g) {
         g = DKMakeGlassRect(r.size.width, r.size.height, radius);
