@@ -17,10 +17,8 @@
 
 #import <Foundation/Foundation.h>
 #import <UIKit/UIKit.h>
-
-#import <objc/message.h>
 #import <objc/runtime.h>
-#include <string.h>
+#import <objc/message.h>
 #import <substrate.h>
 
 #define DK_TAG 20261106
@@ -468,8 +466,6 @@ static void DKCommentInputGlass(UIView *root){
         for (UIView *c in v.subviews) [q addObject:c];
     }
     if (!pill || pill.tag == DK_TAG) return;
-    // 胶囊里那层原生模糊就是那圈黑底，顶掉它让玻璃露出来
-    DKHideBlurDeep(pill);
     // 胶囊自身的白底/圆角裁剪只是视觉，改背景色不会触发布局
     pill.backgroundColor = [UIColor clearColor];
     pill.layer.backgroundColor = NULL;
@@ -493,58 +489,29 @@ static void DKCommentInputGlass(UIView *root){
 
 // 详情页浮层：视频交互容器被 app 按「扣掉评论栏高度」重排后会整体上移，
 // 这里把它的高度顶回父容器（子视图都是底对齐，恢复后即原来的满屏位置）
-static char kDKShiftKey __attribute__((unused));
-
-static NSHashTable *g_dkCells = nil;
-static NSHashTable *DKCellRegistry(void){
-    if (!g_dkCells) g_dkCells = [NSHashTable weakObjectsHashTable];
-    return g_dkCells;
-}
-
-static void DKCommentRestoreHeight(UIView *root);
-
-static void DKTickCells(void){
-    NSHashTable *reg = DKCellRegistry();
-    if (reg.count == 0) return;
-    NSArray *cells = reg.allObjects;
-    for (UIView *cell in cells) @try { DKCommentRestoreHeight(cell); } @catch(NSException *e) {}
-}
-
 static void DKCommentRestoreHeight(UIView *root){
     if (!root) return;
+    Class ic = NSClassFromString(@"AWEPlayInteractionViewController");
+    if (!ic) return;
     NSMutableArray *q = [NSMutableArray arrayWithObject:root];
     NSUInteger guard = 0;
-    while (q.count > 0 && guard++ < 8000) {
+    while (q.count > 0 && guard++ < 5000) {
         UIView *v = [q objectAtIndex:0];
         [q removeObjectAtIndex:0];
-        UIView *sp = v.superview;
-        for (UIView *c in v.subviews) [q addObject:c];
-        if (v.tag == DK_TAG || !sp) continue;
-        CGFloat ph = sp.bounds.size.height, pw = sp.bounds.size.width;
-        CGFloat h = v.bounds.size.height, w = v.bounds.size.width;
-        if (ph < 760.0 || ph > 820.0) continue;
-        if (h < 660.0 || h > 730.0) continue;
-        if (fabs(w - pw) > 2.0) continue;
-        // 这一层就是「交互层」：第一张图是 {0,83,402,708}（底边贴 791，正常），
-        // 翻到第二张后 app 把它摆成 {0,0,402,708}（底边只到 708，整层元素一起上移 83）。
-        // 只在这一层上做纵向位移，让它底边重新贴住父容器底边；子视图一律不动。
-        // 只修「翻页后被摆成 y=0、高度正好 708」这一种抬高形态；
-        // 已经贴住的（y=83 或其它任何位置）一律不碰，避免把正常页、有进度条的页顶上去
-        CGFloat hh = v.bounds.size.height;
-        if (hh < 700.0 || hh > 716.0) continue;
-        if (fabs(v.frame.origin.y) > 0.5) continue;
-        if (ph < 785.0 || ph > 797.0) continue;
-        CGFloat delta = ph - hh;
-        if (fabs(v.transform.ty - delta) > 0.5) {
-            v.transform = CGAffineTransformMakeTranslation(0, delta);
-        }
-        {
-            UIView *owner = v.superview;
-            while (owner && ![NSStringFromClass([owner class]) isEqualToString:@"AWEAwemeDetailTableViewCell"]) {
-                owner = owner.superview;
+        id nr = v.nextResponder;
+        if (nr && [nr isKindOfClass:ic] && v.superview) {
+            CGFloat ph = v.superview.bounds.size.height;
+            CGFloat d = ph - v.bounds.size.height;
+            CGAffineTransform t = v.transform;
+            if (d > 60.0 && d < 100.0 && ph > 400.0) {
+                // 用位移把内容顶回原位，绝不改 frame（改 frame 会触发 app 无限重排）
+                if (t.ty < 1.0) v.transform = CGAffineTransformMakeTranslation(0, d);
+            } else if (d < 6.0 && t.ty > 1.0) {
+                v.transform = CGAffineTransformIdentity;
             }
-            if (owner) [DKCellRegistry() addObject:owner];
+            continue;
         }
+        for (UIView *c in v.subviews) [q addObject:c];
     }
 }
 
@@ -766,11 +733,8 @@ static void DKGlassRail(UIView *rail){
 }
 
 // 全页兜底扫描：按"窗口坐标靠右 + 够高 + 内含多个六元素"认定竖排，不依赖类名与 frame.x
-static void DKCommentRestoreHeight(UIView *root);
-
 static void DKScanRoot(UIView *root){
     if (!root) return;
-    @try { DKCommentRestoreHeight(root); } @catch(NSException *e) {}
     UIView *win = root.window;
     if (!win) win = root;
     NSMutableArray *stack = [NSMutableArray arrayWithObject:root];
@@ -816,17 +780,7 @@ static void hook_ringLayout(id self, SEL _cmd){
 static void (*orig_railLayout)(id, SEL);
 static void hook_railLayout(id self, SEL _cmd){
     if (orig_railLayout) orig_railLayout(self, _cmd);
-    UIView *v = (UIView *)self;
-    // 先做下贴，再铺玻璃，各自独立 try，避免玻璃那边抛异常把下贴整段跳过
-    @try {
-        UIView *sp = v.superview;
-        if (sp && v.bounds.size.width > 200.0 && v.bounds.size.width < 330.0 &&
-            sp.bounds.size.height > 660.0 && sp.bounds.size.height < 730.0 &&
-            v.frame.origin.y > 480.0 && v.transform.ty < 60.0) {
-            v.transform = CGAffineTransformTranslate(v.transform, 0, 90.0);
-        }
-    } @catch(NSException *e) {}
-    @try { DKGlassRail(v); } @catch(NSException *e) {}
+    @try { DKGlassRail((UIView *)self); } @catch (NSException *e) {}
 }
 
 static void (*orig_piLayout)(id, SEL);
@@ -834,20 +788,8 @@ static void hook_piLayout(id self, SEL _cmd){
     if (orig_piLayout) orig_piLayout(self, _cmd);
     @try {
         UIViewController *vc = (UIViewController *)self;
-        if ([vc isKindOfClass:[UIViewController class]] && [vc isViewLoaded]) {
-            UIView *sv = vc.view, *sp = sv.superview;
-            if (sp) {
-                CGFloat ph = sp.bounds.size.height, pw = sp.bounds.size.width;
-                CGFloat h = sv.bounds.size.height, w = sv.bounds.size.width;
-                CGFloat d = ph - h;
-                // 评论浮层页里这层会被扣掉一条评论栏高度(83pt)：只改 transform，绝不改 frame
-                if (fabs(w - pw) < 2.0 && ph > 760.0 && ph < 820.0 && h > 660.0 && h < 730.0 && d > 78.0 && d < 88.0) {
-                    if (sv.transform.ty < 1.0) sv.transform = CGAffineTransformMakeTranslation(0, d);
-                }
-            }
-            DKScanRoot(vc.view);
-        }
-    } @catch(NSException *e) {}
+        if ([vc isKindOfClass:[UIViewController class]] && [vc isViewLoaded]) DKScanRoot(vc.view);
+    } @catch (NSException *e) {}
 }
 
 static void (*orig_piAppear)(id, SEL, BOOL);
@@ -885,27 +827,15 @@ static void hook_cdNavLayout(id self, SEL _cmd){
     } @catch(NSException *e) {}
 }
 
-
 static void (*orig_cdInputLayout)(id, SEL);
 static void hook_cdInputLayout(id self, SEL _cmd){
     if (orig_cdInputLayout) orig_cdInputLayout(self, _cmd);
-    UIView *v = (UIView *)self;
-    // 评论输入栏是这一页最后布局的一层，这里补位移最不容易被回写
     @try {
-        UIView *root = v.superview;
-        if (root) {
-            dispatch_async(dispatch_get_main_queue(), ^{
-                @try {
-                    UIView *pp = root.superview ?: root;
-                    DKCommentRestoreHeight(pp);
-                } @catch(NSException *e) {}
-            });
-        }
-    } @catch(NSException *e) {}
-    @try {
+        UIView *v = (UIView *)self;
         dispatch_async(dispatch_get_main_queue(), ^{ DKCommentInputGlass(v); });
     } @catch(NSException *e) {}
 }
+
 static void (*orig_cdVCLayout)(id, SEL);
 static void hook_cdVCLayout(id self, SEL _cmd){
     if (orig_cdVCLayout) orig_cdVCLayout(self, _cmd);
@@ -986,52 +916,7 @@ static void hook_popoverLayout(id self, SEL _cmd){
     } @catch(NSException *e) {}
 }
 
-static void DKCommentRestoreHeight(UIView *root);
-
-static void (*orig_cellLayout)(id, SEL);
-static void (*orig_storyLayout)(id, SEL);
-static void hook_storyLayout(id self, SEL _cmd){
-    if (orig_storyLayout) orig_storyLayout(self, _cmd);
-    @try { DKCommentRestoreHeight((UIView *)self); } @catch(NSException *e) {}
-}
-
-static void hook_cellLayout(id self, SEL _cmd){
-    if (orig_cellLayout) orig_cellLayout(self, _cmd);
-    @try {
-        UIView *v = (UIView *)self;
-        if (v.bounds.size.width > 390.0 && v.bounds.size.width < 415.0 &&
-            v.bounds.size.height > 760.0 && v.bounds.size.height < 820.0) {
-            DKCommentRestoreHeight(v);
-            // 图片作品翻到下一张时会再排一次版并把内容层压回 708，
-            // 这里在随后的几帧里连续补，直到它稳住
-            for (double t = 0.10; t <= 1.01; t += 0.15) {
-                dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(t * NSEC_PER_SEC)),
-                               dispatch_get_main_queue(), ^{
-                    @try { DKCommentRestoreHeight(v); } @catch(NSException *e) {}
-                });
-            }
-        }
-    } @catch(NSException *e) {}
-}
-
 static BOOL g_hooked = NO;
-
-@interface DKLinkTarget : NSObject
-- (void)dkTick:(CADisplayLink *)link;
-@end
-
-@implementation DKLinkTarget
-- (void)dkTick:(CADisplayLink *)link { DKTickCells(); }
-@end
-
-static void DKStartSettleTimer(void){
-    static BOOL started = NO;
-    if (started) return;
-    started = YES;
-    DKLinkTarget *tgt = [[DKLinkTarget alloc] init];
-    CADisplayLink *link = [CADisplayLink displayLinkWithTarget:tgt selector:@selector(dkTick:)];
-    [link addToRunLoop:[NSRunLoop mainRunLoop] forMode:NSRunLoopCommonModes];
-}
 
 static void DKTryInstall(void){
     if (g_hooked) return;
@@ -1089,10 +974,6 @@ static void DKTryInstall(void){
         if (cdInput && !orig_cdInputLayout) {
             MSHookMessageEx(cdInput, sel_registerName("layoutSubviews"), (IMP)hook_cdInputLayout, (IMP *)&orig_cdInputLayout);
         }
-        Class dyCell = NSClassFromString(@"AWEAwemeDetailTableViewCell");
-        if (dyCell && !orig_cellLayout) {
-            MSHookMessageEx(dyCell, sel_registerName("layoutSubviews"), (IMP)hook_cellLayout, (IMP *)&orig_cellLayout);
-        }
         Class cdVC = NSClassFromString(@"AWEAwemeDetailTableViewController");
         if (cdVC && !orig_cdVCLayout) {
             MSHookMessageEx(cdVC, sel_registerName("viewDidLayoutSubviews"), (IMP)hook_cdVCLayout, (IMP *)&orig_cdVCLayout);
@@ -1118,11 +999,6 @@ static void DKTryInstall(void){
         if (ibar && !orig_inputBarLayout) {
             MSHookMessageEx(ibar, sel_registerName("layoutSubviews"), (IMP)hook_inputBarLayout, (IMP *)&orig_inputBarLayout);
         }
-        // 图片作品翻页：内容层由这个 collectionView 重新排布，排完立刻把文字块放回底部
-        Class story = NSClassFromString(@"AWEStoryContainerCollectionView");
-        if (story && !orig_storyLayout) {
-            MSHookMessageEx(story, sel_registerName("layoutSubviews"), (IMP)hook_storyLayout, (IMP *)&orig_storyLayout);
-        }
         // 页面级兜底
         Class pi = NSClassFromString(@"AWEPlayInteractionViewController");
         if (pi) {
@@ -1133,12 +1009,11 @@ static void DKTryInstall(void){
     if (orig_elemLayout || orig_railLayout || orig_piLayout || orig_navLayout || orig_popoverLayout ||
         orig_detailVCLayout || orig_detailNavLayout || orig_inputBarLayout ||
         orig_quickCellLayout || orig_quickBarLayout ||
-        orig_cdNavLayout || orig_cdInputLayout || orig_cdVCLayout || orig_storyLayout) g_hooked = YES;
+        orig_cdNavLayout || orig_cdInputLayout || orig_cdVCLayout) g_hooked = YES;
 }
 
 static __attribute__((constructor)) void DKInit(void){
     DKTryInstall();
-    DKStartSettleTimer();
     dispatch_async(dispatch_get_main_queue(), ^{ DKTryInstall(); });
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ DKTryInstall(); });
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(3.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ DKTryInstall(); });
