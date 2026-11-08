@@ -785,6 +785,8 @@ static void DKGlassPill(UIView *v){
     DKApplyGlassAt(v, b, b.size.height / 2.0);
 }
 
+static void (*orig_pillLayout)(id, SEL);
+
 // 清掉游戏标签自带的浅色底（背景色 / 模糊层），只留图标与文字，让玻璃透出来
 static void DKClearTagBg(UIView *v){
     if (!v) return;
