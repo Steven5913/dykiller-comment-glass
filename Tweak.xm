@@ -902,7 +902,158 @@ static void dk_lotPlayRange(id self, SEL _cmd, id a, id b, id c){
     if (orig_dk_lotPlayRange) orig_dk_lotPlayRange(self, _cmd, a, b, c);
 }
 
+// ===== 收藏按钮补震动反馈（强度对齐点赞） =====
+typedef struct { NSInteger kind; NSInteger style; NSInteger noteType; double intensity; } DKHaptic;
+static DKHaptic dk_likeHaptic = {0, 0, 0, -1.0};
+static double dk_likeWatchAt = -1.0;     // 最近一次点赞成功的时刻
+static double dk_lastTouchAt = -1.0;     // 最近一次触摸时刻
+static BOOL dk_replaying = NO;
+static NSInteger dk_curImpactStyle = 0;
+
+static BOOL DKViewLabelContains(UIView *v, NSArray *kws){
+    if (!v) return NO;
+    NSMutableArray *texts = [NSMutableArray array];
+    if (v.accessibilityLabel) [texts addObject:v.accessibilityLabel];
+    if (v.accessibilityIdentifier) [texts addObject:v.accessibilityIdentifier];
+    for (UIView *c in v.subviews) {
+        if (c.accessibilityLabel) [texts addObject:c.accessibilityLabel];
+        if (c.accessibilityIdentifier) [texts addObject:c.accessibilityIdentifier];
+    }
+    for (NSString *t in texts) {
+        for (NSString *k in kws) if ([t rangeOfString:k].location != NSNotFound) return YES;
+    }
+    return NO;
+}
+static BOOL DKIsLikeButton(UIView *v){
+    static NSArray *k;
+    static dispatch_once_t o; dispatch_once(&o, ^{ k = @[@"赞", @"Digg", @"Like"]; });
+    return DKViewLabelContains(v, k);
+}
+static BOOL DKIsFavButton(UIView *v){
+    static NSArray *k;
+    static dispatch_once_t o; dispatch_once(&o, ^{ k = @[@"收藏", @"Favorite", @"Collect"]; });
+    return DKViewLabelContains(v, k);
+}
+static void DKPlayHaptic(DKHaptic h){
+    dk_replaying = YES;
+    @try {
+        if (h.kind == 2) {
+            UINotificationFeedbackGenerator *g = [[UINotificationFeedbackGenerator alloc] init];
+            [g prepare];
+            [g notificationOccurred:(UINotificationFeedbackType)h.noteType];
+        } else if (h.kind == 3) {
+            UISelectionFeedbackGenerator *g = [[UISelectionFeedbackGenerator alloc] init];
+            [g prepare];
+            [g selectionChanged];
+        } else {
+            NSInteger style = (h.kind == 0) ? UIImpactFeedbackStyleLight : h.style;
+            UIImpactFeedbackGenerator *g = [[UIImpactFeedbackGenerator alloc] initWithStyle:style];
+            [g prepare];
+            if (h.intensity >= 0.0 && [g respondsToSelector:NSSelectorFromString(@"impactOccurredWithIntensity:")]) {
+                NSMethodSignature *sig = [g methodSignatureForSelector:NSSelectorFromString(@"impactOccurredWithIntensity:")];
+                NSInvocation *inv = [NSInvocation invocationWithMethodSignature:sig];
+                [inv setTarget:g]; [inv setSelector:NSSelectorFromString(@"impactOccurredWithIntensity:")];
+                double inten = h.intensity;
+                [inv setArgument:&inten atIndex:2];
+                [inv invoke];
+            } else {
+                [g impactOccurred];
+            }
+        }
+    } @catch (NSException *e) {}
+    dk_replaying = NO;
+}
+static void DKRecordHaptic(NSInteger kind, NSInteger style, NSInteger noteType, double intensity){
+    if (dk_replaying) return;
+    double now = CFAbsoluteTimeGetCurrent();
+    if (dk_likeWatchAt > 0.0 && now - dk_likeWatchAt < 0.8) {
+        dk_likeHaptic.kind = kind;
+        dk_likeHaptic.style = style;
+        dk_likeHaptic.noteType = noteType;
+        dk_likeHaptic.intensity = intensity;
+        dk_likeWatchAt = -1.0;
+    }
+}
+
+static id (*orig_dk_impactInit)(id, SEL, NSInteger);
+static id dk_impactInit(id self, SEL _cmd, NSInteger style){
+    dk_curImpactStyle = style;
+    return orig_dk_impactInit ? orig_dk_impactInit(self, _cmd, style) : nil;
+}
+static void (*orig_dk_impact)(id, SEL);
+static void dk_impact(id self, SEL _cmd){
+    DKRecordHaptic(1, dk_curImpactStyle, 0, -1.0);
+    if (orig_dk_impact) orig_dk_impact(self, _cmd);
+}
+static void (*orig_dk_impactIntensity)(id, SEL, double);
+static void dk_impactIntensity(id self, SEL _cmd, double inten){
+    DKRecordHaptic(1, dk_curImpactStyle, 0, inten);
+    if (orig_dk_impactIntensity) orig_dk_impactIntensity(self, _cmd, inten);
+}
+static void (*orig_dk_note)(id, SEL, NSInteger);
+static void dk_note(id self, SEL _cmd, NSInteger t){
+    DKRecordHaptic(2, 0, t, -1.0);
+    if (orig_dk_note) orig_dk_note(self, _cmd, t);
+}
+static void (*orig_dk_selChanged)(id, SEL);
+static void dk_selChanged(id self, SEL _cmd){
+    DKRecordHaptic(3, 0, 0, -1.0);
+    if (orig_dk_selChanged) orig_dk_selChanged(self, _cmd);
+}
+
+// 触摸时间戳（用来确认这次 setSelected 是用户点的，而不是翻页/复用）
+static void (*orig_dk_sendEvent)(id, SEL, UIEvent *);
+static void dk_sendEvent(id self, SEL _cmd, UIEvent *e){
+    @try {
+        if (e && e.type == UIEventTypeTouches && e.allTouches.count > 0) dk_lastTouchAt = CFAbsoluteTimeGetCurrent();
+    } @catch (NSException *e2) {}
+    if (orig_dk_sendEvent) orig_dk_sendEvent(self, _cmd, e);
+}
+
+static void (*orig_dk_setSelected)(id, SEL, BOOL);
+static void dk_setSelected(id self, SEL _cmd, BOOL sel){
+    if (orig_dk_setSelected) orig_dk_setSelected(self, _cmd, sel);
+    @try {
+        UIView *v = (UIView *)self;
+        if (sel) {
+            if (DKIsLikeButton(v)) {
+                dk_likeWatchAt = CFAbsoluteTimeGetCurrent();
+            } else if (DKIsFavButton(v)) {
+                double now = CFAbsoluteTimeGetCurrent();
+                if (dk_lastTouchAt > 0.0 && now - dk_lastTouchAt < 1.0) DKPlayHaptic(dk_likeHaptic);
+            }
+        }
+    } @catch (NSException *e) {}
+}
+static void DKInstallFavHaptic(void){
+    static BOOL done = NO;
+    if (done) return;
+    done = YES;
+    SEL si = sel_registerName("initWithStyle:");
+    SEL imp = sel_registerName("impactOccurred");
+    SEL impi = sel_registerName("impactOccurredWithIntensity:");
+    SEL no = sel_registerName("notificationOccurred:");
+    SEL sc = sel_registerName("selectionChanged");
+    SEL se = sel_registerName("sendEvent:");
+    SEL ss = sel_registerName("setSelected:");
+    Class c1 = objc_getClass("UIImpactFeedbackGenerator");
+    if (c1) {
+        MSHookMessageEx(c1, si, (IMP)dk_impactInit, (IMP *)&orig_dk_impactInit);
+        MSHookMessageEx(c1, imp, (IMP)dk_impact, (IMP *)&orig_dk_impact);
+        MSHookMessageEx(c1, impi, (IMP)dk_impactIntensity, (IMP *)&orig_dk_impactIntensity);
+    }
+    Class c2 = objc_getClass("UINotificationFeedbackGenerator");
+    if (c2) MSHookMessageEx(c2, no, (IMP)dk_note, (IMP *)&orig_dk_note);
+    Class c3 = objc_getClass("UISelectionFeedbackGenerator");
+    if (c3) MSHookMessageEx(c3, sc, (IMP)dk_selChanged, (IMP *)&orig_dk_selChanged);
+    Class app = objc_getClass("UIApplication");
+    if (app) MSHookMessageEx(app, se, (IMP)dk_sendEvent, (IMP *)&orig_dk_sendEvent);
+    Class uc = objc_getClass("UIControl");
+    if (uc) MSHookMessageEx(uc, ss, (IMP)dk_setSelected, (IMP *)&orig_dk_setSelected);
+}
+
 static void DKInstallNoFavAnim(void){
+    DKInstallFavHaptic();
     static BOOL done = NO;
     if (done) return;
     done = YES;
