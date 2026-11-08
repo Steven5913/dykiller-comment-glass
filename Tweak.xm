@@ -546,12 +546,12 @@ static void DKCommentRestoreHeight(UIView *root){
             if (![NSStringFromClass([c class]) isEqualToString:@"AWEElementStackView"]) continue;
             if (c.bounds.size.width < 200.0 || c.bounds.size.width > 330.0) continue;
             if (c.bounds.size.height < 20.0) continue;
+            // 宿主只写 frame、不会清 transform，所以位移一律走 transform：
+            // 目标：文字块底边固定在层内 679pt；平时已经是 679 → 位移 0，完全不动
             CGRect f = c.frame;
-            CGFloat want = 679.0 - f.size.height;
-            if (fabs(f.origin.y - want) > 0.5) {
-                f.origin.y = want;
-                c.transform = CGAffineTransformIdentity;
-                c.frame = f;
+            CGFloat delta = 679.0 - (f.origin.y + f.size.height);
+            if (fabs(c.transform.ty - delta) > 0.5) {
+                c.transform = CGAffineTransformMakeTranslation(0, delta);
             }
         }
         {
