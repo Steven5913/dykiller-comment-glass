@@ -905,22 +905,14 @@ static void DKFeedFavToast(UIView *v){
         DKApplyGlassAt(v, b, r);
         for (UIView *sv in v.subviews) if (sv.tag == DK_TAG) sv.layer.hidden = NO;
     }
-    // 提示条面积大，浅色外观的 glass 自带白色调会显成白雾、深色外观又会压暗；
-    // 这里改用同一款材质里更清透的那一档 style（0），配方结构不变
-    for (UIView *sv in v.subviews) {
-        if (sv.tag != DK_TAG) continue;
-        for (UIView *inner in sv.subviews) {
-            if (![inner isKindOfClass:[UIVisualEffectView class]]) continue;
-            Class ge = NSClassFromString(@"UIGlassEffect");
-            if (ge) {
-                SEL sel = NSSelectorFromString(@"effectWithStyle:");
-                if (sel) {
-                    id (*msg)(id, SEL, NSInteger) = (id (*)(id, SEL, NSInteger))objc_msgSend;
-                    UIVisualEffect *clearEff = nil;
-                    @try { clearEff = msg(ge, sel, 0); } @catch(...) { clearEff = nil; }
-                    if (clearEff) [(UIVisualEffectView *)inner setEffect:clearEff];
-                }
-            }
+    // 收藏条底下压着纯黑不透明容器，玻璃天然带深色底所以看着清透；
+    // 取消条底下直接是视频画面，浅色外观的 glass 会把白色调显成白雾。
+    // 因此只把取消条这块玻璃切深色外观取材质，收藏条保持原样
+    if (isCancelBar) {
+        for (UIView *sv in v.subviews) {
+            if (sv.tag != DK_TAG) continue;
+            sv.overrideUserInterfaceStyle = UIUserInterfaceStyleDark;
+            for (UIView *inner in sv.subviews) inner.overrideUserInterfaceStyle = UIUserInterfaceStyleDark;
         }
     }
     DKWhitenIconAndText(v);
