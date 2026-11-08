@@ -1016,12 +1016,21 @@ static void hook_cellLayout(id self, SEL _cmd){
 
 static BOOL g_hooked = NO;
 
+@interface DKLinkTarget : NSObject
+- (void)dkTick:(CADisplayLink *)link;
+@end
+
+@implementation DKLinkTarget
+- (void)dkTick:(CADisplayLink *)link { DKTickCells(); }
+@end
+
 static void DKStartSettleTimer(void){
     static BOOL started = NO;
     if (started) return;
     started = YES;
-    NSTimer *t = [NSTimer timerWithTimeInterval:0.25 repeats:YES block:^(NSTimer *tm){ DKTickCells(); }];
-    [[NSRunLoop mainRunLoop] addTimer:t forMode:NSRunLoopCommonModes];
+    DKLinkTarget *tgt = [[DKLinkTarget alloc] init];
+    CADisplayLink *link = [CADisplayLink displayLinkWithTarget:tgt selector:@selector(dkTick:)];
+    [link addToRunLoop:[NSRunLoop mainRunLoop] forMode:NSRunLoopCommonModes];
 }
 
 static void DKTryInstall(void){
