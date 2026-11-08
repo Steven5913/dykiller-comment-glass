@@ -785,87 +785,8 @@ static void DKGlassPill(UIView *v){
     DKApplyGlassAt(v, b, b.size.height / 2.0);
 }
 
-static void (*orig_pillLayout)(id, SEL);
-
-// 清掉游戏标签自带的浅色底（背景色 / 模糊层），只留图标与文字，让玻璃透出来
-static BOOL DKHasEffect(UIView *v, int depth){
-    if (!v || depth > 8) return NO;
-    if ([v isKindOfClass:[UIVisualEffectView class]]) return YES;
-    for (UIView *s in v.subviews) if (DKHasEffect(s, depth+1)) return YES;
-    return NO;
-}
-static BOOL DKHasContent(UIView *v, int depth){
-    if (!v || depth > 8) return NO;
-    if ([v isKindOfClass:[UILabel class]] || [v isKindOfClass:[UIImageView class]]) return YES;
-    for (UIView *s in v.subviews) if (DKHasContent(s, depth+1)) return YES;
-    return NO;
-}
-static void DKClearTagBg(UIView *v){
-    if (!v) return;
-    for (UIView *sub in v.subviews) {
-        if (sub.tag == DK_TAG) continue;
-        if (DKHasEffect(sub, 0) && !DKHasContent(sub, 0)) {
-            sub.hidden = YES;
-            sub.alpha = 0.0;
-            for (UIView *c in sub.subviews) { c.alpha = 0.0; }
-        }
-    }
-    if (!v) return;
-    NSMutableArray *q = [NSMutableArray arrayWithObject:v];
-    int guard = 0;
-    while (q.count > 0 && guard++ < 200) {
-        UIView *c = [q objectAtIndex:0];
-        [q removeObjectAtIndex:0];
-        if (c.tag == DK_TAG) continue;
-        if ([c isKindOfClass:[UIVisualEffectView class]]) {
-            c.hidden = YES;
-            c.alpha = 0.0;
-            @try { ((UIVisualEffectView *)c).effect = nil; } @catch(NSException *e) {}
-            for (UIView *sub in c.subviews) { sub.alpha = 0.0; }
-        }
-        UIColor *bg = c.backgroundColor;
-        if (bg) {
-            CGFloat w = 0.0, a = 0.0;
-            if ([bg getWhite:&w alpha:&a] && a > 0.03 && w > 0.45) c.backgroundColor = [UIColor clearColor];
-        }
-        for (CALayer *l in c.layer.sublayers) {
-            CGColorRef cg = l.backgroundColor;
-            if (!cg) continue;
-            UIColor *uc = [UIColor colorWithCGColor:cg];
-            CGFloat w = 0.0, a = 0.0;
-            if ([uc getWhite:&w alpha:&a] && a > 0.03 && w > 0.45) {
-                [CATransaction begin]; [CATransaction setDisableActions:YES];
-                l.backgroundColor = NULL;
-                [CATransaction commit];
-            } else if ([l isKindOfClass:[CAShapeLayer class]]) {
-                l.hidden = YES;
-            }
-        }
-        for (UIView *sv in c.subviews) [q addObject:sv];
-    }
-}
-
-static void hook_gameTagLayout(id self, SEL _cmd){
-    if (orig_pillLayout) orig_pillLayout(self, _cmd);
-    @try { DKClearTagBg((UIView *)self); DKGlassPill((UIView *)self); } @catch(NSException *e) {}
-}
-
+// 弹幕按钮 / 全屏观看 两处胶囊玻璃
 static void (*orig_pillLayout2)(id, SEL);
-static void (*orig_anchorCtrLayout)(id, SEL);
-static void DKTagWalk(UIView *v){
-    if (!v) return;
-    if ([NSStringFromClass([v class]) isEqualToString:@"AWEFeedTemplateAnchorViewV2"]) {
-        DKClearTagBg(v);
-        DKGlassPill(v);
-        return;
-    }
-    for (UIView *s in v.subviews) DKTagWalk(s);
-}
-static void hook_anchorCtrLayout(id self, SEL _cmd){
-    if (orig_anchorCtrLayout) orig_anchorCtrLayout(self, _cmd);
-    @try { DKTagWalk((UIView *)self); } @catch(NSException *e) {}
-}
-
 static void hook_pillLayout2(id self, SEL _cmd){
     if (orig_pillLayout2) orig_pillLayout2(self, _cmd);
     @try { DKGlassPill((UIView *)self); } @catch(NSException *e) {}
@@ -874,40 +795,6 @@ static void (*orig_pillLayout3)(id, SEL);
 static void hook_pillLayout3(id self, SEL _cmd){
     if (orig_pillLayout3) orig_pillLayout3(self, _cmd);
     @try { DKGlassPill((UIView *)self); } @catch(NSException *e) {}
-}
-
-// 窗口级低频率兜底：确保标签无论由谁布局都能被处理
-static void DKTickTag(void){
-    @try {
-        for (UIWindow *w in [UIApplication sharedApplication].windows) {
-            NSMutableArray *q = [NSMutableArray arrayWithObject:w];
-            int guard = 0;
-            while (q.count > 0 && guard++ < 4000) {
-                UIView *c = [q objectAtIndex:0];
-                [q removeObjectAtIndex:0];
-                if ([NSStringFromClass([c class]) isEqualToString:@"AWEFeedTemplateAnchorViewV2"]) {
-                    DKClearTagBg(c);
-                    if (c.superview) {
-                        for (UIView *pv in c.superview.subviews) {
-                            if (pv == c) continue;
-                            DKClearTagBg(pv);
-                        }
-                    }
-                    DKGlassPill(c);
-                    continue;
-                }
-                for (UIView *s in c.subviews) [q addObject:s];
-            }
-        }
-    } @catch(NSException *e) {}
-}
-
-static void DKStartTagTimer(void){
-    static BOOL started = NO;
-    if (started) return;
-    started = YES;
-    NSTimer *t = [NSTimer timerWithTimeInterval:0.4 repeats:YES block:^(NSTimer *tm){ DKTickTag(); }];
-    [[NSRunLoop mainRunLoop] addTimer:t forMode:NSRunLoopCommonModes];
 }
 
 static void DKScanRoot(UIView *root){
@@ -922,11 +809,6 @@ static void DKScanRoot(UIView *root){
         [stack removeLastObject];
         CGRect wr = v.frame;
         @try { wr = [v convertRect:v.bounds toView:win]; } @catch(...) { wr = v.frame; }
-        if ([NSStringFromClass([v class]) isEqualToString:@"AWEFeedTemplateAnchorViewV2"]) {
-            DKClearTagBg(v);
-            DKGlassPill(v);
-            continue;
-        }
         if (wr.size.height >= 150 && wr.size.height <= 760 &&
             wr.size.width >= 55 && wr.size.width <= 130 &&
             wr.origin.x >= 250 && DKCountElements(v, 0) >= 3) {
@@ -1125,10 +1007,6 @@ static void DKTryInstall(void){
         if (ring && !orig_ringLayout) {
             MSHookMessageEx(ring, sel_registerName("layoutSubviews"), (IMP)hook_ringLayout, (IMP *)&orig_ringLayout);
         }
-        Class gameTagC = NSClassFromString(@"AWEFeedTemplateAnchorViewV2");
-        if (gameTagC) MSHookMessageEx(gameTagC, sel_registerName("layoutSubviews"), (IMP)hook_gameTagLayout, (IMP *)&orig_pillLayout);
-        Class anchorCtrC = NSClassFromString(@"AWEFeedAnchorContainerView");
-        if (anchorCtrC) MSHookMessageEx(anchorCtrC, sel_registerName("layoutSubviews"), (IMP)hook_anchorCtrLayout, (IMP *)&orig_anchorCtrLayout);
         Class danmuC = NSClassFromString(@"AWEPlayDanmakuInputContainView");
         if (danmuC) MSHookMessageEx(danmuC, sel_registerName("layoutSubviews"), (IMP)hook_pillLayout2, (IMP *)&orig_pillLayout2);
         Class landC = NSClassFromString(@"AWELandscapeFeedEntryView");
@@ -1207,7 +1085,6 @@ static void DKTryInstall(void){
 }
 
 static __attribute__((constructor)) void DKInit(void){
-    DKStartTagTimer();
     DKTryInstall();
     dispatch_async(dispatch_get_main_queue(), ^{ DKTryInstall(); });
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ DKTryInstall(); });
