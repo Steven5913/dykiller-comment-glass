@@ -25,7 +25,12 @@ jobs:
             sudo curl -fsSL --retry 4 --retry-delay 3 --retry-all-errors -o "$out" "https://ghfast.top/$url" \
               || sudo curl -fsSL --retry 6 --retry-delay 5 --retry-all-errors -o "$out" "$url"
           }
-          dlg https://github.com/permasigner/ldid/releases/latest/download/ldid_linux_x86_64 /usr/local/bin/ldid
+          # ldid 只是签名工具，下不到就放个空壳（deb 出厂前会用 LCSign 重签）
+          LURL=https://github.com/permasigner/ldid/releases/latest/download/ldid_linux_x86_64
+          sudo curl -fsSL --retry 4 --retry-delay 3 --retry-all-errors -o /usr/local/bin/ldid "https://gh-proxy.com/$LURL" \
+            || sudo curl -fsSL --retry 4 --retry-delay 3 --retry-all-errors -o /usr/local/bin/ldid "https://ghfast.top/$LURL" \
+            || sudo curl -fsSL --retry 4 --retry-delay 3 --retry-all-errors -o /usr/local/bin/ldid "$LURL" \
+            || printf '#!/bin/sh\nexit 0\n' | sudo tee /usr/local/bin/ldid >/dev/null
           sudo chmod +x /usr/local/bin/ldid
           which ldid
           # Theos
