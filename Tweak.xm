@@ -17,6 +17,7 @@
 
 #import <Foundation/Foundation.h>
 #import <UIKit/UIKit.h>
+#import <QuartzCore/QuartzCore.h>
 #import <objc/runtime.h>
 #import <objc/message.h>
 #import <substrate.h>
@@ -797,6 +798,60 @@ static void hook_pillLayout3(id self, SEL _cmd){
     @try { DKGlassPill((UIView *)self); } @catch(NSException *e) {}
 }
 
+// ===== 停掉点赞 / 收藏按钮上的爆心、星标等弹出动画 =====
+static BOOL DKNameLooksLikeFav(NSString *n){
+    if (!n || n.length == 0) return NO;
+    NSString *l = [n lowercaseString];
+    if ([l containsString:@"collectionview"]) return NO;
+    static NSArray *kws;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        kws = @[@"likeanim", @"digganim", @"favoranim", @"collectanim", @"heartanim",
+                @"likebubble", @"favoriteburst", @"diggburst", @"burst", @"particle",
+                @"explode", @"confetti"];
+    });
+    for (NSString *k in kws) if ([l containsString:k]) return YES;
+    static NSArray *cls;
+    static dispatch_once_t once2;
+    dispatch_once(&once2, ^{
+        cls = @[@"aweedigg", @"awelike", @"aweplayinteractionlike", @"aweplayinteractiondigg",
+                @"awefoointeractionlike", @"awefavor", @"aweplayinteractionfavor",
+                @"awecollect", @"aweplayinteractioncollect"];
+    });
+    for (NSString *k in cls) if ([l containsString:k]) return YES;
+    return NO;
+}
+
+static BOOL DKLayerInFavTree(CALayer *l, NSString *animKey){
+    if (DKNameLooksLikeFav(animKey)) return YES;
+    if (DKNameLooksLikeFav(l.name)) return YES;
+    id d = l.delegate;
+    if ([d isKindOfClass:[UIView class]]) {
+        UIView *v = (UIView *)d;
+        int depth = 0;
+        while (v && depth++ < 10) {
+            if (DKNameLooksLikeFav(NSStringFromClass([v class]))) return YES;
+            v = v.superview;
+        }
+    }
+    return NO;
+}
+
+static void (*orig_dk_addAnimation)(id, SEL, CAAnimation *, NSString *);
+static void dk_addAnimation(id self, SEL _cmd, CAAnimation *anim, NSString *key){
+    @try {
+        if (DKLayerInFavTree((CALayer *)self, key)) return;
+    } @catch (NSException *e) {}
+    if (orig_dk_addAnimation) orig_dk_addAnimation(self, _cmd, anim, key);
+}
+static void DKInstallNoFavAnim(void){
+    static BOOL done = NO;
+    if (done) return;
+    done = YES;
+    Class ca = objc_getClass("CALayer");
+    if (ca) MSHookMessageEx(ca, sel_registerName("addAnimation:forKey:"), (IMP)dk_addAnimation, (IMP *)&orig_dk_addAnimation);
+}
+
 // ===== 强制开启「移除全部昵称上方标签」(DYKillerPlaybackRemoveAllAnchors)，其余开关不受影响 =====
 #define DK_KEY_RM_ANCHORS @"DYKillerPlaybackRemoveAllAnchors"
 static BOOL (*orig_dk_boolForKey)(id, SEL, NSString *);
@@ -1120,6 +1175,7 @@ static void DKTryInstall(void){
 }
 
 static __attribute__((constructor)) void DKInit(void){
+    DKInstallNoFavAnim();
     DKForceRemoveAllAnchors();
     DKTryInstall();
     dispatch_async(dispatch_get_main_queue(), ^{ DKTryInstall(); });
