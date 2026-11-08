@@ -902,12 +902,16 @@ static void dk_lotPlayRange(id self, SEL _cmd, id a, id b, id c){
     if (orig_dk_lotPlayRange) orig_dk_lotPlayRange(self, _cmd, a, b, c);
 }
 
-// ===== 收藏按钮补震动反馈（强度对齐点赞） =====
-typedef struct { NSInteger kind; NSInteger style; NSInteger noteType; double intensity; } DKHaptic;
-static DKHaptic dk_likeHaptic = {0, 0, 0, -1.0};
-static double dk_likeWatchAt = -1.0;     // 点赞动作时刻（用于录点赞触感）
-static double dk_lastTouchAt = -1.0;     // 最近一次触摸时刻
-static double dk_lastFavPlayAt = -1.0;   // 最近一次回放时刻（冷却）
+// ===== 收藏按钮震动 + 点赞震动统一 =====
+// 统一手感（用户认可的力度）：impact medium
+static NSInteger DK_FAV_STYLE = 2; // UIImpactFeedbackStyleMedium
+
+static double dk_lastTouchAt = -1.0;
+static double dk_favArmAt = -1.0;
+static double dk_likeArmAt = -1.0;
+static double dk_lastFavPlayAt = -1.0;
+static double dk_favCancelAt = -1.0;
+static double dk_lastLikeReplaceAt = -1.0;
 static BOOL dk_replaying = NO;
 static NSInteger dk_curImpactStyle = 0;
 
@@ -938,7 +942,6 @@ static BOOL DKIsFavButton(UIView *v){
     static dispatch_once_t o; dispatch_once(&o, ^{ k = @[@"收藏", @"Favorite", @"Collect"]; });
     return DKViewLabelContains(v, k);
 }
-// 取文案里第一个数字；带“万”按 10000 放大
 static long long DKNumberFromText(NSString *t){
     if (!t.length) return -1;
     NSMutableString *d = [NSMutableString string];
@@ -952,49 +955,73 @@ static long long DKNumberFromText(NSString *t){
     if (!d.length) return -1;
     double val = [d doubleValue];
     if ([t rangeOfString:@"万"].location != NSNotFound) val *= 10000.0;
-    if ([t rangeOfString:@"w" options:NSCaseInsensitiveSearch].location != NSNotFound) val *= 10000.0;
     return (long long)val;
 }
-static void DKPlayHaptic(DKHaptic h){
+static void DKPlayImpact(NSInteger style){
     dk_replaying = YES;
     @try {
-        if (h.kind == 2) {
-            UINotificationFeedbackGenerator *g = [[UINotificationFeedbackGenerator alloc] init];
-            [g prepare];
-            [g notificationOccurred:(UINotificationFeedbackType)h.noteType];
-        } else if (h.kind == 3) {
-            UISelectionFeedbackGenerator *g = [[UISelectionFeedbackGenerator alloc] init];
-            [g prepare];
-            [g selectionChanged];
-        } else {
-            NSInteger style = (h.kind == 0) ? UIImpactFeedbackStyleMedium : h.style;
-            UIImpactFeedbackGenerator *g = [[UIImpactFeedbackGenerator alloc] initWithStyle:(UIImpactFeedbackStyle)style];
-            [g prepare];
-            if (h.intensity >= 0.0 && [g respondsToSelector:NSSelectorFromString(@"impactOccurredWithIntensity:")]) {
-                NSMethodSignature *sig = [g methodSignatureForSelector:NSSelectorFromString(@"impactOccurredWithIntensity:")];
-                NSInvocation *inv = [NSInvocation invocationWithMethodSignature:sig];
-                [inv setTarget:g];
-                [inv setSelector:NSSelectorFromString(@"impactOccurredWithIntensity:")];
-                double inten = h.intensity;
-                [inv setArgument:&inten atIndex:2];
-                [inv invoke];
-            } else {
-                [g impactOccurred];
-            }
-        }
+        UIImpactFeedbackGenerator *g = [[UIImpactFeedbackGenerator alloc] initWithStyle:(UIImpactFeedbackStyle)style];
+        [g prepare];
+        [g impactOccurred];
     } @catch (NSException *e) {}
     dk_replaying = NO;
 }
-static void DKRecordHaptic(NSInteger kind, NSInteger style, NSInteger noteType, double intensity){
-    if (dk_replaying) return;
+
+// 触摸落在哪个按钮上：点赞 / 收藏
+static void (*orig_dk_sendEvent)(id, SEL, UIEvent *);
+static void dk_sendEvent(id self, SEL _cmd, UIEvent *e){
+    @try {
+        if (e && e.type == UIEventTypeTouches && e.allTouches.count > 0) {
+            dk_lastTouchAt = CFAbsoluteTimeGetCurrent();
+            for (UITouch *t in e.allTouches) {
+                UIView *v = t.view;
+                if (!v) continue;
+                if (DKIsLikeButton(v)) { dk_likeArmAt = dk_lastTouchAt; break; }
+                if (DKIsFavButton(v)) { dk_favArmAt = dk_lastTouchAt; break; }
+            }
+        }
+    } @catch (NSException *e2) {}
+    if (orig_dk_sendEvent) orig_dk_sendEvent(self, _cmd, e);
+}
+
+// 计数 label 变化：收藏 +1 → 震；任何 -1 → 记为取消，1.5s 内不许震
+static void (*orig_dk_labelText)(id, SEL, NSString *);
+static void dk_labelText(id self, SEL _cmd, NSString *t){
+    NSString *old = nil;
+    @try { old = [(UILabel *)self text]; } @catch (NSException *e) {}
+    if (orig_dk_labelText) orig_dk_labelText(self, _cmd, t);
+    @try {
+        UIView *v = (UIView *)self;
+        long long o = DKNumberFromText(old), n = DKNumberFromText(t);
+        if (o >= 0 && n >= 0) {
+            double now = CFAbsoluteTimeGetCurrent();
+            if (n < o) {
+                dk_favCancelAt = now;
+            } else if (n == o + 1) {
+                if (DKIsLikeButton(v)) {
+                    dk_likeArmAt = now;
+                } else if (DKIsFavButton(v)) {
+                    BOOL byTouch = (dk_lastTouchAt > 0.0 && now - dk_lastTouchAt < 1.5) ||
+                                   (dk_favArmAt > 0.0 && now - dk_favArmAt < 3.0);
+                    if (byTouch && now - dk_favCancelAt > 1.5 && now - dk_lastFavPlayAt > 1.0) {
+                        dk_lastFavPlayAt = now;
+                        DKPlayImpact(DK_FAV_STYLE);
+                    }
+                }
+            }
+        }
+    } @catch (NSException *e) {}
+}
+
+// 点赞时把 app 自己的触感顶掉，换成同一力度
+static BOOL DKShouldReplaceLikeHaptic(void){
+    if (dk_replaying) return NO;
     double now = CFAbsoluteTimeGetCurrent();
-    if (dk_likeWatchAt > 0.0 && now - dk_likeWatchAt < 0.8) {
-        dk_likeHaptic.kind = kind;
-        dk_likeHaptic.style = style;
-        dk_likeHaptic.noteType = noteType;
-        dk_likeHaptic.intensity = intensity;
-        dk_likeWatchAt = -1.0;
-    }
+    if (dk_likeArmAt <= 0.0 || now - dk_likeArmAt > 1.2) return NO;
+    if (now - dk_lastLikeReplaceAt < 0.5) return YES;  // 同一次点赞里的多次触感全吞掉
+    dk_lastLikeReplaceAt = now;
+    DKPlayImpact(DK_FAV_STYLE);
+    return YES;
 }
 
 static id (*orig_dk_impactInit)(id, SEL, NSInteger);
@@ -1004,91 +1031,25 @@ static id dk_impactInit(id self, SEL _cmd, NSInteger style){
 }
 static void (*orig_dk_impact)(id, SEL);
 static void dk_impact(id self, SEL _cmd){
-    DKRecordHaptic(1, dk_curImpactStyle, 0, -1.0);
+    if (DKShouldReplaceLikeHaptic()) return;
     if (orig_dk_impact) orig_dk_impact(self, _cmd);
 }
 static void (*orig_dk_impactIntensity)(id, SEL, double);
 static void dk_impactIntensity(id self, SEL _cmd, double inten){
-    DKRecordHaptic(1, dk_curImpactStyle, 0, inten);
+    if (DKShouldReplaceLikeHaptic()) return;
     if (orig_dk_impactIntensity) orig_dk_impactIntensity(self, _cmd, inten);
 }
 static void (*orig_dk_note)(id, SEL, NSInteger);
 static void dk_note(id self, SEL _cmd, NSInteger t){
-    DKRecordHaptic(2, 0, t, -1.0);
+    if (DKShouldReplaceLikeHaptic()) return;
     if (orig_dk_note) orig_dk_note(self, _cmd, t);
 }
 static void (*orig_dk_selChanged)(id, SEL);
 static void dk_selChanged(id self, SEL _cmd){
-    DKRecordHaptic(3, 0, 0, -1.0);
+    if (DKShouldReplaceLikeHaptic()) return;
     if (orig_dk_selChanged) orig_dk_selChanged(self, _cmd);
 }
 
-// 触摸时间戳（判断是不是用户刚点的）
-static void (*orig_dk_sendEvent)(id, SEL, UIEvent *);
-static void dk_sendEvent(id self, SEL _cmd, UIEvent *e){
-    @try {
-        if (e && e.type == UIEventTypeTouches && e.allTouches.count > 0) dk_lastTouchAt = CFAbsoluteTimeGetCurrent();
-    } @catch (NSException *e2) {}
-    if (orig_dk_sendEvent) orig_dk_sendEvent(self, _cmd, e);
-}
-
-// 收藏成功：收藏数 +1（或出现“收藏成功”文案）→ 回放点赞触感
-// 全屏提示条出现“收藏成功”也算（提示条不在收藏按钮子树里）
-static void DKCheckFavToast(NSString *newText){
-    if (!newText.length) return;
-    if ([newText rangeOfString:@"取消"].location != NSNotFound) return;
-    if ([newText rangeOfString:@"收藏成"].location == NSNotFound &&
-        [newText rangeOfString:@"已收藏"].location == NSNotFound) return;
-    double now = CFAbsoluteTimeGetCurrent();
-    if (dk_lastTouchAt <= 0.0 || now - dk_lastTouchAt > 1.5) return;
-    if (now - dk_lastFavPlayAt < 0.6) return;
-    dk_lastFavPlayAt = now;
-    DKPlayHaptic(dk_likeHaptic);
-}
-static void DKCheckFavOrLike(UIView *v, NSString *oldText, NSString *newText){
-    if (!v || !newText) return;
-    BOOL isFav = DKIsFavButton(v);
-    BOOL isLike = DKIsLikeButton(v);
-    if (!isFav && !isLike) return;
-    double now = CFAbsoluteTimeGetCurrent();
-    BOOL recentTouch = (dk_lastTouchAt > 0.0 && now - dk_lastTouchAt < 1.2);
-    BOOL toast = ([newText rangeOfString:@"收藏成"].location != NSNotFound ||
-                  [newText rangeOfString:@"已收藏"].location != NSNotFound);
-    BOOL cancelToast = [newText rangeOfString:@"取消"].location != NSNotFound;
-    long long oldN = DKNumberFromText(oldText);
-    long long newN = DKNumberFromText(newText);
-    BOOL plusOne = (oldN >= 0 && newN == oldN + 1);
-    if (cancelToast) return;
-    if (isLike) {
-        if (recentTouch && (plusOne || toast)) dk_likeWatchAt = now;   // 打开录点赞触感的窗
-        return;
-    }
-    if (!recentTouch) return;
-    if (now - dk_lastFavPlayAt < 0.6) return;
-    if (plusOne || toast) {
-        dk_lastFavPlayAt = now;
-        DKPlayHaptic(dk_likeHaptic);
-    }
-}
-static void (*orig_dk_labelText)(id, SEL, NSString *);
-static void dk_labelText(id self, SEL _cmd, NSString *t){
-    NSString *old = nil;
-    @try { old = [(UILabel *)self text]; } @catch (NSException *e) {}
-    if (orig_dk_labelText) orig_dk_labelText(self, _cmd, t);
-    @try { DKCheckFavOrLike((UIView *)self, old, t); DKCheckFavToast(t); } @catch (NSException *e) {}
-}
-static void (*orig_dk_labelAttr)(id, SEL, NSAttributedString *);
-static void dk_labelAttr(id self, SEL _cmd, NSAttributedString *t){
-    NSString *old = nil;
-    @try { old = [(UILabel *)self text]; } @catch (NSException *e) {}
-    if (orig_dk_labelAttr) orig_dk_labelAttr(self, _cmd, t);
-    @try { NSString *s2 = [t string]; DKCheckFavOrLike((UIView *)self, old, s2); DKCheckFavToast(s2); } @catch (NSException *e) {}
-}
-static void (*orig_dk_setSelected)(id, SEL, BOOL);
-static void dk_setSelected(id self, SEL _cmd, BOOL sel){
-    if (orig_dk_setSelected) orig_dk_setSelected(self, _cmd, sel);
-    @try { if (sel && DKIsLikeButton((UIView *)self)) dk_likeWatchAt = CFAbsoluteTimeGetCurrent(); } @catch (NSException *e) {}
-}
 static void DKInstallFavHaptic(void){
     static BOOL done = NO;
     if (done) return;
@@ -1105,14 +1066,8 @@ static void DKInstallFavHaptic(void){
     if (c3) MSHookMessageEx(c3, sel_registerName("selectionChanged"), (IMP)dk_selChanged, (IMP *)&orig_dk_selChanged);
     Class app = objc_getClass("UIApplication");
     if (app) MSHookMessageEx(app, sel_registerName("sendEvent:"), (IMP)dk_sendEvent, (IMP *)&orig_dk_sendEvent);
-    Class uc = objc_getClass("UIControl");
-    if (uc) MSHookMessageEx(uc, sel_registerName("setSelected:"), (IMP)dk_setSelected, (IMP *)&orig_dk_setSelected);
-    // 收藏数 label / 提示文案变化 = 收藏成功
     Class lab = objc_getClass("UILabel");
-    if (lab) {
-        MSHookMessageEx(lab, sel_registerName("setText:"), (IMP)dk_labelText, (IMP *)&orig_dk_labelText);
-        MSHookMessageEx(lab, sel_registerName("setAttributedText:"), (IMP)dk_labelAttr, (IMP *)&orig_dk_labelAttr);
-    }
+    if (lab) MSHookMessageEx(lab, sel_registerName("setText:"), (IMP)dk_labelText, (IMP *)&orig_dk_labelText);
 }
 
 static void DKInstallNoFavAnim(void){
