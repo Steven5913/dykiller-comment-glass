@@ -905,12 +905,15 @@ static void DKFeedFavToast(UIView *v){
         DKApplyGlassAt(v, b, r);
         for (UIView *sv in v.subviews) if (sv.tag == DK_TAG) sv.layer.hidden = NO;
     }
-    // 浅色外观下 UIGlassEffect 自带一层白色调，大面积铺在提示条上就成了白雾；
-    // 只把这块玻璃切到深色外观取材质，配方结构不变
+    // 提示条面积大，浅色外观的 glass 自带白色调会显成白雾、深色外观又会压暗；
+    // 这里改用同一款材质里更清透的那一档 style（0），配方结构不变
     for (UIView *sv in v.subviews) {
         if (sv.tag != DK_TAG) continue;
-        sv.overrideUserInterfaceStyle = UIUserInterfaceStyleDark;
-        for (UIView *inner in sv.subviews) inner.overrideUserInterfaceStyle = UIUserInterfaceStyleDark;
+        for (UIView *inner in sv.subviews) {
+            if (![inner isKindOfClass:[UIVisualEffectView class]]) continue;
+            UIVisualEffect *clearEff = [UIGlassEffect effectWithStyle:0];
+            if (clearEff) [(UIVisualEffectView *)inner setEffect:clearEff];
+        }
     }
     DKWhitenIconAndText(v);
 }
