@@ -866,6 +866,12 @@ static void DKTickTag(void){
                 [q removeObjectAtIndex:0];
                 if ([NSStringFromClass([c class]) isEqualToString:@"AWEFeedTemplateAnchorViewV2"]) {
                     DKClearTagBg(c);
+                    if (c.superview) {
+                        for (UIView *pv in c.superview.subviews) {
+                            if (pv == c) continue;
+                            DKClearTagBg(pv);
+                        }
+                    }
                     DKGlassPill(c);
                     continue;
                 }
