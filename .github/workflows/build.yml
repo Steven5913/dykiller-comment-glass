@@ -18,7 +18,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y clang build-essential curl xz-utils
-          sudo curl -fsSL -o /usr/local/bin/ldid https://github.com/itsnebulalol/ldid/releases/latest/download/ldid_linux_x86_64
+          sudo curl -fsSL --retry 8 --retry-delay 5 --retry-all-errors -o /usr/local/bin/ldid https://github.com/itsnebulalol/ldid/releases/latest/download/ldid_linux_x86_64
           sudo chmod +x /usr/local/bin/ldid
           which ldid || echo "ldid 下载失败"
           # Theos
@@ -27,14 +27,14 @@ jobs:
           (cd "$THEOS/vendor" && git submodule update --init --depth 1) || true
           # Linux iOS 交叉工具链 (Theos 官方)
           mkdir -p "$THEOS/toolchain"
-          curl -fsSL -o /tmp/tc.tar.xz https://github.com/L1ghtmann/llvm-project/releases/latest/download/iOSToolchain-x86_64.tar.xz
+          curl -fsSL --retry 8 --retry-delay 5 --retry-all-errors -o /tmp/tc.tar.xz https://github.com/L1ghtmann/llvm-project/releases/latest/download/iOSToolchain-x86_64.tar.xz
           tar -xf /tmp/tc.tar.xz -C "$THEOS/toolchain"
           echo "===== toolchain ====="
           ls "$THEOS/toolchain"
           ls "$THEOS/toolchain/linux/iphone/bin" 2>/dev/null | head
           # iPhoneOS SDK 16.5 (支持 arm64e)
           mkdir -p "$THEOS/sdks"
-          curl -fsSL -o /tmp/sdk.tar.xz https://github.com/theos/sdks/releases/latest/download/iPhoneOS16.5.sdk.tar.xz
+          curl -fsSL --retry 8 --retry-delay 5 --retry-all-errors -o /tmp/sdk.tar.xz https://github.com/theos/sdks/releases/latest/download/iPhoneOS16.5.sdk.tar.xz
           tar -xf /tmp/sdk.tar.xz -C "$THEOS/sdks"
           echo "===== sdks ====="
           ls "$THEOS/sdks"
