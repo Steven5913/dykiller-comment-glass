@@ -796,7 +796,12 @@ static void DKClearTagBg(UIView *v){
         UIView *c = [q objectAtIndex:0];
         [q removeObjectAtIndex:0];
         if (c.tag == DK_TAG) continue;
-        if ([c isKindOfClass:[UIVisualEffectView class]]) c.hidden = YES;
+        if ([c isKindOfClass:[UIVisualEffectView class]]) {
+            c.hidden = YES;
+            c.alpha = 0.0;
+            @try { ((UIVisualEffectView *)c).effect = nil; } @catch(NSException *e) {}
+            for (UIView *sub in c.subviews) { sub.alpha = 0.0; }
+        }
         UIColor *bg = c.backgroundColor;
         if (bg) {
             CGFloat w = 0.0, a = 0.0;
