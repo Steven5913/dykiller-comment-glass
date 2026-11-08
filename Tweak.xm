@@ -828,6 +828,51 @@ static void DKHudLog(NSString *line){
         });
     } @catch (NSException *e) {}
 }
+static BOOL DKViewInInteraction(UIView *v){
+    int depth = 0;
+    while (v && depth++ < 14) {
+        NSString *cn = NSStringFromClass([v class]);
+        if ([cn isEqualToString:@"AWEElementStackView"] || [cn isEqualToString:@"AWEBaseElementView"] ||
+            [cn isEqualToString:@"AWEFeedVideoButton"] || [cn isEqualToString:@"AWEPlayInteractionViewController"] ||
+            [cn hasPrefix:@"AWEPlayInteraction"]) return YES;
+        v = v.superview;
+    }
+    return NO;
+}
+static BOOL DKIsBaseUIKitClass(NSString *cn){
+    static NSSet *bases;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        bases = [NSSet setWithArray:@[@"UIView", @"UILabel", @"UIImageView", @"UIButton", @"UIButtonLabel",
+                                      @"UIVisualEffectView", @"UIStackView", @"UIScrollView", @"UITableView",
+                                      @"UITableViewCell", @"UICollectionView", @"UICollectionViewCell",
+                                      @"UIImageView", @"UILayoutGuide", @"CALayer"]];
+    });
+    return [bases containsObject:cn];
+}
+static void (*orig_dk_addSubview)(id, SEL, UIView *);
+static void dk_addSubview(id self, SEL _cmd, UIView *v){
+    @try {
+        if (v) {
+            NSString *cn = NSStringFromClass([v class]) ?: @"?";
+            if (!DKIsBaseUIKitClass(cn) && DKViewInInteraction((UIView *)self))
+                DKHudLog([NSString stringWithFormat:@"[ADD] %@ -> %@", cn, NSStringFromClass([(UIView *)self class]) ?: @"?"]);
+        }
+    } @catch (NSException *e) {}
+    if (orig_dk_addSubview) orig_dk_addSubview(self, _cmd, v);
+}
+static void (*orig_dk_setHidden)(id, SEL, BOOL);
+static void dk_setHidden(id self, SEL _cmd, BOOL h){
+    @try {
+        if (h == NO) {
+            NSString *cn = NSStringFromClass([self class]) ?: @"?";
+            if (!DKIsBaseUIKitClass(cn) && DKViewInInteraction((UIView *)self))
+                DKHudLog([NSString stringWithFormat:@"[SHOW] %@", cn]);
+        }
+    } @catch (NSException *e) {}
+    if (orig_dk_setHidden) orig_dk_setHidden(self, _cmd, h);
+}
+
 static BOOL DKViewInRail(UIView *v){
     int depth = 0;
     while (v && depth++ < 12) {
@@ -933,6 +978,11 @@ static void DKInstallNoFavAnim(void){
     if (ca) MSHookMessageEx(ca, sel_registerName("addAnimation:forKey:"), (IMP)dk_addAnimation, (IMP *)&orig_dk_addAnimation);
     Class iv = objc_getClass("UIImageView");
     if (iv) MSHookMessageEx(iv, sel_registerName("startAnimating"), (IMP)dk_startAnimating, (IMP *)&orig_dk_startAnimating);
+    Class uv = objc_getClass("UIView");
+    if (uv) {
+        MSHookMessageEx(uv, sel_registerName("addSubview:"), (IMP)dk_addSubview, (IMP *)&orig_dk_addSubview);
+        MSHookMessageEx(uv, sel_registerName("setHidden:"), (IMP)dk_setHidden, (IMP *)&orig_dk_setHidden);
+    }
 }
 
 // ===== 强制开启「移除全部昵称上方标签」(DYKillerPlaybackRemoveAllAnchors)，其余开关不受影响 =====
