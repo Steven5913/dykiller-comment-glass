@@ -907,10 +907,7 @@ static void dk_lotPlayRange(id self, SEL _cmd, id a, id b, id c){
 static NSInteger DK_FAV_STYLE = 2; // UIImpactFeedbackStyleMedium
 
 static double dk_lastTouchAt = -1.0;
-static double dk_favArmAt = -1.0;
 static double dk_likeArmAt = -1.0;
-static double dk_lastFavPlayAt = -1.0;
-static double dk_favCancelAt = -1.0;
 static double dk_lastLikeReplaceAt = -1.0;
 static BOOL dk_replaying = NO;
 static NSInteger dk_curImpactStyle = 0;
@@ -977,14 +974,13 @@ static void dk_sendEvent(id self, SEL _cmd, UIEvent *e){
                 UIView *v = t.view;
                 if (!v) continue;
                 if (DKIsLikeButton(v)) { dk_likeArmAt = dk_lastTouchAt; break; }
-                if (DKIsFavButton(v)) { dk_favArmAt = dk_lastTouchAt; break; }
             }
         }
     } @catch (NSException *e2) {}
     if (orig_dk_sendEvent) orig_dk_sendEvent(self, _cmd, e);
 }
 
-// 计数 label 变化：收藏 +1 → 震；任何 -1 → 记为取消，1.5s 内不许震
+// 计数 label 变化：收藏数 +1 震一下，-1 一律不震
 static void (*orig_dk_labelText)(id, SEL, NSString *);
 static void dk_labelText(id self, SEL _cmd, NSString *t){
     NSString *old = nil;
@@ -993,21 +989,11 @@ static void dk_labelText(id self, SEL _cmd, NSString *t){
     @try {
         UIView *v = (UIView *)self;
         long long o = DKNumberFromText(old), n = DKNumberFromText(t);
-        if (o >= 0 && n >= 0) {
-            double now = CFAbsoluteTimeGetCurrent();
-            if (n < o) {
-                dk_favCancelAt = now;
-            } else if (n == o + 1) {
-                if (DKIsLikeButton(v)) {
-                    dk_likeArmAt = now;
-                } else if (DKIsFavButton(v)) {
-                    BOOL byTouch = (dk_lastTouchAt > 0.0 && now - dk_lastTouchAt < 1.5) ||
-                                   (dk_favArmAt > 0.0 && now - dk_favArmAt < 3.0);
-                    if (byTouch && now - dk_favCancelAt > 1.5 && now - dk_lastFavPlayAt > 1.0) {
-                        dk_lastFavPlayAt = now;
-                        DKPlayImpact(DK_FAV_STYLE);
-                    }
-                }
+        if (o >= 0 && n >= 0 && n == o + 1) {
+            if (DKIsLikeButton(v)) {
+                dk_likeArmAt = CFAbsoluteTimeGetCurrent();   // 点赞：记住这次点赞，用来换掉它自己的触感
+            } else if (DKIsFavButton(v)) {
+                DKPlayImpact(DK_FAV_STYLE);                  // 收藏成功：震一下
             }
         }
     } @catch (NSException *e) {}
