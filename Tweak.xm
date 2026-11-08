@@ -495,6 +495,15 @@ static void DKCommentInputGlass(UIView *root){
 // 这里把它的高度顶回父容器（子视图都是底对齐，恢复后即原来的满屏位置）
 static char kDKShiftKey __attribute__((unused));
 
+static BOOL DKTreeHasClass(UIView *root, NSString *cls, int depth){
+    if (!root || depth < 0) return NO;
+    if ([NSStringFromClass([root class]) isEqualToString:cls]) return YES;
+    for (UIView *c in root.subviews) {
+        if (DKTreeHasClass(c, cls, depth - 1)) return YES;
+    }
+    return NO;
+}
+
 static void DKCommentRestoreHeight(UIView *root){
     if (!root) return;
     NSMutableArray *q = [NSMutableArray arrayWithObject:root];
@@ -513,14 +522,16 @@ static void DKCommentRestoreHeight(UIView *root){
         if (fabs(w - pw) > 2.0) continue;
         CGFloat d = ph - h;
         if (d <= 78.0 || d >= 88.0) continue;
-        // 只把作者/描述/IP 文字块按父底边放好（绝对位置，不累加），
-        // 进度条等其它元素一律不动
+        // 带播放进度条的作品（视频型）之前已经调好，一律不碰
+        if (DKTreeHasClass(v, @"AWEDPlayerProgressContainerView", 4)) continue;
+        if (DKTreeHasClass(v, @"AWEAwemePlayVideoProgressContainerView", 4)) continue;
+        // 只把作者/描述/IP 文字块贴到内容层自身底边往上 8pt（绝对位置，不累加）
         for (UIView *c in v.subviews) {
             if (![NSStringFromClass([c class]) isEqualToString:@"AWEElementStackView"]) continue;
             if (c.bounds.size.width < 200.0 || c.bounds.size.width > 330.0) continue;
             if (c.bounds.size.height < 20.0) continue;
             CGRect f = c.frame;
-            CGFloat want = ph - 21.0 - f.size.height;
+            CGFloat want = h - 8.0 - f.size.height;
             if (fabs(f.origin.y - want) > 0.5) {
                 f.origin.y = want;
                 c.transform = CGAffineTransformIdentity;
