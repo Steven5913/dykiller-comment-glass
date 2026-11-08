@@ -822,6 +822,20 @@ static BOOL DKNameLooksLikeFav(NSString *n){
     return NO;
 }
 
+// 用无障碍文案识别「点赞 / 收藏」按钮（抖音给这两个按钮都设了中文 a11y 文案）
+static BOOL DKViewIsFavTarget(UIView *v){
+    if (!v) return NO;
+    NSString *lab = v.accessibilityLabel;
+    NSString *ident = v.accessibilityIdentifier;
+    for (NSString *t in @[lab ?: @"", ident ?: @""]) {
+        if (t.length == 0) continue;
+        if ([t containsString:@"赞"] || [t containsString:@"收藏"] ||
+            [t containsString:@"Digg"] || [t containsString:@"Like"] ||
+            [t containsString:@"Favorite"] || [t containsString:@"Collect"]) return YES;
+    }
+    return NO;
+}
+
 static BOOL DKLayerInFavTree(CALayer *l, NSString *animKey){
     if (DKNameLooksLikeFav(animKey)) return YES;
     if (DKNameLooksLikeFav(l.name)) return YES;
@@ -831,10 +845,25 @@ static BOOL DKLayerInFavTree(CALayer *l, NSString *animKey){
         int depth = 0;
         while (v && depth++ < 10) {
             if (DKNameLooksLikeFav(NSStringFromClass([v class]))) return YES;
+            if (DKViewIsFavTarget(v)) return YES;
             v = v.superview;
         }
     }
     return NO;
+}
+
+static void (*orig_dk_startAnimating)(id, SEL);
+static void dk_startAnimating(id self, SEL _cmd){
+    @try {
+        id d = ((UIImageView *)self).superview;
+        UIView *v = [d isKindOfClass:[UIView class]] ? (UIView *)d : nil;
+        int depth = 0;
+        while (v && depth++ < 10) {
+            if (DKNameLooksLikeFav(NSStringFromClass([v class])) || DKViewIsFavTarget(v)) return;
+            v = v.superview;
+        }
+    } @catch (NSException *e) {}
+    if (orig_dk_startAnimating) orig_dk_startAnimating(self, _cmd);
 }
 
 static void (*orig_dk_addAnimation)(id, SEL, CAAnimation *, NSString *);
@@ -850,6 +879,8 @@ static void DKInstallNoFavAnim(void){
     done = YES;
     Class ca = objc_getClass("CALayer");
     if (ca) MSHookMessageEx(ca, sel_registerName("addAnimation:forKey:"), (IMP)dk_addAnimation, (IMP *)&orig_dk_addAnimation);
+    Class iv = objc_getClass("UIImageView");
+    if (iv) MSHookMessageEx(iv, sel_registerName("startAnimating"), (IMP)dk_startAnimating, (IMP *)&orig_dk_startAnimating);
 }
 
 // ===== 强制开启「移除全部昵称上方标签」(DYKillerPlaybackRemoveAllAnchors)，其余开关不受影响 =====
