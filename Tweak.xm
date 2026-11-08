@@ -834,6 +834,16 @@ static void DKFeedFavToast(UIView *v){
     if (fabs((double)v.layer.cornerRadius - (double)r) > 0.5) v.layer.cornerRadius = r;
     v.layer.masksToBounds = YES;
     DKApplyGlassAt(v, b, r);
+    // 取消提示条（DUXBottomNotification）材质叠在深底上会发白雾，单独压低材质强度，结构与配方不动
+    if ([NSStringFromClass(object_getClass(v)) isEqualToString:@"AWEPlayInteractionSnackBar"]) {
+        static double matte = 0.50;
+        for (UIView *sv in v.subviews) {
+            if (sv.tag != DK_TAG) continue;
+            for (UIView *inner in sv.subviews) {
+                if ([inner isKindOfClass:[UIVisualEffectView class]]) inner.alpha = (CGFloat)matte;
+            }
+        }
+    }
     DKWhitenIconAndText(v);
 }
 static void (*orig_snackLayout)(id, SEL);
