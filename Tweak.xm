@@ -523,16 +523,18 @@ static void DKCommentRestoreHeight(UIView *root){
         if (fabs(w - pw) > 2.0) continue;
         CGFloat d = ph - h;
         if (d <= 78.0 || d >= 88.0) continue;
-        // 内容层被扣了一条评论栏：把子视图按父底边重新贴到底部（绝对定位）
+        // 只把作者/描述/IP 文字块按父底边放好（绝对位置，不累加），
+        // 进度条等其它元素一律不动
         for (UIView *c in v.subviews) {
-            CGFloat ch = c.bounds.size.height, cw = c.bounds.size.width;
-            if ([NSStringFromClass([c class]) isEqualToString:@"AWEElementStackView"] &&
-                cw > 200.0 && cw < 330.0) {
-                DKPlaceBottom(c, ph, 10.0);          // 作者/描述/IP 文字块贴住输入框
-            } else if (cw > 395.0 && cw < 410.0 && ch > 1.0 && ch < 40.0) {
-                DKPlaceBottom(c, ph, 4.0);           // 图片作品的翻页进度条
-            } else if (cw > 395.0 && cw < 410.0 && ch <= 1.0 && c.frame.origin.y > ph - 80.0) {
-                DKPlaceBottom(c, ph, 0.0);           // 加载/音量条
+            if (![NSStringFromClass([c class]) isEqualToString:@"AWEElementStackView"]) continue;
+            if (c.bounds.size.width < 200.0 || c.bounds.size.width > 330.0) continue;
+            if (c.bounds.size.height < 20.0) continue;
+            CGRect f = c.frame;
+            CGFloat want = ph - 21.0 - f.size.height;
+            if (fabs(f.origin.y - want) > 0.5) {
+                f.origin.y = want;
+                c.transform = CGAffineTransformIdentity;
+                c.frame = f;
             }
         }
     }
