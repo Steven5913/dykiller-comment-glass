@@ -911,8 +911,16 @@ static void DKFeedFavToast(UIView *v){
         if (sv.tag != DK_TAG) continue;
         for (UIView *inner in sv.subviews) {
             if (![inner isKindOfClass:[UIVisualEffectView class]]) continue;
-            UIVisualEffect *clearEff = [UIGlassEffect effectWithStyle:0];
-            if (clearEff) [(UIVisualEffectView *)inner setEffect:clearEff];
+            Class ge = NSClassFromString(@"UIGlassEffect");
+            if (ge) {
+                SEL sel = NSSelectorFromString(@"effectWithStyle:");
+                if (sel) {
+                    id (*msg)(id, SEL, NSInteger) = (id (*)(id, SEL, NSInteger))objc_msgSend;
+                    UIVisualEffect *clearEff = nil;
+                    @try { clearEff = msg(ge, sel, 0); } @catch(...) { clearEff = nil; }
+                    if (clearEff) [(UIVisualEffectView *)inner setEffect:clearEff];
+                }
+            }
         }
     }
     DKWhitenIconAndText(v);
