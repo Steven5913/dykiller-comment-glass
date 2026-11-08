@@ -903,12 +903,12 @@ static void dk_lotPlayRange(id self, SEL _cmd, id a, id b, id c){
 }
 
 // ===== 收藏按钮震动 + 点赞震动统一 =====
-// 统一手感（用户认可的力度）：impact medium
 static NSInteger DK_FAV_STYLE = 2; // UIImpactFeedbackStyleMedium
 
 static double dk_lastTouchAt = -1.0;
 static double dk_likeArmAt = -1.0;
-static double dk_lastLikeReplaceAt = -1.0;
+static double dk_lastFavPlayAt = -10.0;
+static double dk_lastLikeReplaceAt = -10.0;
 static BOOL dk_replaying = NO;
 static NSInteger dk_curImpactStyle = 0;
 
@@ -939,20 +939,23 @@ static BOOL DKIsFavButton(UIView *v){
     static dispatch_once_t o; dispatch_once(&o, ^{ k = @[@"收藏", @"Favorite", @"Collect"]; });
     return DKViewLabelContains(v, k);
 }
+// "40" -> 40；"1.6万" -> 16000；"12.3w" -> 123000
 static long long DKNumberFromText(NSString *t){
     if (!t.length) return -1;
     NSMutableString *d = [NSMutableString string];
-    BOOL afterDot = NO;
     for (NSUInteger i = 0; i < t.length; i++) {
         unichar c = [t characterAtIndex:i];
-        if (c >= '0' && c <= '9') { [d appendFormat:@"%C", c]; if (afterDot) break; }
-        else if (c == '.' || c == 0x00B7) { if (d.length == 0) continue; afterDot = YES; [d appendString:@"."]; }
+        if (c >= '0' && c <= '9') [d appendFormat:@"%C", c];
+        else if (c == '.' && d.length) [d appendString:@"."];
         else if (d.length) break;
     }
     if (!d.length) return -1;
     double val = [d doubleValue];
     if ([t rangeOfString:@"万"].location != NSNotFound) val *= 10000.0;
-    return (long long)val;
+    if ([t rangeOfString:@"w"].location != NSNotFound ||
+        [t rangeOfString:@"W"].location != NSNotFound) val *= 10000.0;
+    if ([t rangeOfString:@"亿"].location != NSNotFound) val *= 100000000.0;
+    return (long long)(val + 0.5);
 }
 static void DKPlayImpact(NSInteger style){
     dk_replaying = YES;
@@ -964,7 +967,6 @@ static void DKPlayImpact(NSInteger style){
     dk_replaying = NO;
 }
 
-// 触摸落在哪个按钮上：点赞 / 收藏
 static void (*orig_dk_sendEvent)(id, SEL, UIEvent *);
 static void dk_sendEvent(id self, SEL _cmd, UIEvent *e){
     @try {
@@ -980,31 +982,47 @@ static void dk_sendEvent(id self, SEL _cmd, UIEvent *e){
     if (orig_dk_sendEvent) orig_dk_sendEvent(self, _cmd, e);
 }
 
-// 计数 label 变化：收藏数 +1 震一下，-1 一律不震
+// 收藏数 +1 → 震；-1 → 不震
+static void DKHandleCount(UIView *v, NSString *oldText, NSString *newText){
+    if (!newText.length) return;
+    long long o = DKNumberFromText(oldText);
+    long long n = DKNumberFromText(newText);
+    if (o < 0 || n < 0) return;
+    if (n == o + 1) {
+        if (DKIsLikeButton(v)) {
+            dk_likeArmAt = CFAbsoluteTimeGetCurrent();
+        } else if (DKIsFavButton(v)) {
+            double now = CFAbsoluteTimeGetCurrent();
+            if (now - dk_lastFavPlayAt < 0.35) return;   // 同一个数字被多个 label 重复写时只震一次
+            dk_lastFavPlayAt = now;
+            DKPlayImpact(DK_FAV_STYLE);
+        }
+    }
+}
+// 过万时 displayed 文本可能不带小数（1.6万 +1 仍是 1.6万），靠提示条文案兜底
+static void DKHandleToast(NSString *newText){
+    if (!newText.length) return;
+    if ([newText rangeOfString:@"取消"].location != NSNotFound) return;
+    if ([newText rangeOfString:@"收藏成"].location == NSNotFound &&
+        [newText rangeOfString:@"已收藏"].location == NSNotFound) return;
+    double now = CFAbsoluteTimeGetCurrent();
+    if (now - dk_lastFavPlayAt < 0.35) return;
+    dk_lastFavPlayAt = now;
+    DKPlayImpact(DK_FAV_STYLE);
+}
 static void (*orig_dk_labelText)(id, SEL, NSString *);
 static void dk_labelText(id self, SEL _cmd, NSString *t){
     NSString *old = nil;
     @try { old = [(UILabel *)self text]; } @catch (NSException *e) {}
     if (orig_dk_labelText) orig_dk_labelText(self, _cmd, t);
-    @try {
-        UIView *v = (UIView *)self;
-        long long o = DKNumberFromText(old), n = DKNumberFromText(t);
-        if (o >= 0 && n >= 0 && n == o + 1) {
-            if (DKIsLikeButton(v)) {
-                dk_likeArmAt = CFAbsoluteTimeGetCurrent();   // 点赞：记住这次点赞，用来换掉它自己的触感
-            } else if (DKIsFavButton(v)) {
-                DKPlayImpact(DK_FAV_STYLE);                  // 收藏成功：震一下
-            }
-        }
-    } @catch (NSException *e) {}
+    @try { DKHandleCount((UIView *)self, old, t); DKHandleToast(t); } @catch (NSException *e) {}
 }
 
-// 点赞时把 app 自己的触感顶掉，换成同一力度
 static BOOL DKShouldReplaceLikeHaptic(void){
     if (dk_replaying) return NO;
     double now = CFAbsoluteTimeGetCurrent();
     if (dk_likeArmAt <= 0.0 || now - dk_likeArmAt > 1.2) return NO;
-    if (now - dk_lastLikeReplaceAt < 0.5) return YES;  // 同一次点赞里的多次触感全吞掉
+    if (now - dk_lastLikeReplaceAt < 0.5) return YES;
     dk_lastLikeReplaceAt = now;
     DKPlayImpact(DK_FAV_STYLE);
     return YES;
