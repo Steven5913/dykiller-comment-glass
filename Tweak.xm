@@ -798,38 +798,6 @@ static void hook_pillLayout3(id self, SEL _cmd){
     @try { DKGlassPill((UIView *)self); } @catch(NSException *e) {}
 }
 
-// 父链里是否有「点赞 / 收藏」按钮
-static BOOL DKViewOrChildIsFav(UIView *v){
-    if (DKViewIsFavTarget(v)) return YES;
-    for (UIView *c in v.subviews) {
-        if (DKViewIsFavTarget(c)) return YES;
-        for (UIView *cc in c.subviews) if (DKViewIsFavTarget(cc)) return YES;
-    }
-    return NO;
-}
-static BOOL DKViewInFavAncestor(UIView *v){
-    int depth = 0;
-    while (v && depth++ < 12) {
-        if (DKViewOrChildIsFav(v)) return YES;
-        if (DKNameLooksLikeFav(NSStringFromClass([v class]))) return YES;
-        v = v.superview;
-    }
-    return NO;
-}
-// 爆心 / 星标是 Lottie（LOTAnimationView）当场插进按钮里的
-static BOOL DKIsLottieClass(NSString *cn){
-    if (cn.length == 0) return NO;
-    return [cn hasPrefix:@"LOT"] || [cn hasPrefix:@"lottie"] || [cn containsString:@"Lottie"];
-}
-static void (*orig_dk_addSubview)(id, SEL, UIView *);
-static void dk_addSubview(id self, SEL _cmd, UIView *v){
-    @try {
-        if (v && DKIsLottieClass(NSStringFromClass([v class])) &&
-            DKViewInFavAncestor((UIView *)self)) return;
-    } @catch (NSException *e) {}
-    if (orig_dk_addSubview) orig_dk_addSubview(self, _cmd, v);
-}
-
 // ===== 停掉点赞 / 收藏按钮上的爆心、星标等弹出动画 =====
 static BOOL DKNameLooksLikeFav(NSString *n){
     if (!n || n.length == 0) return NO;
@@ -905,6 +873,38 @@ static void dk_addAnimation(id self, SEL _cmd, CAAnimation *anim, NSString *key)
     } @catch (NSException *e) {}
     if (orig_dk_addAnimation) orig_dk_addAnimation(self, _cmd, anim, key);
 }
+// 父链里是否有「点赞 / 收藏」按钮
+static BOOL DKViewOrChildIsFav(UIView *v){
+    if (DKViewIsFavTarget(v)) return YES;
+    for (UIView *c in v.subviews) {
+        if (DKViewIsFavTarget(c)) return YES;
+        for (UIView *cc in c.subviews) if (DKViewIsFavTarget(cc)) return YES;
+    }
+    return NO;
+}
+static BOOL DKViewInFavAncestor(UIView *v){
+    int depth = 0;
+    while (v && depth++ < 12) {
+        if (DKViewOrChildIsFav(v)) return YES;
+        if (DKNameLooksLikeFav(NSStringFromClass([v class]))) return YES;
+        v = v.superview;
+    }
+    return NO;
+}
+// 爆心 / 星标是 Lottie（LOTAnimationView）当场插进按钮里的
+static BOOL DKIsLottieClass(NSString *cn){
+    if (cn.length == 0) return NO;
+    return [cn hasPrefix:@"LOT"] || [cn hasPrefix:@"lottie"] || [cn containsString:@"Lottie"];
+}
+static void (*orig_dk_addSubview)(id, SEL, UIView *);
+static void dk_addSubview(id self, SEL _cmd, UIView *v){
+    @try {
+        if (v && DKIsLottieClass(NSStringFromClass([v class])) &&
+            DKViewInFavAncestor((UIView *)self)) return;
+    } @catch (NSException *e) {}
+    if (orig_dk_addSubview) orig_dk_addSubview(self, _cmd, v);
+}
+
 static void (*orig_dk_lotPlay)(id, SEL);
 static void dk_lotPlay(id self, SEL _cmd){
     @try {
