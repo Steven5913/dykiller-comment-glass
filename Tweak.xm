@@ -1074,13 +1074,14 @@ static NSString *DKKeyFromSetter(SEL cmd){
 }
 static void DKDiag(NSString *line){
     if (!line.length) return;
+    NSLog(@"[DKH] %@", line);
     static NSMutableString *log = nil;
     static dispatch_once_t once;
     dispatch_once(&once, ^{ log = [NSMutableString string]; });
     [log appendFormat:@"%@ %@\n", [NSDate date], line];
-    if (log.length > 8000) [log deleteCharactersInRange:NSMakeRange(0, 4000)];
+    if (log.length > 20000) [log deleteCharactersInRange:NSMakeRange(0, 10000)];
     NSString *p = @"/var/mobile/Library/pkgmirror/dk_haptic.log";
-    [[line stringByAppendingString:@"\n"] writeToFile:p atomically:YES encoding:NSUTF8StringEncoding error:nil];
+    [log writeToFile:p atomically:YES encoding:NSUTF8StringEncoding error:nil];
 }
 static void DKFireFavHapticFromModel(void){
     double now = CFAbsoluteTimeGetCurrent();
@@ -1116,62 +1117,6 @@ static IMP DKMakeCountHook(IMP orig, BOOL isFav){
 static BOOL DKNumEncoding(char t){
     return (t == 'q' || t == 'Q' || t == 'i' || t == 'I' || t == 'l' || t == 'L' || t == 's' || t == 'S');
 }
-// 补充：JSON/KVC 里写入的计数（app 不一定走属性 setter）
-static BOOL DKKeyLooksLikeCount(NSString *k){
-    if (!k.length) return NO;
-    if ([k rangeOfString:@"avorite"].location != NSNotFound) return YES;
-    if ([k rangeOfString:@"ollect"].location != NSNotFound) return YES;
-    if ([k rangeOfString:@"digg"].location != NSNotFound) return YES;
-    return NO;
-}
-static BOOL DKCompareAndFire(id oldV, id newV){
-    if (![oldV isKindOfClass:[NSNumber class]] && ![newV isKindOfClass:[NSNumber class]]) return NO;
-    long long o = [oldV isKindOfClass:[NSNumber class]] ? [oldV longLongValue] : 0;
-    long long n = [newV isKindOfClass:[NSNumber class]] ? [newV longLongValue] : 0;
-    if (n != o + 1) return NO;
-    DKFireFavHapticFromModel();
-    return YES;
-}
-static void (*orig_dk_setVFK)(id, SEL, id, NSString *);
-static void dk_setVFK(id self, SEL _cmd, id v, NSString *k){
-    id old = nil;
-    @try { if (DKKeyLooksLikeCount(k)) old = [self valueForKey:k]; } @catch (NSException *e) {}
-    if (orig_dk_setVFK) orig_dk_setVFK(self, _cmd, v, k);
-    @try {
-        if (DKKeyLooksLikeCount(k)) {
-            DKDiag([NSString stringWithFormat:@"kvc %@ key=%@ old=%@ new=%@", NSStringFromClass(object_getClass(self)), k, old, v]);
-            if (!DKCompareAndFire(old, v)) {
-                id nv = [self valueForKey:k];
-                DKCompareAndFire(old, nv);
-            }
-        }
-    } @catch (NSException *e) {}
-}
-static void (*orig_dk_setVFKP)(id, SEL, id, NSString *);
-static void dk_setVFKP(id self, SEL _cmd, id v, NSString *k){
-    id old = nil;
-    @try { if (DKKeyLooksLikeCount(k)) old = [self valueForKeyPath:k]; } @catch (NSException *e) {}
-    if (orig_dk_setVFKP) orig_dk_setVFKP(self, _cmd, v, k);
-    @try {
-        if (DKKeyLooksLikeCount(k)) {
-            if (!DKCompareAndFire(old, v)) DKCompareAndFire(old, [self valueForKeyPath:k]);
-        }
-    } @catch (NSException *e) {}
-}
-// 字典里写入的计数
-static void (*orig_dk_dictSet)(id, SEL, id, id);
-static void dk_dictSet(id self, SEL _cmd, id obj, id key){
-    id old = nil;
-    @try { if ([key isKindOfClass:[NSString class]] && DKKeyLooksLikeCount(key)) old = [(NSDictionary *)self objectForKey:key]; } @catch (NSException *e) {}
-    if (orig_dk_dictSet) orig_dk_dictSet(self, _cmd, obj, key);
-    @try {
-        if ([key isKindOfClass:[NSString class]] && DKKeyLooksLikeCount(key)) {
-            DKDiag([NSString stringWithFormat:@"dict key=%@ old=%@ new=%@", key, old, obj]);
-            DKCompareAndFire(old, obj);
-        }
-    } @catch (NSException *e) {}
-}
-
 static void DKScanCountSetters(void){
     if (dk_modelHookInstalled) return;
     dk_modelHookInstalled = YES;
@@ -1192,10 +1137,10 @@ static void DKScanCountSetters(void){
             SEL sel = method_getName(ms[j]);
             const char *sn = sel_getName(sel);
             if (strncmp(sn, "set", 3) != 0) continue;
+            if (!strstr(sn, "Count:")) continue;      // 只认数量字段，范围收窄
             BOOL isFav = (strstr(sn, "avorite") || strstr(sn, "ollect")) ? YES : NO;
-            BOOL isLike = (!isFav && (strstr(sn, "iggCount") || strstr(sn, "ikeCount"))) ? YES : NO;
+            BOOL isLike = (!isFav && strstr(sn, "iggCount")) ? YES : NO;
             if (!isFav && !isLike) continue;
-            if (strstr(sn, "List") || strstr(sn, "Tips") || strstr(sn, "Guide") || strstr(sn, "View")) continue;
             const char *types = method_getTypeEncoding(ms[j]);
             if (!types || types[0] != 'v') continue;
             const char *p = strchr(types, '@');   // self
@@ -1237,14 +1182,10 @@ static void DKInstallFavHaptic(void){
         MSHookMessageEx(lab, sel_registerName("setText:"), (IMP)dk_labelText, (IMP *)&orig_dk_labelText);
         MSHookMessageEx(lab, sel_registerName("setAttributedText:"), (IMP)dk_labelAttr, (IMP *)&orig_dk_labelAttr);
     }
-    Class nso = objc_getClass("NSObject");
-    if (nso) {
-        MSHookMessageEx(nso, sel_registerName("setValue:forKey:"), (IMP)dk_setVFK, (IMP *)&orig_dk_setVFK);
-        MSHookMessageEx(nso, sel_registerName("setValue:forKeyPath:"), (IMP)dk_setVFKP, (IMP *)&orig_dk_setVFKP);
-    }
-    Class d = objc_getClass("NSMutableDictionary");
-    if (d) MSHookMessageEx(d, sel_registerName("setObject:forKey:"), (IMP)dk_dictSet, (IMP *)&orig_dk_dictSet);
-    DKScanCountSetters();
+    // 计数模型扫描放到后台、延后执行，避免卡住启动（watchdog）
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(5.0 * NSEC_PER_SEC)), dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_BACKGROUND, 0), ^{
+        DKScanCountSetters();
+    });
 }
 
 static void DKInstallNoFavAnim(void){
