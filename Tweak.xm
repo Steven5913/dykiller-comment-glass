@@ -777,6 +777,62 @@ static void hook_shareLayout(id self, SEL _cmd){
     @try { DKShareToastFix((UIView *)self); } @catch(NSException *e) {}
 }
 
+// ===== 收藏/取消收藏 提示条（AFDSnackBarCustomView）玻璃 + 白字白图标 =====
+static NSString *DKToastText(UIView *v){
+    if (!v) return nil;
+    NSMutableArray *q = [NSMutableArray arrayWithObject:v];
+    int guard = 0;
+    while (q.count > 0 && guard++ < 60) {
+        UIView *c = [q objectAtIndex:0];
+        [q removeObjectAtIndex:0];
+        if ([c isKindOfClass:[UILabel class]]) {
+            NSString *t = ((UILabel *)c).text;
+            if (t.length) return t;
+        }
+        for (UIView *s in c.subviews) [q addObject:s];
+    }
+    return nil;
+}
+static void DKWhitenIconAndText(UIView *v){
+    if (!v) return;
+    if ([v isKindOfClass:[UILabel class]]) {
+        ((UILabel *)v).textColor = [UIColor whiteColor];
+    } else if ([v isKindOfClass:[UIImageView class]]) {
+        UIImageView *iv = (UIImageView *)v;
+        if (iv.image) iv.image = [iv.image imageWithRenderingMode:UIImageRenderingModeAlwaysTemplate];
+        iv.tintColor = [UIColor whiteColor];
+    }
+    for (UIView *s in v.subviews) {
+        if (s.tag == DK_TAG) continue;
+        DKWhitenIconAndText(s);
+    }
+}
+static void DKFeedFavToast(UIView *v){
+    if (!v) return;
+    CGRect b = v.bounds;
+    if (b.size.width < 40.0 || b.size.height < 8.0) return;
+    NSString *t = DKToastText(v);
+    if (!t.length || [t rangeOfString:@"收藏"].location == NSNotFound) return;
+    CGFloat r = b.size.height / 2.0;
+    if (v.backgroundColor && ![v.backgroundColor isEqual:[UIColor clearColor]]) v.backgroundColor = [UIColor clearColor];
+    for (UIView *s in v.subviews) {
+        if (s.tag == DK_TAG) continue;
+        UIColor *bg = s.backgroundColor;
+        CGFloat w = 0.0, a = 0.0;
+        if (bg && [bg getWhite:&w alpha:&a] && a > 0.02) s.backgroundColor = [UIColor clearColor];
+        if ([s isKindOfClass:[UIVisualEffectView class]]) s.hidden = YES;
+    }
+    if (fabs((double)v.layer.cornerRadius - (double)r) > 0.5) v.layer.cornerRadius = r;
+    v.layer.masksToBounds = YES;
+    DKApplyGlassAt(v, b, r);
+    DKWhitenIconAndText(v);
+}
+static void (*orig_snackLayout)(id, SEL);
+static void hook_snackLayout(id self, SEL _cmd){
+    if (orig_snackLayout) orig_snackLayout(self, _cmd);
+    @try { DKFeedFavToast((UIView *)self); } @catch (NSException *e) {}
+}
+
 // ===== 游戏标签 / 弹幕按钮 / 全屏观看 三处胶囊玻璃（沿用六按钮同一套配料） =====
 static void DKGlassPill(UIView *v){
     if (!v) return;
@@ -1355,6 +1411,8 @@ static void DKTryInstall(void){
         if (landC) MSHookMessageEx(landC, sel_registerName("layoutSubviews"), (IMP)hook_pillLayout3, (IMP *)&orig_pillLayout3);
         Class tipsC = NSClassFromString(@"AWEIMBottomTipsContainerView");
         if (tipsC) MSHookMessageEx(tipsC, sel_registerName("layoutSubviews"), (IMP)hook_tipsLayout, (IMP *)&orig_tipsLayout);
+        Class snackC = NSClassFromString(@"AFDSnackBarCustomView");
+        if (snackC) MSHookMessageEx(snackC, sel_registerName("layoutSubviews"), (IMP)hook_snackLayout, (IMP *)&orig_snackLayout);
         Class shareC = NSClassFromString(@"AWEIMBottomShareTipsView");
         if (shareC) MSHookMessageEx(shareC, sel_registerName("layoutSubviews"), (IMP)hook_shareLayout, (IMP *)&orig_shareLayout);
         Class rail = NSClassFromString(@"AWEElementStackView");
