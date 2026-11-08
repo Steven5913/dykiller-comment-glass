@@ -942,24 +942,6 @@ static BOOL DKIsFavButton(UIView *v){
     static dispatch_once_t o; dispatch_once(&o, ^{ k = @[@"收藏", @"Favorite", @"Collect"]; });
     return DKViewLabelContains(v, k);
 }
-// "40" -> 40；"1.6万" -> 16000；"12.3w" -> 123000
-static long long DKNumberFromText(NSString *t){
-    if (!t.length) return -1;
-    NSMutableString *d = [NSMutableString string];
-    for (NSUInteger i = 0; i < t.length; i++) {
-        unichar c = [t characterAtIndex:i];
-        if (c >= '0' && c <= '9') [d appendFormat:@"%C", c];
-        else if (c == '.' && d.length) [d appendString:@"."];
-        else if (d.length) break;
-    }
-    if (!d.length) return -1;
-    double val = [d doubleValue];
-    if ([t rangeOfString:@"万"].location != NSNotFound) val *= 10000.0;
-    if ([t rangeOfString:@"w"].location != NSNotFound ||
-        [t rangeOfString:@"W"].location != NSNotFound) val *= 10000.0;
-    if ([t rangeOfString:@"亿"].location != NSNotFound) val *= 100000000.0;
-    return (long long)(val + 0.5);
-}
 static void DKPlayImpact(NSInteger style){
     dk_replaying = YES;
     @try {
@@ -986,43 +968,16 @@ static void dk_sendEvent(id self, SEL _cmd, UIEvent *e){
     if (orig_dk_sendEvent) orig_dk_sendEvent(self, _cmd, e);
 }
 
-// 收藏成功判定：万以内看计数 +1，过万改看“收藏成功”提示条
-static void DKFavSuccess(UIView *v){
-    double now = CFAbsoluteTimeGetCurrent();
-    if (now - dk_lastFavPlayAt < 1.0) return;   // 计数和提示条可能同一动作各来一次，1 秒内只震一下
-    dk_lastFavPlayAt = now;
-    DKPlayImpact(DK_FAV_STYLE);
-    (void)v;
-}
-static void DKHandleCount(UIView *v, NSString *oldText, NSString *newText){
-    BOOL oldHasWan = oldText.length && [oldText rangeOfString:@"万"].location != NSNotFound;
-    BOOL newHasWan = newText.length && [newText rangeOfString:@"万"].location != NSNotFound;
-    if (oldHasWan || newHasWan) return;      // 万级显示 1000 一档，+1 看不见，交给计数模型钩子
-    long long o = DKNumberFromText(oldText);
-    long long n = DKNumberFromText(newText);
-    if (o < 0) o = 0;                        // “收藏”这种没数字的文案按 0 算
-    if (n < 0) return;                       // 变回没数字的文案（取消后回“收藏”），不震
-    if (n != o + 1) return;
-    if (DKIsLikeButton(v)) {
-        dk_likeArmAt = CFAbsoluteTimeGetCurrent();
-    } else if (DKIsFavButton(v)) {
-        DKFavSuccess(v);
-    }
-}
+// 收藏/取消一律只看 app 自己的提示文案（与收藏量大小无关）
 static void (*orig_dk_labelText)(id, SEL, NSString *);
 static void dk_labelText(id self, SEL _cmd, NSString *t){
-    NSString *old = nil;
-    @try { old = [(UILabel *)self text]; } @catch (NSException *e) {}
     if (orig_dk_labelText) orig_dk_labelText(self, _cmd, t);
     @try { DKHandleFavText(t); } @catch (NSException *e) {}
-    @try { DKHandleCount((UIView *)self, old, t); } @catch (NSException *e) {}
 }
 static void (*orig_dk_labelAttr)(id, SEL, NSAttributedString *);
 static void dk_labelAttr(id self, SEL _cmd, NSAttributedString *t){
-    NSString *old = nil;
-    @try { old = [(UILabel *)self text]; } @catch (NSException *e) {}
     if (orig_dk_labelAttr) orig_dk_labelAttr(self, _cmd, t);
-    @try { NSString *s2 = [t string]; DKHandleCount((UIView *)self, old, s2); } @catch (NSException *e) {}
+    @try { DKHandleFavText([t string]); } @catch (NSException *e) {}
 }
 
 static BOOL DKShouldReplaceLikeHaptic(void){
