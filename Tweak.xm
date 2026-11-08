@@ -862,6 +862,11 @@ static void DKScanRoot(UIView *root){
         [stack removeLastObject];
         CGRect wr = v.frame;
         @try { wr = [v convertRect:v.bounds toView:win]; } @catch(...) { wr = v.frame; }
+        if ([NSStringFromClass([v class]) isEqualToString:@"AWEFeedTemplateAnchorViewV2"]) {
+            DKClearTagBg(v);
+            DKGlassPill(v);
+            continue;
+        }
         if (wr.size.height >= 150 && wr.size.height <= 760 &&
             wr.size.width >= 55 && wr.size.width <= 130 &&
             wr.origin.x >= 250 && DKCountElements(v, 0) >= 3) {
