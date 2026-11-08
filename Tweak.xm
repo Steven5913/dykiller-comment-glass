@@ -947,7 +947,7 @@ static void DKPlayHaptic(DKHaptic h){
             [g selectionChanged];
         } else {
             NSInteger style = (h.kind == 0) ? UIImpactFeedbackStyleLight : h.style;
-            UIImpactFeedbackGenerator *g = [[UIImpactFeedbackGenerator alloc] initWithStyle:style];
+            UIImpactFeedbackGenerator *g = [[UIImpactFeedbackGenerator alloc] initWithStyle:(UIImpactFeedbackStyle)style];
             [g prepare];
             if (h.intensity >= 0.0 && [g respondsToSelector:NSSelectorFromString(@"impactOccurredWithIntensity:")]) {
                 NSMethodSignature *sig = [g methodSignatureForSelector:NSSelectorFromString(@"impactOccurredWithIntensity:")];
