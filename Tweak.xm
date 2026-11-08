@@ -913,6 +913,8 @@ static double dk_lastLikeReplaceAt = -10.0;
 static BOOL dk_replaying = NO;
 static NSInteger dk_curImpactStyle = 0;
 
+static void DKHandleFavText(NSString *t);
+
 static BOOL DKViewLabelContains(UIView *v, NSArray *kws){
     if (!v) return NO;
     NSMutableArray *texts = [NSMutableArray array];
@@ -1012,6 +1014,7 @@ static void dk_labelText(id self, SEL _cmd, NSString *t){
     NSString *old = nil;
     @try { old = [(UILabel *)self text]; } @catch (NSException *e) {}
     if (orig_dk_labelText) orig_dk_labelText(self, _cmd, t);
+    @try { DKHandleFavText(t); } @catch (NSException *e) {}
     @try { DKHandleCount((UIView *)self, old, t); } @catch (NSException *e) {}
 }
 static void (*orig_dk_labelAttr)(id, SEL, NSAttributedString *);
@@ -1058,73 +1061,50 @@ static void dk_selChanged(id self, SEL _cmd){
     if (orig_dk_selChanged) orig_dk_selChanged(self, _cmd);
 }
 
-// ===== 万级收藏：临时诊断浮层（只在点收藏后 5 秒内记录） =====
-static UILabel *dk_hudLabel = nil;
+// ===== 收藏方向判定：靠 app 自己的成功/取消提示文案（与收藏量大小无关） =====
+static double dk_favCancelAt = -10.0;
 
-static void DKHudAdd(NSString *line){
-    if (!line.length) return;
-    NSString *copy = [line copy];
+static void DKFireFavOnce(void){
     dispatch_async(dispatch_get_main_queue(), ^{
-        UIWindow *w = nil;
-        for (UIWindow *win in [UIApplication sharedApplication].windows) { if (win.isKeyWindow) { w = win; break; } }
-        if (!w) w = [[UIApplication sharedApplication].windows firstObject];
-        if (!w) return;
-        if (!dk_hudLabel) {
-            dk_hudLabel = [[UILabel alloc] initWithFrame:CGRectMake(8, 150, w.bounds.size.width - 16, 260)];
-            dk_hudLabel.numberOfLines = 0;
-            dk_hudLabel.font = [UIFont systemFontOfSize:11];
-            dk_hudLabel.textColor = [UIColor whiteColor];
-            dk_hudLabel.backgroundColor = [[UIColor blackColor] colorWithAlphaComponent:0.7];
-            dk_hudLabel.userInteractionEnabled = NO;
-            [w addSubview:dk_hudLabel];
-            dk_hudLabel.text = @"";
-            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(25.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-                [dk_hudLabel removeFromSuperview];
-                dk_hudLabel = nil;
-            });
-        }
-        NSString *t = dk_hudLabel.text.length ? [dk_hudLabel.text stringByAppendingFormat:@"\n%@", copy] : copy;
-        NSArray *ls = [t componentsSeparatedByString:@"\n"];
-        if (ls.count > 10) t = [[ls subarrayWithRange:NSMakeRange(ls.count - 10, 10)] componentsJoinedByString:@"\n"];
-        dk_hudLabel.text = t;
+        double now = CFAbsoluteTimeGetCurrent();
+        if (now - dk_lastFavPlayAt < 0.35) return;
+        dk_lastFavPlayAt = now;
+        DKPlayImpact(DK_FAV_STYLE);
     });
 }
-static BOOL DKInFavRecently(UIView *v){
-    if (dk_favArmAt <= 0.0) return NO;
-    if (CFAbsoluteTimeGetCurrent() - dk_favArmAt > 5.0) return NO;
-    return DKIsFavButton(v);
+static BOOL DKTextIsFavCancel(NSString *t){
+    if (!t.length) return NO;
+    if ([t containsString:@"已取消"]) return YES;
+    if ([t containsString:@"取消收藏"]) return YES;
+    return NO;
 }
-static void (*orig_dk_setA11yValue)(id, SEL, NSString *);
-static void dk_setA11yValue(id self, SEL _cmd, NSString *v){
-    if (orig_dk_setA11yValue) orig_dk_setA11yValue(self, _cmd, v);
-    @try {
-        UIView *view = (UIView *)self;
-        if (DKInFavRecently(view)) DKHudAdd([NSString stringWithFormat:@"AV %@ = %@", NSStringFromClass(object_getClass(view)), v]);
-    } @catch (NSException *e) {}
+static BOOL DKTextIsFavSuccess(NSString *t){
+    if (!t.length) return NO;
+    if ([t containsString:@"取消"]) return NO;
+    if ([t containsString:@"收藏成功"]) return YES;
+    if ([t containsString:@"已添加到"]) return YES;
+    if ([t containsString:@"已收藏"]) return YES;
+    return NO;
+}
+static void DKHandleFavText(NSString *t){
+    if (!t.length) return;
+    BOOL armed = (dk_favArmAt > 0.0 && CFAbsoluteTimeGetCurrent() - dk_favArmAt < 4.0);
+    if (!armed) return;
+    if (DKTextIsFavCancel(t)) { dk_favCancelAt = CFAbsoluteTimeGetCurrent(); return; }
+    if (DKTextIsFavSuccess(t)) {
+        if (CFAbsoluteTimeGetCurrent() - dk_favCancelAt < 0.6) return;
+        DKFireFavOnce();
+    }
 }
 static void (*orig_dk_setA11yLabel)(id, SEL, NSString *);
 static void dk_setA11yLabel(id self, SEL _cmd, NSString *v){
     if (orig_dk_setA11yLabel) orig_dk_setA11yLabel(self, _cmd, v);
-    @try {
-        UIView *view = (UIView *)self;
-        if (DKInFavRecently(view)) DKHudAdd([NSString stringWithFormat:@"AL %@ = %@", NSStringFromClass(object_getClass(view)), v]);
-    } @catch (NSException *e) {}
+    @try { DKHandleFavText(v); } @catch (NSException *e) {}
 }
-static void (*orig_dk_setHidden)(id, SEL, BOOL);
-static void dk_setHidden(id self, SEL _cmd, BOOL h){
-    if (orig_dk_setHidden) orig_dk_setHidden(self, _cmd, h);
-    @try {
-        UIView *view = (UIView *)self;
-        if (DKInFavRecently(view)) DKHudAdd([NSString stringWithFormat:@"HD %@ = %d", NSStringFromClass(object_getClass(view)), (int)h]);
-    } @catch (NSException *e) {}
-}
-static void (*orig_dk_setImage)(id, SEL, UIImage *);
-static void dk_setImage(id self, SEL _cmd, UIImage *img){
-    if (orig_dk_setImage) orig_dk_setImage(self, _cmd, img);
-    @try {
-        UIImageView *view = (UIImageView *)self;
-        if (DKInFavRecently(view)) DKHudAdd([NSString stringWithFormat:@"IM %@ %@", NSStringFromClass(object_getClass(view)), NSStringFromCGSize(img.size)]);
-    } @catch (NSException *e) {}
+static void (*orig_dk_setA11yValue)(id, SEL, NSString *);
+static void dk_setA11yValue(id self, SEL _cmd, NSString *v){
+    if (orig_dk_setA11yValue) orig_dk_setA11yValue(self, _cmd, v);
+    @try { DKHandleFavText(v); } @catch (NSException *e) {}
 }
 
 static void DKInstallFavHaptic(void){
@@ -1152,10 +1132,7 @@ static void DKInstallFavHaptic(void){
     if (uv2) {
         MSHookMessageEx(uv2, sel_registerName("setAccessibilityValue:"), (IMP)dk_setA11yValue, (IMP *)&orig_dk_setA11yValue);
         MSHookMessageEx(uv2, sel_registerName("setAccessibilityLabel:"), (IMP)dk_setA11yLabel, (IMP *)&orig_dk_setA11yLabel);
-        MSHookMessageEx(uv2, sel_registerName("setHidden:"), (IMP)dk_setHidden, (IMP *)&orig_dk_setHidden);
     }
-    Class iv = objc_getClass("UIImageView");
-    if (iv) MSHookMessageEx(iv, sel_registerName("setImage:"), (IMP)dk_setImage, (IMP *)&orig_dk_setImage);
 }
 
 static void DKInstallNoFavAnim(void){
