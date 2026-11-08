@@ -798,6 +798,46 @@ static void hook_pillLayout3(id self, SEL _cmd){
     @try { DKGlassPill((UIView *)self); } @catch(NSException *e) {}
 }
 
+// ---- 临时调试 HUD：记录右侧互动区里发生的动画（类名 + key + 动画类名）----
+static UILabel *DKHudLabel = nil;
+static NSMutableArray *DKHudLines = nil;
+static void DKHudLog(NSString *line){
+    @try {
+        if (!line) return;
+        dispatch_async(dispatch_get_main_queue(), ^{
+            if (!DKHudLines) DKHudLines = [NSMutableArray array];
+            [DKHudLines addObject:line];
+            while (DKHudLines.count > 9) [DKHudLines removeObjectAtIndex:0];
+            if (!DKHudLabel) {
+                UIWindow *w = [UIApplication sharedApplication].keyWindow;
+                if (!w) return;
+                DKHudLabel = [[UILabel alloc] initWithFrame:CGRectMake(8, 150, w.bounds.size.width - 16, 210)];
+                DKHudLabel.numberOfLines = 0;
+                DKHudLabel.font = [UIFont systemFontOfSize:12];
+                DKHudLabel.textColor = [UIColor whiteColor];
+                DKHudLabel.backgroundColor = [UIColor colorWithWhite:0.0 alpha:0.75];
+                DKHudLabel.userInteractionEnabled = NO;
+                DKHudLabel.tag = DK_TAG;
+                [w addSubview:DKHudLabel];
+            }
+            DKHudLabel.text = [DKHudLines componentsJoinedByString:@"\n"];
+            [DKHudLabel.superview bringSubviewToFront:DKHudLabel];
+            DKHudLabel.hidden = NO;
+            [NSObject cancelPreviousPerformRequestsWithTarget:DKHudLabel selector:@selector(setHidden:) object:@YES];
+            [DKHudLabel performSelector:@selector(setHidden:) withObject:@YES afterDelay:15.0];
+        });
+    } @catch (NSException *e) {}
+}
+static BOOL DKViewInRail(UIView *v){
+    int depth = 0;
+    while (v && depth++ < 12) {
+        NSString *cn = NSStringFromClass([v class]);
+        if ([cn isEqualToString:@"AWEElementStackView"] || [cn isEqualToString:@"AWEBaseElementView"]) return YES;
+        v = v.superview;
+    }
+    return NO;
+}
+
 // ===== 停掉点赞 / 收藏按钮上的爆心、星标等弹出动画 =====
 static BOOL DKNameLooksLikeFav(NSString *n){
     if (!n || n.length == 0) return NO;
@@ -855,6 +895,10 @@ static BOOL DKLayerInFavTree(CALayer *l, NSString *animKey){
 static void (*orig_dk_startAnimating)(id, SEL);
 static void dk_startAnimating(id self, SEL _cmd){
     @try {
+        if (DKViewInRail(((UIImageView *)self).superview))
+            DKHudLog([NSString stringWithFormat:@"[IMG] %@ 帧数=%lu", NSStringFromClass([[self class] class]) ?: @"?", (unsigned long)((UIImageView *)self).animationImages.count]);
+    } @catch (NSException *e) {}
+    @try {
         id d = ((UIImageView *)self).superview;
         UIView *v = [d isKindOfClass:[UIView class]] ? (UIView *)d : nil;
         int depth = 0;
@@ -868,6 +912,14 @@ static void dk_startAnimating(id self, SEL _cmd){
 
 static void (*orig_dk_addAnimation)(id, SEL, CAAnimation *, NSString *);
 static void dk_addAnimation(id self, SEL _cmd, CAAnimation *anim, NSString *key){
+    @try {
+        id dlg = ((CALayer *)self).delegate;
+        if ([dlg isKindOfClass:[UIView class]] && DKViewInRail((UIView *)dlg)) {
+            DKHudLog([NSString stringWithFormat:@"[CA] %@ key=%@ anim=%@",
+                      NSStringFromClass([dlg class]) ?: @"?", key ?: @"-",
+                      anim ? NSStringFromClass([anim class]) : @"-"]);
+        }
+    } @catch (NSException *e) {}
     @try {
         if (DKLayerInFavTree((CALayer *)self, key)) return;
     } @catch (NSException *e) {}
