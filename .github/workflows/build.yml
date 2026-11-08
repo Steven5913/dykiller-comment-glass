@@ -14,9 +14,18 @@ jobs:
       - name: Checkout 工程
         uses: actions/checkout@v4
 
+      - name: 缓存 Theos 工具链
+        uses: actions/cache@v4
+        with:
+          path: theos
+          key: theos-linux-iphone-16.5-v1
+
       - name: 安装依赖与 Theos (Linux 交叉编译)
         run: |
           set -e
+          if [ -x "$THEOS/toolchain/linux/iphone/bin/clang" ] && [ -d "$THEOS/sdks/iPhoneOS16.5.sdk" ] && [ -x /usr/local/bin/ldid ]; then
+            echo "===== 命中缓存，跳过下载 ====="; ls "$THEOS/sdks"; exit 0
+          fi
           sudo apt-get update
           sudo apt-get install -y clang build-essential curl xz-utils
           # GitHub release 走代理，直连时偶发 504
