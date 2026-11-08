@@ -776,6 +776,31 @@ static void hook_shareLayout(id self, SEL _cmd){
     @try { DKShareToastFix((UIView *)self); } @catch(NSException *e) {}
 }
 
+// ===== 游戏标签 / 弹幕按钮 / 全屏观看 三处胶囊玻璃（沿用六按钮同一套配料） =====
+static void DKGlassPill(UIView *v){
+    if (!v) return;
+    CGRect b = v.bounds;
+    if (b.size.width < 8.0 || b.size.height < 8.0) return;
+    if (isnan(b.size.width) || isnan(b.size.height)) return;
+    DKApplyGlassAt(v, b, b.size.height / 2.0);
+}
+
+static void (*orig_pillLayout)(id, SEL);
+static void hook_pillLayout(id self, SEL _cmd){
+    if (orig_pillLayout) orig_pillLayout(self, _cmd);
+    @try { DKGlassPill((UIView *)self); } @catch(NSException *e) {}
+}
+static void (*orig_pillLayout2)(id, SEL);
+static void hook_pillLayout2(id self, SEL _cmd){
+    if (orig_pillLayout2) orig_pillLayout2(self, _cmd);
+    @try { DKGlassPill((UIView *)self); } @catch(NSException *e) {}
+}
+static void (*orig_pillLayout3)(id, SEL);
+static void hook_pillLayout3(id self, SEL _cmd){
+    if (orig_pillLayout3) orig_pillLayout3(self, _cmd);
+    @try { DKGlassPill((UIView *)self); } @catch(NSException *e) {}
+}
+
 static void DKScanRoot(UIView *root){
     if (!root) return;
     UIView *win = root.window;
@@ -986,6 +1011,12 @@ static void DKTryInstall(void){
         if (ring && !orig_ringLayout) {
             MSHookMessageEx(ring, sel_registerName("layoutSubviews"), (IMP)hook_ringLayout, (IMP *)&orig_ringLayout);
         }
+        Class gameTagC = NSClassFromString(@"AWEFeedTemplateAnchorViewV2");
+        if (gameTagC) MSHookMessageEx(gameTagC, sel_registerName("layoutSubviews"), (IMP)hook_pillLayout, (IMP *)&orig_pillLayout);
+        Class danmuC = NSClassFromString(@"AWEPlayDanmakuInputContainView");
+        if (danmuC) MSHookMessageEx(danmuC, sel_registerName("layoutSubviews"), (IMP)hook_pillLayout2, (IMP *)&orig_pillLayout2);
+        Class landC = NSClassFromString(@"AWELandscapeFeedEntryView");
+        if (landC) MSHookMessageEx(landC, sel_registerName("layoutSubviews"), (IMP)hook_pillLayout3, (IMP *)&orig_pillLayout3);
         Class tipsC = NSClassFromString(@"AWEIMBottomTipsContainerView");
         if (tipsC) MSHookMessageEx(tipsC, sel_registerName("layoutSubviews"), (IMP)hook_tipsLayout, (IMP *)&orig_tipsLayout);
         Class shareC = NSClassFromString(@"AWEIMBottomShareTipsView");
