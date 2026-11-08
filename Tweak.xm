@@ -982,6 +982,12 @@ static void hook_popoverLayout(id self, SEL _cmd){
 static void DKCommentRestoreHeight(UIView *root);
 
 static void (*orig_cellLayout)(id, SEL);
+static void (*orig_storyLayout)(id, SEL);
+static void hook_storyLayout(id self, SEL _cmd){
+    if (orig_storyLayout) orig_storyLayout(self, _cmd);
+    @try { DKCommentRestoreHeight((UIView *)self); } @catch(NSException *e) {}
+}
+
 static void hook_cellLayout(id self, SEL _cmd){
     if (orig_cellLayout) orig_cellLayout(self, _cmd);
     @try {
@@ -1088,6 +1094,11 @@ static void DKTryInstall(void){
         if (ibar && !orig_inputBarLayout) {
             MSHookMessageEx(ibar, sel_registerName("layoutSubviews"), (IMP)hook_inputBarLayout, (IMP *)&orig_inputBarLayout);
         }
+        // 图片作品翻页：内容层由这个 collectionView 重新排布，排完立刻把文字块放回底部
+        Class story = NSClassFromString(@"AWEStoryContainerCollectionView");
+        if (story && !orig_storyLayout) {
+            MSHookMessageEx(story, sel_registerName("layoutSubviews"), (IMP)hook_storyLayout, (IMP *)&orig_storyLayout);
+        }
         // 页面级兜底
         Class pi = NSClassFromString(@"AWEPlayInteractionViewController");
         if (pi) {
@@ -1098,7 +1109,7 @@ static void DKTryInstall(void){
     if (orig_elemLayout || orig_railLayout || orig_piLayout || orig_navLayout || orig_popoverLayout ||
         orig_detailVCLayout || orig_detailNavLayout || orig_inputBarLayout ||
         orig_quickCellLayout || orig_quickBarLayout ||
-        orig_cdNavLayout || orig_cdInputLayout || orig_cdVCLayout) g_hooked = YES;
+        orig_cdNavLayout || orig_cdInputLayout || orig_cdVCLayout || orig_storyLayout) g_hooked = YES;
 }
 
 static __attribute__((constructor)) void DKInit(void){
