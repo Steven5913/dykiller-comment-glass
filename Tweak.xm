@@ -159,6 +159,28 @@ static void DKApplyDisc(UIView *host, UIView *icon, CGFloat d){
 }
 
 // 按矩形铺一块玻璃（胶囊/面板用；与圆盘同一套配方）
+#define DK_REMOTE_TAG 20261109
+// 提示条挂在独立覆盖窗（AWEMaskWindow）上时，UIVisualEffectView 取样不到主窗的视频画面，
+// 材质会退化成一整块奶白（白雾）。这种宿主不在自己身上铺玻璃，改在 key window 的同位置铺，
+// 上面盖着的是覆盖窗——文字照样在，玻璃能正常取样到视频
+static BOOL DKApplyGlassRemote(UIView *host, CGRect r, CGFloat radius){
+    UIWindow *key = nil;
+    for (UIWindow *w in [UIApplication sharedApplication].windows) { if (w.isKeyWindow) { key = w; break; } }
+    if (!key) return NO;
+    UIWindow *hw = host.window;
+    if (!hw || hw == key) return NO;
+    for (UIView *old in [key.subviews copy]) if (old.tag == DK_REMOTE_TAG) [old removeFromSuperview];
+    CGRect wr = [host convertRect:r toView:key];
+    UIView *g = DKMakeGlassRect(r.size.width, r.size.height, radius);
+    g.frame = wr;
+    g.tag = DK_REMOTE_TAG;
+    [key addSubview:g];
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(4.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        [g removeFromSuperview];
+    });
+    return YES;
+}
+
 static void DKApplyGlassAt(UIView *host, CGRect r, CGFloat radius){
     if (!host) return;
     if (r.size.width < 8 || r.size.height < 8) return;
@@ -950,8 +972,10 @@ static void DKFeedFavToast(UIView *v){
     if (isCancelBar) DKStripDecorLayers(v);
     if (fabs((double)v.layer.cornerRadius - (double)r) > 0.5) v.layer.cornerRadius = r;
     v.layer.masksToBounds = YES;
-    DKApplyGlassAt(v, b, r);
-    for (UIView *sv in v.subviews) if (sv.tag == DK_TAG) sv.layer.hidden = NO;
+    if (!DKApplyGlassRemote(v, b, r)) {
+        DKApplyGlassAt(v, b, r);
+        for (UIView *sv in v.subviews) if (sv.tag == DK_TAG) sv.layer.hidden = NO;
+    }
     @try { DKDumpCancelToast(v); } @catch (NSException *e) {}
     DKWhitenIconAndText(v);
 }
