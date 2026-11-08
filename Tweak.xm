@@ -785,6 +785,43 @@ static void DKGlassPill(UIView *v){
     DKApplyGlassAt(v, b, b.size.height / 2.0);
 }
 
+// 清掉游戏标签自带的浅色底（背景色 / 模糊层），只留图标与文字，让玻璃透出来
+static void DKClearTagBg(UIView *v){
+    if (!v) return;
+    NSMutableArray *q = [NSMutableArray arrayWithObject:v];
+    int guard = 0;
+    while (q.count > 0 && guard++ < 200) {
+        UIView *c = [q objectAtIndex:0];
+        [q removeObjectAtIndex:0];
+        if (c.tag == DK_TAG) continue;
+        if ([c isKindOfClass:[UIVisualEffectView class]]) c.hidden = YES;
+        UIColor *bg = c.backgroundColor;
+        if (bg) {
+            CGFloat w = 0.0, a = 0.0;
+            if ([bg getWhite:&w alpha:&a] && a > 0.03 && w > 0.45) c.backgroundColor = [UIColor clearColor];
+        }
+        for (CALayer *l in c.layer.sublayers) {
+            CGColorRef cg = l.backgroundColor;
+            if (!cg) continue;
+            UIColor *uc = [UIColor colorWithCGColor:cg];
+            CGFloat w = 0.0, a = 0.0;
+            if ([uc getWhite:&w alpha:&a] && a > 0.03 && w > 0.45) {
+                [CATransaction begin]; [CATransaction setDisableActions:YES];
+                l.backgroundColor = NULL;
+                [CATransaction commit];
+            } else if ([l isKindOfClass:[CAShapeLayer class]]) {
+                l.hidden = YES;
+            }
+        }
+        for (UIView *sv in c.subviews) [q addObject:sv];
+    }
+}
+
+static void hook_gameTagLayout(id self, SEL _cmd){
+    if (orig_pillLayout) orig_pillLayout(self, _cmd);
+    @try { DKClearTagBg((UIView *)self); DKGlassPill((UIView *)self); } @catch(NSException *e) {}
+}
+
 static void (*orig_pillLayout)(id, SEL);
 static void hook_pillLayout(id self, SEL _cmd){
     if (orig_pillLayout) orig_pillLayout(self, _cmd);
@@ -1012,7 +1049,7 @@ static void DKTryInstall(void){
             MSHookMessageEx(ring, sel_registerName("layoutSubviews"), (IMP)hook_ringLayout, (IMP *)&orig_ringLayout);
         }
         Class gameTagC = NSClassFromString(@"AWEFeedTemplateAnchorViewV2");
-        if (gameTagC) MSHookMessageEx(gameTagC, sel_registerName("layoutSubviews"), (IMP)hook_pillLayout, (IMP *)&orig_pillLayout);
+        if (gameTagC) MSHookMessageEx(gameTagC, sel_registerName("layoutSubviews"), (IMP)hook_gameTagLayout, (IMP *)&orig_pillLayout);
         Class danmuC = NSClassFromString(@"AWEPlayDanmakuInputContainView");
         if (danmuC) MSHookMessageEx(danmuC, sel_registerName("layoutSubviews"), (IMP)hook_pillLayout2, (IMP *)&orig_pillLayout2);
         Class landC = NSClassFromString(@"AWELandscapeFeedEntryView");
