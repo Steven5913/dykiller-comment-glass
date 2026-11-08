@@ -824,6 +824,71 @@ static void DKClearBackingDeep(UIView *v, int depth){
     }
     for (UIView *s in v.subviews) DKClearBackingDeep(s, depth + 1);
 }
+// ===== 临时取证浮层：取消提示条为什么还有白雾 =====
+static UILabel *g_dkHud = nil;
+static double g_dkHudAt = -10.0;
+static void DKHudShow(NSString *body){
+    double now = CFAbsoluteTimeGetCurrent();
+    if (now - g_dkHudAt < 2.0) return;
+    g_dkHudAt = now;
+    NSString *text = [body copy];
+    dispatch_async(dispatch_get_main_queue(), ^{
+        UIWindow *w = nil;
+        for (UIWindow *win in [UIApplication sharedApplication].windows) { if (win.isKeyWindow) { w = win; break; } }
+        if (!w) w = [[UIApplication sharedApplication].windows firstObject];
+        if (!w) return;
+        if (!g_dkHud) {
+            g_dkHud = [[UILabel alloc] initWithFrame:CGRectMake(6, 120, w.bounds.size.width - 12, 460)];
+            g_dkHud.numberOfLines = 0;
+            g_dkHud.font = [UIFont systemFontOfSize:10];
+            g_dkHud.textColor = [UIColor whiteColor];
+            g_dkHud.backgroundColor = [[UIColor blackColor] colorWithAlphaComponent:0.72];
+            g_dkHud.userInteractionEnabled = NO;
+            [w addSubview:g_dkHud];
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(30.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+                [g_dkHud removeFromSuperview];
+                g_dkHud = nil;
+            });
+        }
+        g_dkHud.text = text;
+        [w bringSubviewToFront:g_dkHud];
+    });
+}
+static NSString *DKColorDesc(UIColor *c){
+    if (!c) return @"nil";
+    if ([c isEqual:[UIColor clearColor]]) return @"clear";
+    CGColorRef g = c.CGColor;
+    if (!g) return @"?";
+    size_t n = CGColorGetNumberOfComponents(g);
+    const CGFloat *cc = CGColorGetComponents(g);
+    if (n == 4) return [NSString stringWithFormat:@"r%.2f g%.2f b%.2f a%.2f", cc[0], cc[1], cc[2], cc[3]];
+    if (n == 2) return [NSString stringWithFormat:@"w%.2f a%.2f", cc[0], cc[1]];
+    return @"?";
+}
+static void DKDumpCancelToast(UIView *v){
+    NSMutableString *o = [NSMutableString string];
+    [o appendFormat:@"BAR %@ %@ bg=%@ a=%.2f\n", NSStringFromClass(object_getClass(v)), NSStringFromCGRect(v.frame), DKColorDesc(v.backgroundColor), (double)v.alpha];
+    UIView *p = v.superview;
+    for (int i = 0; i < 3 && p; i++) {
+        [o appendFormat:@"P%d %@ %@ bg=%@ layers=%lu\n", i, NSStringFromClass(object_getClass(p)), NSStringFromCGRect(p.frame), DKColorDesc(p.backgroundColor), (unsigned long)p.layer.sublayers.count];
+        for (UIView *sib in p.subviews) {
+            if (sib == v || sib.tag == DK_TAG) continue;
+            if (!CGRectIntersectsRect(sib.frame, v.frame)) continue;
+            [o appendFormat:@"  S %@ %@ bg=%@ hid=%d a=%.2f\n", NSStringFromClass(object_getClass(sib)), NSStringFromCGRect(sib.frame), DKColorDesc(sib.backgroundColor), (int)sib.hidden, (double)sib.alpha];
+        }
+        p = p.superview;
+    }
+    int gi = 0;
+    for (UIView *sv in v.subviews) if (sv.tag == DK_TAG) gi++;
+    [o appendFormat:@"GLASS=%d\n", gi];
+    NSArray *ls = v.layer.sublayers;
+    for (CALayer *l in ls) {
+        if (ls.count > 8 && [ls indexOfObject:l] > 7) break;
+        [o appendFormat:@"L %@ bg=%@ hid=%d\n", NSStringFromClass(object_getClass(l)), l.backgroundColor ? @"dark" : @"nil", (int)l.hidden];
+    }
+    DKHudShow(o);
+}
+
 // 取消提示条（DUXBottomNotification）会在图层树上画白色/渐变装饰层，清 backgroundColor 清不掉，
 // 这里按“这层是否属于文本或图标视图”来判断，其它装饰层一律隐藏
 static void DKStripDecorLayers(UIView *v){
@@ -859,7 +924,10 @@ static void DKFeedFavToast(UIView *v){
     if (!t.length || [t rangeOfString:@"收藏"].location == NSNotFound) return;
     CGFloat r = b.size.height / 2.0;
     DKClearBackingDeep(v, 0);
-    if ([NSStringFromClass(object_getClass(v)) isEqualToString:@"AWEPlayInteractionSnackBar"]) DKStripDecorLayers(v);
+    if ([NSStringFromClass(object_getClass(v)) isEqualToString:@"AWEPlayInteractionSnackBar"]) {
+        DKStripDecorLayers(v);
+        @try { DKDumpCancelToast(v); } @catch (NSException *e) {}
+    }
     if (fabs((double)v.layer.cornerRadius - (double)r) > 0.5) v.layer.cornerRadius = r;
     v.layer.masksToBounds = YES;
     DKApplyGlassAt(v, b, r);
