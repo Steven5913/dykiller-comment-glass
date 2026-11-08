@@ -829,7 +829,7 @@ static UILabel *g_dkHud = nil;
 static double g_dkHudAt = -10.0;
 static void DKHudShow(NSString *body){
     double now = CFAbsoluteTimeGetCurrent();
-    if (now - g_dkHudAt < 2.0) return;
+    if (now - g_dkHudAt < 0.5) return;
     g_dkHudAt = now;
     NSString *text = [body copy];
     dispatch_async(dispatch_get_main_queue(), ^{
@@ -882,7 +882,14 @@ static void DKDumpCancelToast(UIView *v){
     for (UIView *sv in v.subviews) if (sv.tag == DK_TAG) {
         gi++;
         [o appendFormat:@"G %@ %@ hid=%d a=%.2f sub=%lu\n", NSStringFromClass(object_getClass(sv)), NSStringFromCGRect(sv.frame), (int)sv.hidden, (double)sv.alpha, (unsigned long)sv.subviews.count];
-        for (UIView *gv in sv.subviews) [o appendFormat:@"  Gs %@ hid=%d a=%.2f\n", NSStringFromClass(object_getClass(gv)), (int)gv.hidden, (double)gv.alpha];
+        for (UIView *gv in sv.subviews) {
+            NSString *e = @"-";
+            if ([gv isKindOfClass:[UIVisualEffectView class]]) {
+                id eff = [(UIVisualEffectView *)gv effect];
+                if (eff) e = [NSString stringWithFormat:@"%@", eff];
+            }
+            [o appendFormat:@"  Gs %@ hid=%d a=%.2f E=%@\n", NSStringFromClass(object_getClass(gv)), (int)gv.hidden, (double)gv.alpha, e];
+        }
     }
     [o appendFormat:@"GLASS=%d\n", gi];
     UIWindow *win = v.window;
@@ -945,7 +952,7 @@ static void DKFeedFavToast(UIView *v){
     v.layer.masksToBounds = YES;
     DKApplyGlassAt(v, b, r);
     for (UIView *sv in v.subviews) if (sv.tag == DK_TAG) sv.layer.hidden = NO;
-    if (isCancelBar) { @try { DKDumpCancelToast(v); } @catch (NSException *e) {} }
+    @try { DKDumpCancelToast(v); } @catch (NSException *e) {}
     DKWhitenIconAndText(v);
 }
 static void (*orig_snackLayout)(id, SEL);
