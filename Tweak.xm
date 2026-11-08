@@ -540,26 +540,20 @@ static void DKCommentRestoreHeight(UIView *root){
         // 带播放进度条的作品（视频型）之前已经调好，一律不碰
         if (DKTreeHasClass(v, @"AWEDPlayerProgressContainerView", 4)) continue;
         if (DKTreeHasClass(v, @"AWEAwemePlayVideoProgressContainerView", 4)) continue;
-        // 登记这个 cell，交给驻留定时器反复校正（翻页后 app 会重排，单次写入会被回写）
+        // 这一层的顶边被 app 往下让了 83、高度也少了 83，导致层内所有元素整体偏高。
+        // 不动任何子视图，只把内容原点往上引 83：等价于层内元素整体下移 83，视觉上回到底部。
+        CGRect b = v.bounds;
+        CGFloat wantY = -d;
+        if (fabs(b.origin.y - wantY) > 0.5) {
+            b.origin.y = wantY;
+            v.bounds = b;
+        }
         {
             UIView *owner = v.superview;
             while (owner && ![NSStringFromClass([owner class]) isEqualToString:@"AWEAwemeDetailTableViewCell"]) {
                 owner = owner.superview;
             }
             if (owner) [DKCellRegistry() addObject:owner];
-        }
-        // 只把作者/描述/IP 文字块贴到内容层自身底边往上 8pt（绝对位置，不累加）
-        for (UIView *c in v.subviews) {
-            if (![NSStringFromClass([c class]) isEqualToString:@"AWEElementStackView"]) continue;
-            if (c.bounds.size.width < 200.0 || c.bounds.size.width > 330.0) continue;
-            if (c.bounds.size.height < 20.0) continue;
-            CGRect f = c.frame;
-            CGFloat want = h - 8.0 - f.size.height;
-            if (fabs(f.origin.y - want) > 0.5) {
-                f.origin.y = want;
-                c.transform = CGAffineTransformIdentity;
-                c.frame = f;
-            }
         }
     }
 }
