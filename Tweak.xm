@@ -982,40 +982,33 @@ static void dk_sendEvent(id self, SEL _cmd, UIEvent *e){
     if (orig_dk_sendEvent) orig_dk_sendEvent(self, _cmd, e);
 }
 
-// 收藏数 +1 → 震；-1 → 不震
+// 收藏数 +1 就震一下；-1、“1 变回收藏文字”都不震
 static void DKHandleCount(UIView *v, NSString *oldText, NSString *newText){
-    if (!newText.length) return;
+    BOOL oldHasWan = oldText.length && [oldText rangeOfString:@"万"].location != NSNotFound;
+    BOOL newHasWan = newText.length && [newText rangeOfString:@"万"].location != NSNotFound;
     long long o = DKNumberFromText(oldText);
     long long n = DKNumberFromText(newText);
-    if (o < 0 || n < 0) return;
-    if (n == o + 1) {
-        if (DKIsLikeButton(v)) {
-            dk_likeArmAt = CFAbsoluteTimeGetCurrent();
-        } else if (DKIsFavButton(v)) {
-            double now = CFAbsoluteTimeGetCurrent();
-            if (now - dk_lastFavPlayAt < 0.35) return;   // 同一个数字被多个 label 重复写时只震一次
-            dk_lastFavPlayAt = now;
-            DKPlayImpact(DK_FAV_STYLE);
-        }
+    if (o < 0) o = 0;            // 文案是“收藏”这种没有数字的，按 0 算
+    if (n < 0) return;           // 变成没有数字的文案（取消后回到“收藏”），不震
+    BOOL up = NO;
+    if (n == o + 1) up = YES;
+    else if (oldHasWan && newHasWan && n > o) up = YES;   // 过万显示是“1.6万”，+1 看不出来，按档进位当成功
+    if (!up) return;
+    if (DKIsLikeButton(v)) {
+        dk_likeArmAt = CFAbsoluteTimeGetCurrent();
+    } else if (DKIsFavButton(v)) {
+        double now = CFAbsoluteTimeGetCurrent();
+        if (now - dk_lastFavPlayAt < 0.35) return;   // 同一次更新被多个 label 重复写，只震一下
+        dk_lastFavPlayAt = now;
+        DKPlayImpact(DK_FAV_STYLE);
     }
-}
-// 过万时 displayed 文本可能不带小数（1.6万 +1 仍是 1.6万），靠提示条文案兜底
-static void DKHandleToast(NSString *newText){
-    if (!newText.length) return;
-    if ([newText rangeOfString:@"取消"].location != NSNotFound) return;
-    if ([newText rangeOfString:@"收藏成"].location == NSNotFound &&
-        [newText rangeOfString:@"已收藏"].location == NSNotFound) return;
-    double now = CFAbsoluteTimeGetCurrent();
-    if (now - dk_lastFavPlayAt < 0.35) return;
-    dk_lastFavPlayAt = now;
-    DKPlayImpact(DK_FAV_STYLE);
 }
 static void (*orig_dk_labelText)(id, SEL, NSString *);
 static void dk_labelText(id self, SEL _cmd, NSString *t){
     NSString *old = nil;
     @try { old = [(UILabel *)self text]; } @catch (NSException *e) {}
     if (orig_dk_labelText) orig_dk_labelText(self, _cmd, t);
-    @try { DKHandleCount((UIView *)self, old, t); DKHandleToast(t); } @catch (NSException *e) {}
+    @try { DKHandleCount((UIView *)self, old, t); } @catch (NSException *e) {}
 }
 
 static BOOL DKShouldReplaceLikeHaptic(void){
