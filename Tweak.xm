@@ -733,6 +733,49 @@ static void DKGlassRail(UIView *rail){
 }
 
 // 全页兜底扫描：按"窗口坐标靠右 + 够高 + 内含多个六元素"认定竖排，不依赖类名与 frame.x
+// ===== 底部「已私信给xxx」提示条：圆角取高度一半，主文案改白 =====
+static void DKWhitenLabels(UIView *v){
+    if (!v) return;
+    NSMutableArray *q = [NSMutableArray arrayWithObject:v];
+    int guard = 0;
+    while (q.count > 0 && guard++ < 400) {
+        UIView *c = [q objectAtIndex:0];
+        [q removeObjectAtIndex:0];
+        if ([c isKindOfClass:[UILabel class]] && c.bounds.size.width >= 60.0) {
+            ((UILabel *)c).textColor = [UIColor whiteColor];
+        }
+        for (UIView *s in c.subviews) [q addObject:s];
+    }
+}
+
+static void DKShareToastFix(UIView *v){
+    if (!v) return;
+    CGFloat h = v.bounds.size.height;
+    if (h < 8.0) return;
+    CGFloat r = h / 2.0;
+    if (fabs((double)v.layer.cornerRadius - (double)r) > 0.5) v.layer.cornerRadius = r;
+    v.layer.masksToBounds = YES;
+    for (UIView *s in v.subviews) {
+        if ([s isKindOfClass:[UIVisualEffectView class]]) {
+            if (fabs((double)s.layer.cornerRadius - (double)r) > 0.5) s.layer.cornerRadius = r;
+            s.layer.masksToBounds = YES;
+            for (UIView *ss in s.subviews) { ss.layer.cornerRadius = r; ss.layer.masksToBounds = YES; }
+        }
+    }
+    DKWhitenLabels(v);
+}
+
+static IMP orig_tipsLayout = NULL;
+static IMP orig_shareLayout = NULL;
+static void hook_tipsLayout(id self, SEL _cmd){
+    if (orig_tipsLayout) orig_tipsLayout(self, _cmd);
+    @try { DKShareToastFix((UIView *)self); } @catch(NSException *e) {}
+}
+static void hook_shareLayout(id self, SEL _cmd){
+    if (orig_shareLayout) orig_shareLayout(self, _cmd);
+    @try { DKShareToastFix((UIView *)self); } @catch(NSException *e) {}
+}
+
 static void DKScanRoot(UIView *root){
     if (!root) return;
     UIView *win = root.window;
@@ -943,6 +986,10 @@ static void DKTryInstall(void){
         if (ring && !orig_ringLayout) {
             MSHookMessageEx(ring, sel_registerName("layoutSubviews"), (IMP)hook_ringLayout, (IMP *)&orig_ringLayout);
         }
+        Class tipsC = NSClassFromString(@"AWEIMBottomTipsContainerView");
+        if (tipsC) MSHookMessageEx(tipsC, sel_registerName("layoutSubviews"), (IMP)hook_tipsLayout, (IMP *)&orig_tipsLayout);
+        Class shareC = NSClassFromString(@"AWEIMBottomShareTipsView");
+        if (shareC) MSHookMessageEx(shareC, sel_registerName("layoutSubviews"), (IMP)hook_shareLayout, (IMP *)&orig_shareLayout);
         Class rail = NSClassFromString(@"AWEElementStackView");
         if (rail && !orig_railLayout) {
             MSHookMessageEx(rail, sel_registerName("layoutSubviews"), (IMP)hook_railLayout, (IMP *)&orig_railLayout);
