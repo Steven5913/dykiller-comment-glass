@@ -28,37 +28,39 @@ jobs:
           fi
           sudo apt-get update
           sudo apt-get install -y clang build-essential curl xz-utils
-          # GitHub release 走代理，直连时偶发 504
-          dlg () {
-            url="$1"; out="$2"
-            for pfx in "https://ghfast.top/" "https://gh-proxy.com/" ""; do
-              if sudo curl -fsSL --retry 6 --retry-delay 4 --retry-all-errors -o "$out" "$pfx$url"; then
-                echo "get ok: $pfx$url"; return 0
-              fi
+          # GitHub release CDN 近期频繁 5xx，多镜像多轮重试
+          fetch () {
+            url="$1"; out="$2"; rounds="$3"
+            for r in $(seq 1 "$rounds"); do
+              for pfx in "https://ghfast.top/" "https://gh-proxy.com/" ""; do
+                if sudo curl -fsSL --retry 2 --retry-delay 2 --retry-all-errors -o "$out" "$pfx$url"; then
+                  if [ -s "$out" ] && ! head -c 200 "$out" | grep -qi "<html"; then echo "fetch ok: $pfx$url"; return 0; fi
+                fi
+              done
+              sleep 4
             done
             return 1
           }
-          # ldid 只是签名工具，下不到就放个空壳（deb 出厂前会用 LCSign 重签）
           LURL=https://github.com/permasigner/ldid/releases/latest/download/ldid_linux_x86_64
-          sudo curl -fsSL --retry 4 --retry-delay 3 --retry-all-errors -o /usr/local/bin/ldid "https://gh-proxy.com/$LURL" \
-            || sudo curl -fsSL --retry 4 --retry-delay 3 --retry-all-errors -o /usr/local/bin/ldid "https://ghfast.top/$LURL" \
-            || sudo curl -fsSL --retry 4 --retry-delay 3 --retry-all-errors -o /usr/local/bin/ldid "$LURL" \
-            || printf '#!/bin/sh\nexit 0\n' | sudo tee /usr/local/bin/ldid >/dev/null
+          if ! fetch "$LURL" /usr/local/bin/ldid 8; then
+            echo "ldid 下载失败，用空壳占位（deb 出厂会重签）"
+            printf '#!/bin/sh\nexit 0\n' | sudo tee /usr/local/bin/ldid >/dev/null
+          fi
           sudo chmod +x /usr/local/bin/ldid
           which ldid
           # Theos
-          git clone --depth=1 https://github.com/theos/theos "$THEOS"
+          git clone --depth=1 https://github.com/theos/theos "$THEOS" || true
           git -C "$THEOS" submodule update --init --depth 1 vendor || true
           (cd "$THEOS/vendor" && git submodule update --init --depth 1) || true
           # Linux iOS 交叉工具链
           mkdir -p "$THEOS/toolchain"
-          dlg https://github.com/L1ghtmann/llvm-project/releases/latest/download/iOSToolchain-x86_64.tar.xz /tmp/tc.tar.xz
+          fetch https://github.com/L1ghtmann/llvm-project/releases/latest/download/iOSToolchain-x86_64.tar.xz /tmp/tc.tar.xz 12
           sudo tar -xf /tmp/tc.tar.xz -C "$THEOS/toolchain"
           echo "===== toolchain ====="
           ls "$THEOS/toolchain"
           # iPhoneOS SDK 16.5
           mkdir -p "$THEOS/sdks"
-          dlg https://github.com/theos/sdks/releases/latest/download/iPhoneOS16.5.sdk.tar.xz /tmp/sdk.tar.xz
+          fetch https://github.com/theos/sdks/releases/latest/download/iPhoneOS16.5.sdk.tar.xz /tmp/sdk.tar.xz 12
           sudo tar -xf /tmp/sdk.tar.xz -C "$THEOS/sdks"
           echo "===== sdks ====="
           ls "$THEOS/sdks"
