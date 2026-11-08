@@ -765,8 +765,8 @@ static void DKShareToastFix(UIView *v){
     DKWhitenLabels(v);
 }
 
-static IMP orig_tipsLayout = NULL;
-static IMP orig_shareLayout = NULL;
+static void (*orig_tipsLayout)(id, SEL);
+static void (*orig_shareLayout)(id, SEL);
 static void hook_tipsLayout(id self, SEL _cmd){
     if (orig_tipsLayout) orig_tipsLayout(self, _cmd);
     @try { DKShareToastFix((UIView *)self); } @catch(NSException *e) {}
