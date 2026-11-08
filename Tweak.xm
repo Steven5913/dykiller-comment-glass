@@ -798,89 +798,36 @@ static void hook_pillLayout3(id self, SEL _cmd){
     @try { DKGlassPill((UIView *)self); } @catch(NSException *e) {}
 }
 
-// ---- 临时调试 HUD：记录右侧互动区里发生的动画（类名 + key + 动画类名）----
-static UILabel *DKHudLabel = nil;
-static NSMutableArray *DKHudLines = nil;
-static void DKHudLog(NSString *line){
-    @try {
-        if (!line) return;
-        dispatch_async(dispatch_get_main_queue(), ^{
-            if (!DKHudLines) DKHudLines = [NSMutableArray array];
-            [DKHudLines addObject:line];
-            while (DKHudLines.count > 9) [DKHudLines removeObjectAtIndex:0];
-            if (!DKHudLabel) {
-                UIWindow *w = [[UIApplication sharedApplication].windows firstObject];
-                if (!w) return;
-                DKHudLabel = [[UILabel alloc] initWithFrame:CGRectMake(8, 150, w.bounds.size.width - 16, 210)];
-                DKHudLabel.numberOfLines = 0;
-                DKHudLabel.font = [UIFont systemFontOfSize:12];
-                DKHudLabel.textColor = [UIColor whiteColor];
-                DKHudLabel.backgroundColor = [UIColor colorWithWhite:0.0 alpha:0.75];
-                DKHudLabel.userInteractionEnabled = NO;
-                DKHudLabel.tag = DK_TAG;
-                [w addSubview:DKHudLabel];
-            }
-            DKHudLabel.text = [DKHudLines componentsJoinedByString:@"\n"];
-            [DKHudLabel.superview bringSubviewToFront:DKHudLabel];
-            DKHudLabel.hidden = NO;
-            [NSObject cancelPreviousPerformRequestsWithTarget:DKHudLabel selector:@selector(setHidden:) object:@YES];
-            [DKHudLabel performSelector:@selector(setHidden:) withObject:@YES afterDelay:15.0];
-        });
-    } @catch (NSException *e) {}
+// 父链里是否有「点赞 / 收藏」按钮
+static BOOL DKViewOrChildIsFav(UIView *v){
+    if (DKViewIsFavTarget(v)) return YES;
+    for (UIView *c in v.subviews) {
+        if (DKViewIsFavTarget(c)) return YES;
+        for (UIView *cc in c.subviews) if (DKViewIsFavTarget(cc)) return YES;
+    }
+    return NO;
 }
-static BOOL DKViewInInteraction(UIView *v){
+static BOOL DKViewInFavAncestor(UIView *v){
     int depth = 0;
-    while (v && depth++ < 14) {
-        NSString *cn = NSStringFromClass([v class]);
-        if ([cn isEqualToString:@"AWEElementStackView"] || [cn isEqualToString:@"AWEBaseElementView"] ||
-            [cn isEqualToString:@"AWEFeedVideoButton"] || [cn isEqualToString:@"AWEPlayInteractionViewController"] ||
-            [cn hasPrefix:@"AWEPlayInteraction"]) return YES;
+    while (v && depth++ < 12) {
+        if (DKViewOrChildIsFav(v)) return YES;
+        if (DKNameLooksLikeFav(NSStringFromClass([v class]))) return YES;
         v = v.superview;
     }
     return NO;
 }
-static BOOL DKIsBaseUIKitClass(NSString *cn){
-    static NSSet *bases;
-    static dispatch_once_t once;
-    dispatch_once(&once, ^{
-        bases = [NSSet setWithArray:@[@"UIView", @"UILabel", @"UIImageView", @"UIButton", @"UIButtonLabel",
-                                      @"UIVisualEffectView", @"UIStackView", @"UIScrollView", @"UITableView",
-                                      @"UITableViewCell", @"UICollectionView", @"UICollectionViewCell",
-                                      @"UIImageView", @"UILayoutGuide", @"CALayer"]];
-    });
-    return [bases containsObject:cn];
+// 爆心 / 星标是 Lottie（LOTAnimationView）当场插进按钮里的
+static BOOL DKIsLottieClass(NSString *cn){
+    if (cn.length == 0) return NO;
+    return [cn hasPrefix:@"LOT"] || [cn hasPrefix:@"lottie"] || [cn containsString:@"Lottie"];
 }
 static void (*orig_dk_addSubview)(id, SEL, UIView *);
 static void dk_addSubview(id self, SEL _cmd, UIView *v){
     @try {
-        if (v) {
-            NSString *cn = NSStringFromClass([v class]) ?: @"?";
-            if (!DKIsBaseUIKitClass(cn) && DKViewInInteraction((UIView *)self))
-                DKHudLog([NSString stringWithFormat:@"[ADD] %@ -> %@", cn, NSStringFromClass([(UIView *)self class]) ?: @"?"]);
-        }
+        if (v && DKIsLottieClass(NSStringFromClass([v class])) &&
+            DKViewInFavAncestor((UIView *)self)) return;
     } @catch (NSException *e) {}
     if (orig_dk_addSubview) orig_dk_addSubview(self, _cmd, v);
-}
-static void (*orig_dk_setHidden)(id, SEL, BOOL);
-static void dk_setHidden(id self, SEL _cmd, BOOL h){
-    @try {
-        if (h == NO) {
-            NSString *cn = NSStringFromClass([self class]) ?: @"?";
-            if (!DKIsBaseUIKitClass(cn) && DKViewInInteraction((UIView *)self))
-                DKHudLog([NSString stringWithFormat:@"[SHOW] %@", cn]);
-        }
-    } @catch (NSException *e) {}
-    if (orig_dk_setHidden) orig_dk_setHidden(self, _cmd, h);
-}
-
-static BOOL DKViewInRail(UIView *v){
-    int depth = 0;
-    while (v && depth++ < 12) {
-        NSString *cn = NSStringFromClass([v class]);
-        if ([cn isEqualToString:@"AWEElementStackView"] || [cn isEqualToString:@"AWEBaseElementView"]) return YES;
-        v = v.superview;
-    }
-    return NO;
 }
 
 // ===== 停掉点赞 / 收藏按钮上的爆心、星标等弹出动画 =====
@@ -940,10 +887,6 @@ static BOOL DKLayerInFavTree(CALayer *l, NSString *animKey){
 static void (*orig_dk_startAnimating)(id, SEL);
 static void dk_startAnimating(id self, SEL _cmd){
     @try {
-        if (DKViewInRail(((UIImageView *)self).superview))
-            DKHudLog([NSString stringWithFormat:@"[IMG] %@ 帧数=%lu", NSStringFromClass([[self class] class]) ?: @"?", (unsigned long)((UIImageView *)self).animationImages.count]);
-    } @catch (NSException *e) {}
-    @try {
         id d = ((UIImageView *)self).superview;
         UIView *v = [d isKindOfClass:[UIView class]] ? (UIView *)d : nil;
         int depth = 0;
@@ -958,18 +901,27 @@ static void dk_startAnimating(id self, SEL _cmd){
 static void (*orig_dk_addAnimation)(id, SEL, CAAnimation *, NSString *);
 static void dk_addAnimation(id self, SEL _cmd, CAAnimation *anim, NSString *key){
     @try {
-        id dlg = ((CALayer *)self).delegate;
-        if ([dlg isKindOfClass:[UIView class]] && DKViewInRail((UIView *)dlg)) {
-            DKHudLog([NSString stringWithFormat:@"[CA] %@ key=%@ anim=%@",
-                      NSStringFromClass([dlg class]) ?: @"?", key ?: @"-",
-                      anim ? NSStringFromClass([anim class]) : @"-"]);
-        }
-    } @catch (NSException *e) {}
-    @try {
         if (DKLayerInFavTree((CALayer *)self, key)) return;
     } @catch (NSException *e) {}
     if (orig_dk_addAnimation) orig_dk_addAnimation(self, _cmd, anim, key);
 }
+static void (*orig_dk_lotPlay)(id, SEL);
+static void dk_lotPlay(id self, SEL _cmd){
+    @try {
+        UIView *v = (UIView *)self;
+        if (DKViewInFavAncestor(v.superview)) { v.hidden = YES; return; }
+    } @catch (NSException *e) {}
+    if (orig_dk_lotPlay) orig_dk_lotPlay(self, _cmd);
+}
+static void (*orig_dk_lotPlayRange)(id, SEL, id, id, id);
+static void dk_lotPlayRange(id self, SEL _cmd, id a, id b, id c){
+    @try {
+        UIView *v = (UIView *)self;
+        if (DKViewInFavAncestor(v.superview)) { v.hidden = YES; return; }
+    } @catch (NSException *e) {}
+    if (orig_dk_lotPlayRange) orig_dk_lotPlayRange(self, _cmd, a, b, c);
+}
+
 static void DKInstallNoFavAnim(void){
     static BOOL done = NO;
     if (done) return;
@@ -979,9 +931,11 @@ static void DKInstallNoFavAnim(void){
     Class iv = objc_getClass("UIImageView");
     if (iv) MSHookMessageEx(iv, sel_registerName("startAnimating"), (IMP)dk_startAnimating, (IMP *)&orig_dk_startAnimating);
     Class uv = objc_getClass("UIView");
-    if (uv) {
-        MSHookMessageEx(uv, sel_registerName("addSubview:"), (IMP)dk_addSubview, (IMP *)&orig_dk_addSubview);
-        MSHookMessageEx(uv, sel_registerName("setHidden:"), (IMP)dk_setHidden, (IMP *)&orig_dk_setHidden);
+    if (uv) MSHookMessageEx(uv, sel_registerName("addSubview:"), (IMP)dk_addSubview, (IMP *)&orig_dk_addSubview);
+    Class lo = objc_getClass("LOTAnimationView");
+    if (lo) {
+        MSHookMessageEx(lo, sel_registerName("play"), (IMP)dk_lotPlay, (IMP *)&orig_dk_lotPlay);
+        MSHookMessageEx(lo, sel_registerName("playFromFrame:toFrame:completion:"), (IMP)dk_lotPlayRange, (IMP *)&orig_dk_lotPlayRange);
     }
 }
 
