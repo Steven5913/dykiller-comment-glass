@@ -1072,6 +1072,16 @@ static NSString *DKKeyFromSetter(SEL cmd){
     buf[k] = 0;
     return [NSString stringWithUTF8String:buf];
 }
+static void DKDiag(NSString *line){
+    if (!line.length) return;
+    static NSMutableString *log = nil;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{ log = [NSMutableString string]; });
+    [log appendFormat:@"%@ %@\n", [NSDate date], line];
+    if (log.length > 8000) [log deleteCharactersInRange:NSMakeRange(0, 4000)];
+    NSString *p = @"/var/mobile/Library/pkgmirror/dk_haptic.log";
+    [[line stringByAppendingString:@"\n"] writeToFile:p atomically:YES encoding:NSUTF8StringEncoding error:nil];
+}
 static void DKFireFavHapticFromModel(void){
     double now = CFAbsoluteTimeGetCurrent();
     if (now - dk_lastFavPlayAt < 0.35) return;
@@ -1094,6 +1104,7 @@ static IMP DKMakeCountHook(IMP orig, BOOL isFav){
                 long long nv = [now2 longLongValue];
                 if (hadOld && nv == oldVal + 1) {
                     dispatch_async(dispatch_get_main_queue(), ^{
+                        DKDiag([NSString stringWithFormat:@"setter %@ %@ %lld->%lld", NSStringFromClass(object_getClass(self)), sel_getName(cmd), oldVal, nv]);
                         if (isFav) DKFireFavHapticFromModel();
                         else dk_likeArmAt = CFAbsoluteTimeGetCurrent();
                     });
@@ -1105,6 +1116,62 @@ static IMP DKMakeCountHook(IMP orig, BOOL isFav){
 static BOOL DKNumEncoding(char t){
     return (t == 'q' || t == 'Q' || t == 'i' || t == 'I' || t == 'l' || t == 'L' || t == 's' || t == 'S');
 }
+// 补充：JSON/KVC 里写入的计数（app 不一定走属性 setter）
+static BOOL DKKeyLooksLikeCount(NSString *k){
+    if (!k.length) return NO;
+    if ([k rangeOfString:@"avorite"].location != NSNotFound) return YES;
+    if ([k rangeOfString:@"ollect"].location != NSNotFound) return YES;
+    if ([k rangeOfString:@"digg"].location != NSNotFound) return YES;
+    return NO;
+}
+static BOOL DKCompareAndFire(id oldV, id newV){
+    if (![oldV isKindOfClass:[NSNumber class]] && ![newV isKindOfClass:[NSNumber class]]) return NO;
+    long long o = [oldV isKindOfClass:[NSNumber class]] ? [oldV longLongValue] : 0;
+    long long n = [newV isKindOfClass:[NSNumber class]] ? [newV longLongValue] : 0;
+    if (n != o + 1) return NO;
+    DKFireFavHapticFromModel();
+    return YES;
+}
+static void (*orig_dk_setVFK)(id, SEL, id, NSString *);
+static void dk_setVFK(id self, SEL _cmd, id v, NSString *k){
+    id old = nil;
+    @try { if (DKKeyLooksLikeCount(k)) old = [self valueForKey:k]; } @catch (NSException *e) {}
+    if (orig_dk_setVFK) orig_dk_setVFK(self, _cmd, v, k);
+    @try {
+        if (DKKeyLooksLikeCount(k)) {
+            DKDiag([NSString stringWithFormat:@"kvc %@ key=%@ old=%@ new=%@", NSStringFromClass(object_getClass(self)), k, old, v]);
+            if (!DKCompareAndFire(old, v)) {
+                id nv = [self valueForKey:k];
+                DKCompareAndFire(old, nv);
+            }
+        }
+    } @catch (NSException *e) {}
+}
+static void (*orig_dk_setVFKP)(id, SEL, id, NSString *);
+static void dk_setVFKP(id self, SEL _cmd, id v, NSString *k){
+    id old = nil;
+    @try { if (DKKeyLooksLikeCount(k)) old = [self valueForKeyPath:k]; } @catch (NSException *e) {}
+    if (orig_dk_setVFKP) orig_dk_setVFKP(self, _cmd, v, k);
+    @try {
+        if (DKKeyLooksLikeCount(k)) {
+            if (!DKCompareAndFire(old, v)) DKCompareAndFire(old, [self valueForKeyPath:k]);
+        }
+    } @catch (NSException *e) {}
+}
+// 字典里写入的计数
+static void (*orig_dk_dictSet)(id, SEL, id, id);
+static void dk_dictSet(id self, SEL _cmd, id obj, id key){
+    id old = nil;
+    @try { if ([key isKindOfClass:[NSString class]] && DKKeyLooksLikeCount(key)) old = [(NSDictionary *)self objectForKey:key]; } @catch (NSException *e) {}
+    if (orig_dk_dictSet) orig_dk_dictSet(self, _cmd, obj, key);
+    @try {
+        if ([key isKindOfClass:[NSString class]] && DKKeyLooksLikeCount(key)) {
+            DKDiag([NSString stringWithFormat:@"dict key=%@ old=%@ new=%@", key, old, obj]);
+            DKCompareAndFire(old, obj);
+        }
+    } @catch (NSException *e) {}
+}
+
 static void DKScanCountSetters(void){
     if (dk_modelHookInstalled) return;
     dk_modelHookInstalled = YES;
@@ -1170,6 +1237,13 @@ static void DKInstallFavHaptic(void){
         MSHookMessageEx(lab, sel_registerName("setText:"), (IMP)dk_labelText, (IMP *)&orig_dk_labelText);
         MSHookMessageEx(lab, sel_registerName("setAttributedText:"), (IMP)dk_labelAttr, (IMP *)&orig_dk_labelAttr);
     }
+    Class nso = objc_getClass("NSObject");
+    if (nso) {
+        MSHookMessageEx(nso, sel_registerName("setValue:forKey:"), (IMP)dk_setVFK, (IMP *)&orig_dk_setVFK);
+        MSHookMessageEx(nso, sel_registerName("setValue:forKeyPath:"), (IMP)dk_setVFKP, (IMP *)&orig_dk_setVFKP);
+    }
+    Class d = objc_getClass("NSMutableDictionary");
+    if (d) MSHookMessageEx(d, sel_registerName("setObject:forKey:"), (IMP)dk_dictSet, (IMP *)&orig_dk_dictSet);
     DKScanCountSetters();
 }
 
