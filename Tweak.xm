@@ -510,11 +510,12 @@ static void DKTickCells(void){
     for (UIView *cell in cells) @try { DKCommentRestoreHeight(cell); } @catch(NSException *e) {}
 }
 
-static BOOL DKTreeHasClass(UIView *root, NSString *cls, int depth){
+static BOOL DKTreeHasClass(UIView *root, NSString *cls, int depth, CGFloat minH){
     if (!root || depth < 0) return NO;
-    if ([NSStringFromClass([root class]) isEqualToString:cls]) return YES;
+    if ([NSStringFromClass([root class]) isEqualToString:cls] &&
+        root.hidden == NO && root.bounds.size.height >= minH) return YES;
     for (UIView *c in root.subviews) {
-        if (DKTreeHasClass(c, cls, depth - 1)) return YES;
+        if (DKTreeHasClass(c, cls, depth - 1, minH)) return YES;
     }
     return NO;
 }
@@ -536,8 +537,9 @@ static void DKCommentRestoreHeight(UIView *root){
         if (fabs(w - pw) > 2.0) continue;
         CGFloat d = ph - h;
         if (d <= 40.0 || d >= 100.0) continue;   // 这一层正常就是「顶边让 83、高度少 83」
-        if (DKTreeHasClass(v, @"AWEDPlayerProgressContainerView", 4)) continue;   // 视频型不动
-        if (DKTreeHasClass(v, @"AWEAwemePlayVideoProgressContainerView", 4)) continue;
+        // 只有「真的在播放视频」的作品才跳过：进度容器可见且高度 > 60
+        if (DKTreeHasClass(v, @"AWEDPlayerProgressContainerView", 4, 60.0)) continue;
+        if (DKTreeHasClass(v, @"AWEAwemePlayVideoProgressContainerView", 4, 60.0)) continue;
         // 统一口径：文字块底边固定落在层内 679pt（= 屏幕绝对 762pt，原生图片作品的正确位置），
         // 与文字高度无关，翻页前后都一样，从而消掉 83pt 的跳动
         for (UIView *c in v.subviews) {
