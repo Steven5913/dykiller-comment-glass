@@ -982,33 +982,51 @@ static void dk_sendEvent(id self, SEL _cmd, UIEvent *e){
     if (orig_dk_sendEvent) orig_dk_sendEvent(self, _cmd, e);
 }
 
-// 收藏数 +1 就震一下；-1、“1 变回收藏文字”都不震
+// 收藏成功判定：万以内看计数 +1，过万改看“收藏成功”提示条
+static void DKFavSuccess(UIView *v){
+    double now = CFAbsoluteTimeGetCurrent();
+    if (now - dk_lastFavPlayAt < 1.0) return;   // 计数和提示条可能同一动作各来一次，1 秒内只震一下
+    dk_lastFavPlayAt = now;
+    DKPlayImpact(DK_FAV_STYLE);
+    (void)v;
+}
 static void DKHandleCount(UIView *v, NSString *oldText, NSString *newText){
     BOOL oldHasWan = oldText.length && [oldText rangeOfString:@"万"].location != NSNotFound;
     BOOL newHasWan = newText.length && [newText rangeOfString:@"万"].location != NSNotFound;
+    if (oldHasWan || newHasWan) return;      // 万级显示是 1000 一档，+1 看不见，交给提示条
     long long o = DKNumberFromText(oldText);
     long long n = DKNumberFromText(newText);
-    if (o < 0) o = 0;            // 文案是“收藏”这种没有数字的，按 0 算
-    if (n < 0) return;           // 变成没有数字的文案（取消后回到“收藏”），不震
-    BOOL up = NO;
-    if (n == o + 1) up = YES;
-    else if (oldHasWan && newHasWan && n > o) up = YES;   // 过万显示是“1.6万”，+1 看不出来，按档进位当成功
-    if (!up) return;
+    if (o < 0) o = 0;                        // “收藏”这种没数字的文案按 0 算
+    if (n < 0) return;                       // 变回没数字的文案（取消后回“收藏”），不震
+    if (n != o + 1) return;
     if (DKIsLikeButton(v)) {
         dk_likeArmAt = CFAbsoluteTimeGetCurrent();
     } else if (DKIsFavButton(v)) {
-        double now = CFAbsoluteTimeGetCurrent();
-        if (now - dk_lastFavPlayAt < 0.35) return;   // 同一次更新被多个 label 重复写，只震一下
-        dk_lastFavPlayAt = now;
-        DKPlayImpact(DK_FAV_STYLE);
+        DKFavSuccess(v);
     }
+}
+// 过万时只能靠提示条：出现“收藏成功 / 已收藏”震，带“取消”的一律不算
+static void DKHandleToast(NSString *newText){
+    if (!newText.length) return;
+    if ([newText rangeOfString:@"取消"].location != NSNotFound) return;
+    if ([newText rangeOfString:@"收藏成"].location == NSNotFound &&
+        [newText rangeOfString:@"已收藏"].location == NSNotFound &&
+        [newText rangeOfString:@"收藏了"].location == NSNotFound) return;
+    DKFavSuccess(nil);
 }
 static void (*orig_dk_labelText)(id, SEL, NSString *);
 static void dk_labelText(id self, SEL _cmd, NSString *t){
     NSString *old = nil;
     @try { old = [(UILabel *)self text]; } @catch (NSException *e) {}
     if (orig_dk_labelText) orig_dk_labelText(self, _cmd, t);
-    @try { DKHandleCount((UIView *)self, old, t); } @catch (NSException *e) {}
+    @try { DKHandleCount((UIView *)self, old, t); DKHandleToast(t); } @catch (NSException *e) {}
+}
+static void (*orig_dk_labelAttr)(id, SEL, NSAttributedString *);
+static void dk_labelAttr(id self, SEL _cmd, NSAttributedString *t){
+    NSString *old = nil;
+    @try { old = [(UILabel *)self text]; } @catch (NSException *e) {}
+    if (orig_dk_labelAttr) orig_dk_labelAttr(self, _cmd, t);
+    @try { NSString *s2 = [t string]; DKHandleCount((UIView *)self, old, s2); DKHandleToast(s2); } @catch (NSException *e) {}
 }
 
 static BOOL DKShouldReplaceLikeHaptic(void){
@@ -1064,7 +1082,10 @@ static void DKInstallFavHaptic(void){
     Class app = objc_getClass("UIApplication");
     if (app) MSHookMessageEx(app, sel_registerName("sendEvent:"), (IMP)dk_sendEvent, (IMP *)&orig_dk_sendEvent);
     Class lab = objc_getClass("UILabel");
-    if (lab) MSHookMessageEx(lab, sel_registerName("setText:"), (IMP)dk_labelText, (IMP *)&orig_dk_labelText);
+    if (lab) {
+        MSHookMessageEx(lab, sel_registerName("setText:"), (IMP)dk_labelText, (IMP *)&orig_dk_labelText);
+        MSHookMessageEx(lab, sel_registerName("setAttributedText:"), (IMP)dk_labelAttr, (IMP *)&orig_dk_labelAttr);
+    }
 }
 
 static void DKInstallNoFavAnim(void){
