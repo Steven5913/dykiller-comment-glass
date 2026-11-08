@@ -825,6 +825,21 @@ static void hook_gameTagLayout(id self, SEL _cmd){
 }
 
 static void (*orig_pillLayout2)(id, SEL);
+static void (*orig_anchorCtrLayout)(id, SEL);
+static void DKTagWalk(UIView *v){
+    if (!v) return;
+    if ([NSStringFromClass([v class]) isEqualToString:@"AWEFeedTemplateAnchorViewV2"]) {
+        DKClearTagBg(v);
+        DKGlassPill(v);
+        return;
+    }
+    for (UIView *s in v.subviews) DKTagWalk(s);
+}
+static void hook_anchorCtrLayout(id self, SEL _cmd){
+    if (orig_anchorCtrLayout) orig_anchorCtrLayout(self, _cmd);
+    @try { DKTagWalk((UIView *)self); } @catch(NSException *e) {}
+}
+
 static void hook_pillLayout2(id self, SEL _cmd){
     if (orig_pillLayout2) orig_pillLayout2(self, _cmd);
     @try { DKGlassPill((UIView *)self); } @catch(NSException *e) {}
@@ -1047,6 +1062,8 @@ static void DKTryInstall(void){
         }
         Class gameTagC = NSClassFromString(@"AWEFeedTemplateAnchorViewV2");
         if (gameTagC) MSHookMessageEx(gameTagC, sel_registerName("layoutSubviews"), (IMP)hook_gameTagLayout, (IMP *)&orig_pillLayout);
+        Class anchorCtrC = NSClassFromString(@"AWEFeedAnchorContainerView");
+        if (anchorCtrC) MSHookMessageEx(anchorCtrC, sel_registerName("layoutSubviews"), (IMP)hook_anchorCtrLayout, (IMP *)&orig_anchorCtrLayout);
         Class danmuC = NSClassFromString(@"AWEPlayDanmakuInputContainView");
         if (danmuC) MSHookMessageEx(danmuC, sel_registerName("layoutSubviews"), (IMP)hook_pillLayout2, (IMP *)&orig_pillLayout2);
         Class landC = NSClassFromString(@"AWELandscapeFeedEntryView");
