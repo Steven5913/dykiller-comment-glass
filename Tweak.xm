@@ -807,6 +807,22 @@ static void DKWhitenIconAndText(UIView *v){
         DKWhitenIconAndText(s);
     }
 }
+static void DKClearBackingDeep(UIView *v, int depth){
+    if (!v || depth > 3) return;
+    if (v.tag == DK_TAG) return;
+    if ([v isKindOfClass:[UIVisualEffectView class]]) { v.hidden = YES; return; }
+    if (v.backgroundColor && ![v.backgroundColor isEqual:[UIColor clearColor]]) {
+        v.backgroundColor = [UIColor clearColor];
+    }
+    for (CALayer *l in v.layer.sublayers) {
+        if (!l.backgroundColor) continue;
+        [CATransaction begin];
+        [CATransaction setDisableActions:YES];
+        l.backgroundColor = NULL;
+        [CATransaction commit];
+    }
+    for (UIView *s in v.subviews) DKClearBackingDeep(s, depth + 1);
+}
 static void DKFeedFavToast(UIView *v){
     if (!v) return;
     CGRect b = v.bounds;
@@ -814,26 +830,7 @@ static void DKFeedFavToast(UIView *v){
     NSString *t = DKToastText(v);
     if (!t.length || [t rangeOfString:@"收藏"].location == NSNotFound) return;
     CGFloat r = b.size.height / 2.0;
-    if (v.backgroundColor && ![v.backgroundColor isEqual:[UIColor clearColor]]) v.backgroundColor = [UIColor clearColor];
-    for (UIView *s in v.subviews) {
-        if (s.tag == DK_TAG) continue;
-        UIColor *bg = s.backgroundColor;
-        CGFloat w = 0.0, a = 0.0;
-        if (bg && [bg getWhite:&w alpha:&a] && a > 0.02) s.backgroundColor = [UIColor clearColor];
-        if ([s isKindOfClass:[UIVisualEffectView class]]) s.hidden = YES;
-    }
-    for (CALayer *l in v.layer.sublayers) {
-        CGColorRef c = l.backgroundColor;
-        if (!c) continue;
-        UIColor *u = [UIColor colorWithCGColor:c];
-        CGFloat w2 = 0.0, a2 = 0.0;
-        if ([u getWhite:&w2 alpha:&a2] && a2 > 0.02) {
-            [CATransaction begin];
-            [CATransaction setDisableActions:YES];
-            l.backgroundColor = NULL;
-            [CATransaction commit];
-        }
-    }
+    DKClearBackingDeep(v, 0);
     if (fabs((double)v.layer.cornerRadius - (double)r) > 0.5) v.layer.cornerRadius = r;
     v.layer.masksToBounds = YES;
     DKApplyGlassAt(v, b, r);
