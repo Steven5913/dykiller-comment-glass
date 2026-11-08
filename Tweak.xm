@@ -495,6 +495,21 @@ static void DKCommentInputGlass(UIView *root){
 // 这里把它的高度顶回父容器（子视图都是底对齐，恢复后即原来的满屏位置）
 static char kDKShiftKey __attribute__((unused));
 
+static NSHashTable *g_dkCells = nil;
+static NSHashTable *DKCellRegistry(void){
+    if (!g_dkCells) g_dkCells = [NSHashTable weakObjectsHashTable];
+    return g_dkCells;
+}
+
+static void DKCommentRestoreHeight(UIView *root);
+
+static void DKTickCells(void){
+    NSHashTable *reg = DKCellRegistry();
+    if (reg.count == 0) return;
+    NSArray *cells = reg.allObjects;
+    for (UIView *cell in cells) @try { DKCommentRestoreHeight(cell); } @catch(NSException *e) {}
+}
+
 static BOOL DKTreeHasClass(UIView *root, NSString *cls, int depth){
     if (!root || depth < 0) return NO;
     if ([NSStringFromClass([root class]) isEqualToString:cls]) return YES;
@@ -525,6 +540,14 @@ static void DKCommentRestoreHeight(UIView *root){
         // 带播放进度条的作品（视频型）之前已经调好，一律不碰
         if (DKTreeHasClass(v, @"AWEDPlayerProgressContainerView", 4)) continue;
         if (DKTreeHasClass(v, @"AWEAwemePlayVideoProgressContainerView", 4)) continue;
+        // 登记这个 cell，交给驻留定时器反复校正（翻页后 app 会重排，单次写入会被回写）
+        {
+            UIView *owner = v.superview;
+            while (owner && ![NSStringFromClass([owner class]) isEqualToString:@"AWEAwemeDetailTableViewCell"]) {
+                owner = owner.superview;
+            }
+            if (owner) [DKCellRegistry() addObject:owner];
+        }
         // 只把作者/描述/IP 文字块贴到内容层自身底边往上 8pt（绝对位置，不累加）
         for (UIView *c in v.subviews) {
             if (![NSStringFromClass([c class]) isEqualToString:@"AWEElementStackView"]) continue;
@@ -1009,6 +1032,14 @@ static void hook_cellLayout(id self, SEL _cmd){
 
 static BOOL g_hooked = NO;
 
+static void DKStartSettleTimer(void){
+    static BOOL started = NO;
+    if (started) return;
+    started = YES;
+    NSTimer *t = [NSTimer timerWithTimeInterval:0.25 repeats:YES block:^(NSTimer *tm){ DKTickCells(); }];
+    [[NSRunLoop mainRunLoop] addTimer:t forMode:NSRunLoopCommonModes];
+}
+
 static void DKTryInstall(void){
     if (g_hooked) return;
     @try {
@@ -1114,6 +1145,7 @@ static void DKTryInstall(void){
 
 static __attribute__((constructor)) void DKInit(void){
     DKTryInstall();
+    DKStartSettleTimer();
     dispatch_async(dispatch_get_main_queue(), ^{ DKTryInstall(); });
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ DKTryInstall(); });
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(3.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ DKTryInstall(); });
