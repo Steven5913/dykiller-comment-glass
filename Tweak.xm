@@ -837,6 +837,13 @@ static void DKClearBackingDeep(UIView *v, int depth){
     if (v.backgroundColor && ![v.backgroundColor isEqual:[UIColor clearColor]]) {
         v.backgroundColor = [UIColor clearColor];
     }
+    // 视图自身的图层底色也要清（此前只清了 backgroundColor，视图自己 layer 上的底色会盖在玻璃上发白）
+    if (v.layer.backgroundColor) {
+        [CATransaction begin];
+        [CATransaction setDisableActions:YES];
+        v.layer.backgroundColor = NULL;
+        [CATransaction commit];
+    }
     for (CALayer *l in v.layer.sublayers) {
         if (!l.backgroundColor) continue;
         [CATransaction begin];
@@ -949,14 +956,14 @@ static void DKStripDecorLayers(UIView *v){
         if ([d isKindOfClass:[UIView class]] && d != v) {
             for (UIView *k in keep) if ((UIView *)d == k) { keepIt = YES; break; }
         }
+        [CATransaction begin];
+        [CATransaction setDisableActions:YES];
+        l.backgroundColor = NULL;
         if (!keepIt) {
-            [CATransaction begin];
-            [CATransaction setDisableActions:YES];
             l.hidden = YES;
-            l.backgroundColor = NULL;
             l.contents = nil;
-            [CATransaction commit];
         }
+        [CATransaction commit];
     }
 }
 
