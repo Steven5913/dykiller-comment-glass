@@ -510,16 +510,6 @@ static void DKTickCells(void){
     for (UIView *cell in cells) @try { DKCommentRestoreHeight(cell); } @catch(NSException *e) {}
 }
 
-static BOOL DKTreeHasClass(UIView *root, NSString *cls, int depth, CGFloat minH){
-    if (!root || depth < 0) return NO;
-    if ([NSStringFromClass([root class]) isEqualToString:cls] &&
-        root.hidden == NO && root.bounds.size.height >= minH) return YES;
-    for (UIView *c in root.subviews) {
-        if (DKTreeHasClass(c, cls, depth - 1, minH)) return YES;
-    }
-    return NO;
-}
-
 static void DKCommentRestoreHeight(UIView *root){
     if (!root) return;
     NSMutableArray *q = [NSMutableArray arrayWithObject:root];
@@ -535,24 +525,13 @@ static void DKCommentRestoreHeight(UIView *root){
         if (ph < 760.0 || ph > 820.0) continue;
         if (h < 660.0 || h > 730.0) continue;
         if (fabs(w - pw) > 2.0) continue;
-        CGFloat d = ph - h;
-        if (d <= 40.0 || d >= 100.0) continue;   // 这一层正常就是「顶边让 83、高度少 83」
-        // 只有「真的在播放视频」的作品才跳过：进度容器可见且高度 > 60
-        if (DKTreeHasClass(v, @"AWEDPlayerProgressContainerView", 4, 60.0)) continue;
-        if (DKTreeHasClass(v, @"AWEAwemePlayVideoProgressContainerView", 4, 60.0)) continue;
-        // 统一口径：文字块底边固定落在层内 679pt（= 屏幕绝对 762pt，原生图片作品的正确位置），
-        // 与文字高度无关，翻页前后都一样，从而消掉 83pt 的跳动
-        for (UIView *c in v.subviews) {
-            if (![NSStringFromClass([c class]) isEqualToString:@"AWEElementStackView"]) continue;
-            if (c.bounds.size.width < 200.0 || c.bounds.size.width > 330.0) continue;
-            if (c.bounds.size.height < 20.0) continue;
-            // 宿主只写 frame、不会清 transform，所以位移一律走 transform：
-            // 目标：文字块底边固定在层内 679pt；平时已经是 679 → 位移 0，完全不动
-            CGRect f = c.frame;
-            CGFloat delta = 679.0 - (f.origin.y + f.size.height);
-            if (fabs(c.transform.ty - delta) > 0.5) {
-                c.transform = CGAffineTransformMakeTranslation(0, delta);
-            }
+        // 这一层就是「交互层」：第一张图是 {0,83,402,708}（底边贴 791，正常），
+        // 翻到第二张后 app 把它摆成 {0,0,402,708}（底边只到 708，整层元素一起上移 83）。
+        // 只在这一层上做纵向位移，让它底边重新贴住父容器底边；子视图一律不动。
+        CGFloat delta = ph - (v.frame.origin.y + h);
+        if (fabs(delta) < 0.5) delta = 0.0;
+        if (fabs(v.transform.ty - delta) > 0.5) {
+            v.transform = CGAffineTransformMakeTranslation(0, delta);
         }
         {
             UIView *owner = v.superview;
