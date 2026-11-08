@@ -788,7 +788,28 @@ static void DKGlassPill(UIView *v){
 static void (*orig_pillLayout)(id, SEL);
 
 // 清掉游戏标签自带的浅色底（背景色 / 模糊层），只留图标与文字，让玻璃透出来
+static BOOL DKHasEffect(UIView *v, int depth){
+    if (!v || depth > 8) return NO;
+    if ([v isKindOfClass:[UIVisualEffectView class]]) return YES;
+    for (UIView *s in v.subviews) if (DKHasEffect(s, depth+1)) return YES;
+    return NO;
+}
+static BOOL DKHasContent(UIView *v, int depth){
+    if (!v || depth > 8) return NO;
+    if ([v isKindOfClass:[UILabel class]] || [v isKindOfClass:[UIImageView class]]) return YES;
+    for (UIView *s in v.subviews) if (DKHasContent(s, depth+1)) return YES;
+    return NO;
+}
 static void DKClearTagBg(UIView *v){
+    if (!v) return;
+    for (UIView *sub in v.subviews) {
+        if (sub.tag == DK_TAG) continue;
+        if (DKHasEffect(sub, 0) && !DKHasContent(sub, 0)) {
+            sub.hidden = YES;
+            sub.alpha = 0.0;
+            for (UIView *c in sub.subviews) { c.alpha = 0.0; }
+        }
+    }
     if (!v) return;
     NSMutableArray *q = [NSMutableArray arrayWithObject:v];
     int guard = 0;
