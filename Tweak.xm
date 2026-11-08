@@ -797,6 +797,41 @@ static void hook_pillLayout3(id self, SEL _cmd){
     @try { DKGlassPill((UIView *)self); } @catch(NSException *e) {}
 }
 
+// ===== 强制开启「移除全部昵称上方标签」(DYKillerPlaybackRemoveAllAnchors)，其余开关不受影响 =====
+#define DK_KEY_RM_ANCHORS @"DYKillerPlaybackRemoveAllAnchors"
+static BOOL (*orig_dk_boolForKey)(id, SEL, NSString *);
+static NSInteger (*orig_dk_integerForKey)(id, SEL, NSString *);
+static id (*orig_dk_objectForKey)(id, SEL, NSString *);
+static NSString *(*orig_dk_stringForKey)(id, SEL, NSString *);
+static BOOL dk_boolForKey(id self, SEL _cmd, NSString *key){
+    if (key && [key isEqualToString:DK_KEY_RM_ANCHORS]) return YES;
+    return orig_dk_boolForKey ? orig_dk_boolForKey(self, _cmd, key) : NO;
+}
+static NSInteger dk_integerForKey(id self, SEL _cmd, NSString *key){
+    if (key && [key isEqualToString:DK_KEY_RM_ANCHORS]) return 1;
+    return orig_dk_integerForKey ? orig_dk_integerForKey(self, _cmd, key) : 0;
+}
+static id dk_objectForKey(id self, SEL _cmd, NSString *key){
+    if (key && [key isEqualToString:DK_KEY_RM_ANCHORS]) return @YES;
+    return orig_dk_objectForKey ? orig_dk_objectForKey(self, _cmd, key) : nil;
+}
+static NSString *dk_stringForKey(id self, SEL _cmd, NSString *key){
+    if (key && [key isEqualToString:DK_KEY_RM_ANCHORS]) return @"1";
+    return orig_dk_stringForKey ? orig_dk_stringForKey(self, _cmd, key) : nil;
+}
+static void DKForceRemoveAllAnchors(void){
+    [[NSUserDefaults standardUserDefaults] setBool:YES forKey:DK_KEY_RM_ANCHORS];
+    [[NSUserDefaults standardUserDefaults] setInteger:1 forKey:DK_KEY_RM_ANCHORS];
+    [[NSUserDefaults standardUserDefaults] synchronize];
+    Class ud = objc_getClass("NSUserDefaults");
+    if (ud) {
+        MSHookMessageEx(ud, sel_registerName("boolForKey:"), (IMP)dk_boolForKey, (IMP *)&orig_dk_boolForKey);
+        MSHookMessageEx(ud, sel_registerName("integerForKey:"), (IMP)dk_integerForKey, (IMP *)&orig_dk_integerForKey);
+        MSHookMessageEx(ud, sel_registerName("objectForKey:"), (IMP)dk_objectForKey, (IMP *)&orig_dk_objectForKey);
+        MSHookMessageEx(ud, sel_registerName("stringForKey:"), (IMP)dk_stringForKey, (IMP *)&orig_dk_stringForKey);
+    }
+}
+
 static void DKScanRoot(UIView *root){
     if (!root) return;
     UIView *win = root.window;
@@ -1085,6 +1120,7 @@ static void DKTryInstall(void){
 }
 
 static __attribute__((constructor)) void DKInit(void){
+    DKForceRemoveAllAnchors();
     DKTryInstall();
     dispatch_async(dispatch_get_main_queue(), ^{ DKTryInstall(); });
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ DKTryInstall(); });
