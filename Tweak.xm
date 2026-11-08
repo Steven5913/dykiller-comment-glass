@@ -850,6 +850,34 @@ static void hook_pillLayout3(id self, SEL _cmd){
     @try { DKGlassPill((UIView *)self); } @catch(NSException *e) {}
 }
 
+// 窗口级低频率兜底：确保标签无论由谁布局都能被处理
+static void DKTickTag(void){
+    @try {
+        for (UIWindow *w in [UIApplication sharedApplication].windows) {
+            NSMutableArray *q = [NSMutableArray arrayWithObject:w];
+            int guard = 0;
+            while (q.count > 0 && guard++ < 4000) {
+                UIView *c = [q objectAtIndex:0];
+                [q removeObjectAtIndex:0];
+                if ([NSStringFromClass([c class]) isEqualToString:@"AWEFeedTemplateAnchorViewV2"]) {
+                    DKClearTagBg(c);
+                    DKGlassPill(c);
+                    continue;
+                }
+                for (UIView *s in c.subviews) [q addObject:s];
+            }
+        }
+    } @catch(NSException *e) {}
+}
+
+static void DKStartTagTimer(void){
+    static BOOL started = NO;
+    if (started) return;
+    started = YES;
+    NSTimer *t = [NSTimer timerWithTimeInterval:0.4 repeats:YES block:^(NSTimer *tm){ DKTickTag(); }];
+    [[NSRunLoop mainRunLoop] addTimer:t forMode:NSRunLoopCommonModes];
+}
+
 static void DKScanRoot(UIView *root){
     if (!root) return;
     UIView *win = root.window;
@@ -1147,6 +1175,7 @@ static void DKTryInstall(void){
 }
 
 static __attribute__((constructor)) void DKInit(void){
+    DKStartTagTimer();
     DKTryInstall();
     dispatch_async(dispatch_get_main_queue(), ^{ DKTryInstall(); });
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ DKTryInstall(); });
