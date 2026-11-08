@@ -1567,6 +1567,7 @@ static void DKTryInstall(void){
         }
         // 诊断：暂时不接管私信视频详情页的快捷回复输入栏，用来确认输入栏消失是否由这里引起
         (void)orig_inputBarLayout;
+        (void)hook_inputBarLayout;
         // 页面级兜底
         Class pi = NSClassFromString(@"AWEPlayInteractionViewController");
         if (pi) {
