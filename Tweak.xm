@@ -23,6 +23,7 @@
 #import <substrate.h>
 
 #define DK_TAG 20261106
+#define DK_NAV_PILL_TAG 20261107
 #define DK_MAX_DEPTH 8
 
 // ===== 长按倍速同款玻璃 effect =====
@@ -181,19 +182,20 @@ static BOOL DKApplyGlassRemote(UIView *host, CGRect r, CGFloat radius){
     return YES;
 }
 
-static void DKApplyGlassAt(UIView *host, CGRect r, CGFloat radius){
+static void DKApplyGlassTagged(UIView *host, CGRect r, CGFloat radius, NSInteger tag){
     if (!host) return;
     if (r.size.width < 8 || r.size.height < 8) return;
     if (isnan(r.origin.x) || isnan(r.origin.y)) return;
     UIView *g = nil;
     for (UIView *sv in host.subviews) {
-        if (sv.tag != DK_TAG) continue;
+        if (sv.tag != tag) continue;
         if (fabs((double)sv.bounds.size.width - (double)r.size.width) < 0.5 &&
             fabs((double)sv.bounds.size.height - (double)r.size.height) < 0.5) { g = sv; }
         else sv.hidden = YES;   // 尺寸变迁留下的旧玻璃层，留着会两层材质叠加成白雾
     }
     if (!g) {
         g = DKMakeGlassRect(r.size.width, r.size.height, radius);
+        g.tag = tag;
         [host insertSubview:g atIndex:0];
     }
     if (fabs((double)g.layer.cornerRadius - (double)radius) > 0.5) {
@@ -203,6 +205,10 @@ static void DKApplyGlassAt(UIView *host, CGRect r, CGFloat radius){
     }
     if (!CGRectEqualToRect(g.frame, r)) g.frame = r;
     DKUpdateRing(g);
+}
+
+static void DKApplyGlassAt(UIView *host, CGRect r, CGFloat radius){
+    DKApplyGlassTagged(host, r, radius, DK_TAG);
 }
 
 // ===== 加号弹窗（AFDLeftExtensionPopoverSheetView）玻璃 =====
@@ -348,7 +354,8 @@ static void DKNavGlass(UIView *bar){
             gr.origin.x -= 2.0;   // 加宽时保持中心不动
             gr.size.width += 4.0; // 宽度 +4
             gr.origin.x -= 8.0;   // 整体左移 8pt
-            DKApplyGlassAt(row, gr, h / 2.0);
+            // 与左边圆盘同一父视图，必须用独立标记，否则两块玻璃会互相当成「旧尺寸」压隐
+            DKApplyGlassTagged(row, gr, h / 2.0, DK_NAV_PILL_TAG);
         }
     }
 }
