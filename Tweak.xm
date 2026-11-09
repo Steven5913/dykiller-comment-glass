@@ -1308,6 +1308,31 @@ static NSHashTable *DKBoxRegistry(void){
     return t;
 }
 
+// 只遍历一个容器的直接子视图，给按帧守望用（不走 BFS，开销可忽略）
+static void DKCleanBox(UIView *v){
+    CGFloat W = v.bounds.size.width;
+    if (W <= 0) return;
+    for (UIView *sv in v.subviews) {
+        CGRect f = sv.frame;
+        if (f.size.width < W - 4.0 || f.size.height > 4.0 || f.size.height < 1.0) continue;
+        if (f.origin.y <= 0.0) continue;
+        UIColor *bg = sv.backgroundColor;
+        if (!bg) continue;
+        CGFloat r = 0, g = 0, b = 0, a = 1;
+        if (![bg getRed:&r green:&g blue:&b alpha:&a]) {
+            CGFloat w = 0.0, wa = 0.0;
+            if (![bg getWhite:&w alpha:&wa]) continue;
+            r = g = b = w; a = wa;
+        }
+        if (a < 0.6) continue;
+        if ((0.299 * r + 0.587 * g + 0.114 * b) > 0.4) continue;
+        sv.hidden = YES;
+        sv.backgroundColor = [UIColor clearColor];
+        sv.layer.backgroundColor = [UIColor clearColor].CGColor;
+        sv.opaque = NO;
+    }
+}
+
 static void DKStripProgressCover(UIView *root){
     if (!root) return;
     NSMutableArray *q = [NSMutableArray arrayWithObject:root];
@@ -1318,26 +1343,7 @@ static void DKStripProgressCover(UIView *root){
         [q removeObjectAtIndex:0];
         if ([NSStringFromClass([v class]) isEqualToString:@"AWEDPlayerProgressContainerView"]) {
             [DKBoxRegistry() addObject:v];
-            CGFloat W = v.bounds.size.width;
-            for (UIView *sv in v.subviews) {
-                CGRect f = sv.frame;
-                if (f.size.width < W - 4.0 || f.size.height > 4.0 || f.size.height < 1.0) continue;
-                if (f.origin.y <= 0.0) continue;
-                UIColor *bg = sv.backgroundColor;
-                if (!bg) continue;
-                CGFloat r = 0, g = 0, b = 0, a = 1;
-                if (![bg getRed:&r green:&g blue:&b alpha:&a]) {
-                    CGFloat w = 0.0, wa = 0.0;
-                    if (![bg getWhite:&w alpha:&wa]) continue;
-                    r = g = b = w; a = wa;
-                }
-                if (a < 0.6) continue;
-                if ((0.299 * r + 0.587 * g + 0.114 * b) > 0.4) continue;
-                sv.hidden = YES;
-                sv.backgroundColor = [UIColor clearColor];
-                sv.layer.backgroundColor = [UIColor clearColor].CGColor;
-                sv.opaque = NO;
-            }
+            DKCleanBox(v);
             continue;
         }
         for (UIView *c in v.subviews) [q addObject:c];
@@ -1350,11 +1356,13 @@ static void DKStartBoxGuard(void){
     static dispatch_source_t timer = nil;
     if (timer) return;
     timer = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, dispatch_get_main_queue());
-    dispatch_source_set_timer(timer, dispatch_time(DISPATCH_TIME_NOW, 0), (uint64_t)(0.5 * NSEC_PER_SEC), (uint64_t)(0.1 * NSEC_PER_SEC));
+    // 按帧复清：app 是「先设好底色画一帧，我们下一次才清」，间隔大了就会闪一下。
+    // 每帧只遍历几个容器的直接子视图，成本可忽略。
+    dispatch_source_set_timer(timer, dispatch_time(DISPATCH_TIME_NOW, 0), (uint64_t)(NSEC_PER_SEC / 60.0), 0);
     dispatch_source_set_event_handler(timer, ^{
         @try {
             NSArray *boxes = [DKBoxRegistry() allObjects];
-            for (UIView *b in boxes) DKStripProgressCover(b);
+            for (UIView *b in boxes) DKCleanBox(b);
         } @catch (NSException *e) {}
     });
     dispatch_resume(timer);
