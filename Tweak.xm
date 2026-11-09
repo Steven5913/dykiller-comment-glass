@@ -1302,14 +1302,22 @@ static void DKForceRemoveAllAnchors(void){
 // 播放时显出来就是一条黑线，暂停时 app 自己把它藏掉。它的 y 会随布局变化
 // （198.1 / 186.1 都出现过），所以只按「满宽 + 高 1~4pt + 暗色不透明」认，
 // 不能要求贴底。清掉底色而不是只 hidden：这样 app 再把它显出来也不会露黑。
+static NSHashTable *DKBoxRegistry(void){
+    static NSHashTable *t = nil;
+    if (!t) t = [NSHashTable weakObjectsHashTable];
+    return t;
+}
+
 static void DKStripProgressCover(UIView *root){
     if (!root) return;
     NSMutableArray *q = [NSMutableArray arrayWithObject:root];
     NSUInteger guard = 0;
-    while (q.count > 0 && guard++ < 3000) {
+    // 视频页那一层子树节点很多，原来的 3000 上限在中途就断了，容器压根没被走到
+    while (q.count > 0 && guard++ < 30000) {
         UIView *v = [q objectAtIndex:0];
         [q removeObjectAtIndex:0];
         if ([NSStringFromClass([v class]) isEqualToString:@"AWEDPlayerProgressContainerView"]) {
+            [DKBoxRegistry() addObject:v];
             CGFloat W = v.bounds.size.width;
             for (UIView *sv in v.subviews) {
                 CGRect f = sv.frame;
@@ -1327,11 +1335,29 @@ static void DKStripProgressCover(UIView *root){
                 if ((0.299 * r + 0.587 * g + 0.114 * b) > 0.4) continue;
                 sv.hidden = YES;
                 sv.backgroundColor = [UIColor clearColor];
+                sv.layer.backgroundColor = [UIColor clearColor].CGColor;
+                sv.opaque = NO;
             }
             continue;
         }
         for (UIView *c in v.subviews) [q addObject:c];
     }
+}
+
+// app 会在播放过程中把这条深色条重新显出来/重刷底色，只在布局/add 时清会漏。
+// 这里对已命中的容器做低频复清（每 0.5s，只遍历几个容器，不扫全树）。
+static void DKStartBoxGuard(void){
+    static dispatch_source_t timer = nil;
+    if (timer) return;
+    timer = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, dispatch_get_main_queue());
+    dispatch_source_set_timer(timer, dispatch_time(DISPATCH_TIME_NOW, 0), (uint64_t)(0.5 * NSEC_PER_SEC), (uint64_t)(0.1 * NSEC_PER_SEC));
+    dispatch_source_set_event_handler(timer, ^{
+        @try {
+            NSArray *boxes = [DKBoxRegistry() allObjects];
+            for (UIView *b in boxes) DKStripProgressCover(b);
+        } @catch (NSException *e) {}
+    });
+    dispatch_resume(timer);
 }
 
 static void DKScanRoot(UIView *root){
@@ -1704,6 +1730,7 @@ static void DKTryInstall(void){
             if (!orig_piAppear) MSHookMessageEx(pi, sel_registerName("viewDidAppear:"), (IMP)hook_piAppear, (IMP *)&orig_piAppear);
         }
     } @catch(NSException *e) {}
+    DKStartBoxGuard();
     if (orig_elemLayout || orig_railLayout || orig_piLayout || orig_navLayout || orig_popoverLayout ||
         orig_detailVCLayout || orig_detailNavLayout || orig_inputBarLayout ||
         orig_quickCellLayout || orig_quickBarLayout ||
