@@ -1310,7 +1310,7 @@ static void DKStripProgressCover(UIView *root){
         UIView *v = [q objectAtIndex:0];
         [q removeObjectAtIndex:0];
         if ([NSStringFromClass([v class]) isEqualToString:@"AWEDPlayerProgressContainerView"]) {
-            CGFloat H = v.bounds.size.height, W = v.bounds.size.width;
+            CGFloat W = v.bounds.size.width;
             for (UIView *sv in v.subviews) {
                 CGRect f = sv.frame;
                 if (f.size.width < W - 4.0 || f.size.height > 4.0 || f.size.height < 1.0) continue;
