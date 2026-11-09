@@ -1298,6 +1298,35 @@ static void DKForceRemoveAllAnchors(void){
     }
 }
 
+// 40.9.0 在进度条容器底部新加了一条满宽深色条（402×2，底色 ~0.10 白），
+// 正好压在进度条与底栏之间，看着就是一条黑线。这里只摘这一条，不动别的。
+static void DKStripProgressCover(UIView *root){
+    if (!root) return;
+    NSMutableArray *q = [NSMutableArray arrayWithObject:root];
+    NSUInteger guard = 0;
+    while (q.count > 0 && guard++ < 3000) {
+        UIView *v = [q objectAtIndex:0];
+        [q removeObjectAtIndex:0];
+        if ([NSStringFromClass([v class]) isEqualToString:@"AWEDPlayerProgressContainerView"]) {
+            CGFloat H = v.bounds.size.height, W = v.bounds.size.width;
+            for (UIView *sv in v.subviews) {
+                CGRect f = sv.frame;
+                if (f.size.width < W - 4.0 || f.size.height > 4.0 || f.size.height < 1.0) continue;
+                if (f.origin.y + f.size.height < H - 6.0) continue;   // 只认贴底那一条
+                UIColor *bg = sv.backgroundColor;
+                if (!bg) continue;
+                CGFloat w = 0.0, a = 0.0;
+                if (![bg getWhite:&w alpha:&a]) continue;
+                if (a < 0.9 || w > 0.35) continue;
+                sv.hidden = YES;
+                sv.backgroundColor = [UIColor clearColor];
+            }
+            continue;
+        }
+        for (UIView *c in v.subviews) [q addObject:c];
+    }
+}
+
 static void DKScanRoot(UIView *root){
     if (!root) return;
     UIView *win = root.window;
@@ -1353,7 +1382,10 @@ static void hook_piLayout(id self, SEL _cmd){
     if (orig_piLayout) orig_piLayout(self, _cmd);
     @try {
         UIViewController *vc = (UIViewController *)self;
-        if ([vc isKindOfClass:[UIViewController class]] && [vc isViewLoaded]) DKScanRoot(vc.view);
+        if ([vc isKindOfClass:[UIViewController class]] && [vc isViewLoaded]) {
+            DKScanRoot(vc.view);
+            DKStripProgressCover(vc.view);
+        }
     } @catch (NSException *e) {}
 }
 
@@ -1366,9 +1398,11 @@ static void hook_piAppear(id self, SEL _cmd, BOOL animated){
             UIView *root = vc.view;
             dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.15 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
                 DKScanRoot(root);
+                DKStripProgressCover(root);
             });
             dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.6 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
                 DKScanRoot(root);
+                DKStripProgressCover(root);
             });
         }
     } @catch (NSException *e) {}
