@@ -1416,6 +1416,43 @@ static void hook_piAppear(id self, SEL _cmd, BOOL animated){
 }
 
 
+// 有些视频是在播放开始后直接往容器里 addSubview 建那条深色条，没有走布局，
+// 只挂 layoutSubviews 会漏。这里在 add 的瞬间就清一遍。
+static void (*orig_progAddSub)(id, SEL, UIView *);
+static void hook_progAddSub(id self, SEL _cmd, UIView *v){
+    if (orig_progAddSub) orig_progAddSub(self, _cmd, v);
+    UIView *box = (UIView *)self;
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.3 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        DKStripProgressCover(box);
+    });
+    @try { DKStripProgressCover(box); } @catch (NSException *e) {}
+    dispatch_async(dispatch_get_main_queue(), ^{ DKStripProgressCover(box); });
+}
+
+static void (*orig_progInsSubIdx)(id, SEL, UIView *, NSInteger);
+static void hook_progInsSubIdx(id self, SEL _cmd, UIView *v, NSInteger idx){
+    if (orig_progInsSubIdx) orig_progInsSubIdx(self, _cmd, v, idx);
+    UIView *box = (UIView *)self;
+    @try { DKStripProgressCover(box); } @catch (NSException *e) {}
+    dispatch_async(dispatch_get_main_queue(), ^{ DKStripProgressCover(box); });
+}
+
+static void (*orig_progInsSubAbove)(id, SEL, UIView *, UIView *);
+static void hook_progInsSubAbove(id self, SEL _cmd, UIView *v, UIView *sib){
+    if (orig_progInsSubAbove) orig_progInsSubAbove(self, _cmd, v, sib);
+    UIView *box = (UIView *)self;
+    @try { DKStripProgressCover(box); } @catch (NSException *e) {}
+    dispatch_async(dispatch_get_main_queue(), ^{ DKStripProgressCover(box); });
+}
+
+static void (*orig_progInsSubBelow)(id, SEL, UIView *, UIView *);
+static void hook_progInsSubBelow(id self, SEL _cmd, UIView *v, UIView *sib){
+    if (orig_progInsSubBelow) orig_progInsSubBelow(self, _cmd, v, sib);
+    UIView *box = (UIView *)self;
+    @try { DKStripProgressCover(box); } @catch (NSException *e) {}
+    dispatch_async(dispatch_get_main_queue(), ^{ DKStripProgressCover(box); });
+}
+
 static void (*orig_progBoxLayout)(id, SEL);
 static void hook_progBoxLayout(id self, SEL _cmd){
     if (orig_progBoxLayout) orig_progBoxLayout(self, _cmd);
@@ -1643,6 +1680,18 @@ static void DKTryInstall(void){
         Class progBox = NSClassFromString(@"AWEDPlayerProgressContainerView");
         if (progBox && !orig_progBoxLayout) {
             MSHookMessageEx(progBox, sel_registerName("layoutSubviews"), (IMP)hook_progBoxLayout, (IMP *)&orig_progBoxLayout);
+        }
+        if (progBox && !orig_progAddSub) {
+            MSHookMessageEx(progBox, sel_registerName("addSubview:"), (IMP)hook_progAddSub, (IMP *)&orig_progAddSub);
+        }
+        if (progBox && !orig_progInsSubIdx) {
+            MSHookMessageEx(progBox, sel_registerName("insertSubview:atIndex:"), (IMP)hook_progInsSubIdx, (IMP *)&orig_progInsSubIdx);
+        }
+        if (progBox && !orig_progInsSubAbove) {
+            MSHookMessageEx(progBox, sel_registerName("insertSubview:aboveSubview:"), (IMP)hook_progInsSubAbove, (IMP *)&orig_progInsSubAbove);
+        }
+        if (progBox && !orig_progInsSubBelow) {
+            MSHookMessageEx(progBox, sel_registerName("insertSubview:belowSubview:"), (IMP)hook_progInsSubBelow, (IMP *)&orig_progInsSubBelow);
         }
         Class feedTable = NSClassFromString(@"AWEFeedTableView");
         if (feedTable && !orig_feedTableLayout) {
