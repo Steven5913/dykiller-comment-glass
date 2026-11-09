@@ -1315,9 +1315,14 @@ static void DKStripProgressCover(UIView *root){
                 if (f.origin.y + f.size.height < H - 6.0) continue;   // 只认贴底那一条
                 UIColor *bg = sv.backgroundColor;
                 if (!bg) continue;
-                CGFloat w = 0.0, a = 0.0;
-                if (![bg getWhite:&w alpha:&a]) continue;
-                if (a < 0.9 || w > 0.35) continue;
+                CGFloat r = 0, g = 0, b = 0, a = 1;
+                if (![bg getRed:&r green:&g blue:&b alpha:&a]) {
+                    CGFloat w = 0.0, wa = 0.0;
+                    if (![bg getWhite:&w alpha:&wa]) continue;
+                    r = g = b = w; a = wa;
+                }
+                if (a < 0.6) continue;
+                if ((0.299 * r + 0.587 * g + 0.114 * b) > 0.4) continue;
                 sv.hidden = YES;
                 sv.backgroundColor = [UIColor clearColor];
             }
@@ -1408,6 +1413,18 @@ static void hook_piAppear(id self, SEL _cmd, BOOL animated){
     } @catch (NSException *e) {}
 }
 
+
+static void (*orig_feedCellLayout)(id, SEL);
+static void hook_feedCellLayout(id self, SEL _cmd){
+    if (orig_feedCellLayout) orig_feedCellLayout(self, _cmd);
+    @try { DKStripProgressCover((UIView *)self); } @catch (NSException *e) {}
+}
+
+static void (*orig_feedTableLayout)(id, SEL);
+static void hook_feedTableLayout(id self, SEL _cmd){
+    if (orig_feedTableLayout) orig_feedTableLayout(self, _cmd);
+    @try { DKStripProgressCover((UIView *)self); } @catch (NSException *e) {}
+}
 
 static void (*orig_navLayout)(id, SEL);
 static void hook_navLayout(id self, SEL _cmd){
@@ -1609,6 +1626,15 @@ static void DKTryInstall(void){
         Class ibar = NSClassFromString(@"AWEIMFeedBottomQuickEmojiInputBar");
         if (ibar && !orig_inputBarLayout) {
             MSHookMessageEx(ibar, sel_registerName("layoutSubviews"), (IMP)hook_inputBarLayout, (IMP *)&orig_inputBarLayout);
+        }
+        // 40.9.0 黑线：每个 cell 自己布局时都清一遍（只靠 VC 布局只能清当前 cell，翻页就漏）
+        Class feedCell = NSClassFromString(@"AWEFeedViewCell");
+        if (feedCell && !orig_feedCellLayout) {
+            MSHookMessageEx(feedCell, sel_registerName("layoutSubviews"), (IMP)hook_feedCellLayout, (IMP *)&orig_feedCellLayout);
+        }
+        Class feedTable = NSClassFromString(@"AWEFeedTableView");
+        if (feedTable && !orig_feedTableLayout) {
+            MSHookMessageEx(feedTable, sel_registerName("layoutSubviews"), (IMP)hook_feedTableLayout, (IMP *)&orig_feedTableLayout);
         }
         // 页面级兜底
         Class pi = NSClassFromString(@"AWEPlayInteractionViewController");
