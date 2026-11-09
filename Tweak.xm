@@ -1298,8 +1298,10 @@ static void DKForceRemoveAllAnchors(void){
     }
 }
 
-// 40.9.0 在进度条容器底部新加了一条满宽深色条（402×2，底色 ~0.10 白），
-// 正好压在进度条与底栏之间，看着就是一条黑线。这里只摘这一条，不动别的。
+// 40.9.0 在进度条容器里新加了一条满宽深色条（402×2，底色 ~0.10 白），
+// 播放时显出来就是一条黑线，暂停时 app 自己把它藏掉。它的 y 会随布局变化
+// （198.1 / 186.1 都出现过），所以只按「满宽 + 高 1~4pt + 暗色不透明」认，
+// 不能要求贴底。清掉底色而不是只 hidden：这样 app 再把它显出来也不会露黑。
 static void DKStripProgressCover(UIView *root){
     if (!root) return;
     NSMutableArray *q = [NSMutableArray arrayWithObject:root];
@@ -1312,7 +1314,7 @@ static void DKStripProgressCover(UIView *root){
             for (UIView *sv in v.subviews) {
                 CGRect f = sv.frame;
                 if (f.size.width < W - 4.0 || f.size.height > 4.0 || f.size.height < 1.0) continue;
-                if (f.origin.y + f.size.height < H - 6.0) continue;   // 只认贴底那一条
+                if (f.origin.y <= 0.0) continue;
                 UIColor *bg = sv.backgroundColor;
                 if (!bg) continue;
                 CGFloat r = 0, g = 0, b = 0, a = 1;
@@ -1413,6 +1415,12 @@ static void hook_piAppear(id self, SEL _cmd, BOOL animated){
     } @catch (NSException *e) {}
 }
 
+
+static void (*orig_progBoxLayout)(id, SEL);
+static void hook_progBoxLayout(id self, SEL _cmd){
+    if (orig_progBoxLayout) orig_progBoxLayout(self, _cmd);
+    @try { DKStripProgressCover((UIView *)self); } @catch (NSException *e) {}
+}
 
 static void (*orig_feedCellLayout)(id, SEL);
 static void hook_feedCellLayout(id self, SEL _cmd){
@@ -1631,6 +1639,10 @@ static void DKTryInstall(void){
         Class feedCell = NSClassFromString(@"AWEFeedViewCell");
         if (feedCell && !orig_feedCellLayout) {
             MSHookMessageEx(feedCell, sel_registerName("layoutSubviews"), (IMP)hook_feedCellLayout, (IMP *)&orig_feedCellLayout);
+        }
+        Class progBox = NSClassFromString(@"AWEDPlayerProgressContainerView");
+        if (progBox && !orig_progBoxLayout) {
+            MSHookMessageEx(progBox, sel_registerName("layoutSubviews"), (IMP)hook_progBoxLayout, (IMP *)&orig_progBoxLayout);
         }
         Class feedTable = NSClassFromString(@"AWEFeedTableView");
         if (feedTable && !orig_feedTableLayout) {
